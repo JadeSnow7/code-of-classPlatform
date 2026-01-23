@@ -1,0 +1,88 @@
+version: '3.8'
+
+# Production Docker Compose Configuration
+# Use this file for production deployment
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: emfield-db-prod
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-emfield}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - emfield-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: emfield-backend-prod
+    restart: always
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - DB_NAME=${MYSQL_DATABASE:-emfield}
+      - JWT_SECRET=${BACKEND_JWT_SECRET}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - emfield-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ai_service:
+    build:
+      context: ../../ai_service
+      dockerfile: Dockerfile
+    container_name: emfield-ai-prod
+    restart: always
+    environment:
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+    ports:
+      - "8001:8000"
+    networks:
+      - emfield-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/healthz" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: emfield-frontend-prod
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - emfield-network
+
+volumes:
+  mysql_data:
+
+
+networks:
+  emfield-network:
+    driver: bridge

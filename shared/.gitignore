@@ -1,0 +1,23 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+**/tmp/
+**/*.log
+
+# Go
+**/bin/
+**/*.test
+**/coverage.out
+
+# Node
+**/node_modules/
+**/dist/
+**/.vite/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+
