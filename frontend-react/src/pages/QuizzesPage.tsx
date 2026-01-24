@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
     ClipboardList, Plus, Clock,
@@ -18,24 +18,25 @@ export function QuizzesPage() {
     const user = authStore.getUser();
     const isTeacher = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'assistant';
 
-    useEffect(() => {
-        if (!courseId) return;
-        loadQuizzes();
-    }, [courseId]);
-
-    const loadQuizzes = async () => {
+    const loadQuizzes = useCallback(async () => {
         if (!courseId) return;
         setIsLoading(true);
         setError(null);
         try {
             const data = await quizApi.listByCourse(parseInt(courseId));
             setQuizzes(data);
-        } catch (err: any) {
-            setError(err.message || 'Failed to load quizzes');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to load quizzes';
+            setError(message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [courseId]);
+
+    useEffect(() => {
+        if (!courseId) return;
+        void loadQuizzes();
+    }, [courseId, loadQuizzes]);
 
     const handleCreate = async (title: string, description: string, timeLimit: number) => {
         if (!courseId) return;
@@ -49,8 +50,9 @@ export function QuizzesPage() {
             });
             setShowCreate(false);
             navigate(`/courses/${courseId}/quizzes/${quiz.ID}`);
-        } catch (err: any) {
-            alert('创建失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '创建失败';
+            alert('创建失败: ' + message);
         }
     };
 

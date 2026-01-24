@@ -55,12 +55,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         // Format 2: { data: T }
         // Format 3: T (direct array/object)
         if (payload && typeof payload === 'object') {
-            // Check for { success, data } format
-            if ('success' in payload && (payload as ApiEnvelope<T>).success === true && 'data' in payload) {
-                return (payload as ApiEnvelope<T>).data as T;
+            // Envelope format
+            if ('success' in payload) {
+                const envelope = payload as ApiEnvelope<T>;
+                if (envelope.success) {
+                    return envelope.data as T;
+                }
+                const message = envelope.error?.message ?? envelope.message ?? 'Request failed';
+                throw new Error(message);
             }
-            // Check for { data } format (without success field)
-            if ('data' in payload && !('success' in payload)) {
+            // Legacy { data } format (without success field)
+            if ('data' in payload) {
                 return (payload as { data: T }).data;
             }
             // Direct response (array or object without wrapper)
@@ -384,4 +389,3 @@ export async function getWritingSubmission(
         headers: authHeaders(token, tokenType),
     });
 }
-

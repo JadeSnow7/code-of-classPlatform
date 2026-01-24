@@ -50,38 +50,38 @@ func newUploadHandlers(db *gorm.DB, minioClient *clients.MinioClient) *uploadHan
 func (h *uploadHandlers) UploadAssignmentFile(c *gin.Context) {
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	assignmentID := c.Param("assignmentId")
 	if assignmentID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "assignment ID is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "assignment ID is required", nil)
 		return
 	}
 
 	// Verify assignment exists and user can submit
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, assignmentID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "assignment not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "assignment not found", nil)
 		return
 	}
 
 	// Check if user is a student (for now, any authenticated user can submit)
 	// In production, you'd check course enrollment
 	if user.Role != "student" && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only students can submit assignments"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "only students can submit assignments", nil)
 		return
 	}
 
 	// Process file upload
 	signedURL, filename, err := h.processUpload(c, "assignments", assignmentAllowedExts, assignmentMaxSize)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"signed_url": signedURL,
 		"filename":   filename,
 	})
@@ -93,37 +93,37 @@ func (h *uploadHandlers) UploadAssignmentFile(c *gin.Context) {
 func (h *uploadHandlers) UploadResourceFile(c *gin.Context) {
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	courseID := c.Param("courseId")
 	if courseID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "course ID is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "course ID is required", nil)
 		return
 	}
 
 	// Verify course exists
 	var course models.Course
 	if err := h.db.First(&course, courseID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "course not found", nil)
 		return
 	}
 
 	// Only course teacher or admin can upload resources
 	if course.TeacherID != user.ID && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only the course teacher or admin can upload resources"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "only the course teacher or admin can upload resources", nil)
 		return
 	}
 
 	// Process file upload
 	signedURL, filename, err := h.processUpload(c, "resources", resourceAllowedExts, resourceMaxSize)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"signed_url": signedURL,
 		"filename":   filename,
 	})

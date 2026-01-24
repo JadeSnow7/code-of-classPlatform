@@ -20,7 +20,7 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 	r.Use(newCORS(cfg.CorsOrigins))
 
 	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		respondOK(c, gin.H{"status": "ok"})
 	})
 
 	hAuth := newAuthHandlers(gormDB, cfg.JWTSecret)
@@ -55,6 +55,8 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 
 		// User stats route
 		api.GET("/user/stats", middleware.AuthRequired(cfg.JWTSecret), middleware.RequirePermission(authz.PermUserStats), hUser.GetStats)
+		// Compatibility alias for mobile client
+		api.GET("/users/me/stats", middleware.AuthRequired(cfg.JWTSecret), middleware.RequirePermission(authz.PermUserStats), hUser.GetStats)
 
 		// WeChat Work OAuth routes (no auth required)
 		api.POST("/auth/wecom", hWecom.Login)
@@ -66,6 +68,12 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermCourseRead),
 			hCourse.List,
+		)
+		api.GET(
+			"/courses/:id",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermCourseRead),
+			hCourse.Get,
 		)
 		api.POST(
 			"/courses",
@@ -111,6 +119,13 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			middleware.RequirePermission(authz.PermCourseRead),
 			hChapter.Heartbeat,
 		)
+		// Compatibility alias for mobile client
+		api.POST(
+			"/chapters/:id/study-time",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermCourseRead),
+			hChapter.Heartbeat,
+		)
 		api.GET(
 			"/chapters/:id/my-stats",
 			middleware.AuthRequired(cfg.JWTSecret),
@@ -139,6 +154,13 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 		)
 		api.POST(
 			"/courses/:courseId/assignments",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermAssignmentWrite),
+			hAssignment.CreateAssignment,
+		)
+		// Compatibility alias for web client
+		api.POST(
+			"/assignments",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAssignmentWrite),
 			hAssignment.CreateAssignment,

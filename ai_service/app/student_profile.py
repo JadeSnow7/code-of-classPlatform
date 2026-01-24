@@ -117,8 +117,17 @@ class ProfileSyncClient:
                     resp = await client.get(url)
             if resp.status_code == 200:
                 data = resp.json()
-                if data.get("data"):
-                    return StudentProfile.from_dict(data["data"])
+                if isinstance(data, dict):
+                    if data.get("success") is True:
+                        profile_data = data.get("data")
+                    else:
+                        profile_data = data.get("data")
+                else:
+                    profile_data = data
+                if profile_data:
+                    return StudentProfile.from_dict(profile_data)
+            if resp.status_code == 404:
+                return None
             return None
         except httpx.HTTPError:
             return None
@@ -141,7 +150,12 @@ class ProfileSyncClient:
             else:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(url, json=profile.to_dict())
-            return resp.status_code in (200, 201)
+            if resp.status_code not in (200, 201):
+                return False
+            payload = resp.json()
+            if isinstance(payload, dict) and payload.get("success") is False:
+                return False
+            return True
         except httpx.HTTPError:
             return False
     

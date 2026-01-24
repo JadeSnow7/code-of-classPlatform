@@ -31,8 +31,9 @@ export function CoursesPage() {
             await courseApi.create({ name, code, semester });
             setShowCreateModal(false);
             loadCourses();
-        } catch (err: any) {
-            alert('创建失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '创建失败';
+            alert('创建失败: ' + message);
         }
     };
 

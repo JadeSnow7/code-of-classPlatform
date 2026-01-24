@@ -23,7 +23,7 @@ func newGlobalProfileHandlers(db *gorm.DB) *globalProfileHandlers {
 func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 	studentID, err := strconv.ParseUint(c.Param("studentId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid student_id", nil)
 		return
 	}
 
@@ -31,7 +31,7 @@ func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && currentUserID != uint(studentID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot view other student's global profile"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's global profile", nil)
 		return
 	}
 
@@ -40,22 +40,19 @@ func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			// Return empty profile if not found
-			c.JSON(http.StatusOK, gin.H{
-				"data": models.StudentGlobalProfile{
-					StudentID:          uint(studentID),
-					GlobalCompetencies: "{}",
-					TotalStudyHours:    0,
-					LearningStyle:      "{}",
-				},
-				"message": "profile not found, returning default",
+			respondOK(c, models.StudentGlobalProfile{
+				StudentID:          uint(studentID),
+				GlobalCompetencies: "{}",
+				TotalStudyHours:    0,
+				LearningStyle:      "{}",
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	respondOK(c, profile)
 }
 
 // SaveGlobalProfile creates or updates a student's global profile
@@ -69,13 +66,13 @@ type saveGlobalProfileRequest struct {
 func (h *globalProfileHandlers) SaveGlobalProfile(c *gin.Context) {
 	studentID, err := strconv.ParseUint(c.Param("studentId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid student_id", nil)
 		return
 	}
 
 	var req saveGlobalProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -91,11 +88,11 @@ func (h *globalProfileHandlers) SaveGlobalProfile(c *gin.Context) {
 	// Upsert using ON CONFLICT
 	result := h.db.Save(&profile)
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	respondOK(c, profile)
 }
 
 // GetLearningTimeline returns paginated learning events for a student
@@ -103,7 +100,7 @@ func (h *globalProfileHandlers) SaveGlobalProfile(c *gin.Context) {
 func (h *globalProfileHandlers) GetLearningTimeline(c *gin.Context) {
 	studentID, err := strconv.ParseUint(c.Param("studentId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid student_id", nil)
 		return
 	}
 
@@ -111,7 +108,7 @@ func (h *globalProfileHandlers) GetLearningTimeline(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && currentUserID != uint(studentID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot view other student's timeline"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's timeline", nil)
 		return
 	}
 
@@ -150,12 +147,7 @@ func (h *globalProfileHandlers) GetLearningTimeline(c *gin.Context) {
 		Limit(pageSize).
 		Find(&events)
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":      events,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	})
+	respondOK(c, gin.H{"items": events, "total": total, "page": page, "page_size": pageSize})
 }
 
 // RecordLearningEvent creates a new learning event
@@ -170,7 +162,7 @@ type recordLearningEventRequest struct {
 func (h *globalProfileHandlers) RecordLearningEvent(c *gin.Context) {
 	var req recordLearningEventRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request: "+err.Error(), nil)
 		return
 	}
 
@@ -183,9 +175,9 @@ func (h *globalProfileHandlers) RecordLearningEvent(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&event).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"data": event})
+	respondCreated(c, event)
 }

@@ -38,37 +38,34 @@ type loginResponse struct {
 func (h *authHandlers) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": gin.H{"message": "invalid request"}})
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
 		return
 	}
 
 	var u models.User
 	if err := h.db.Where("username = ?", req.Username).First(&u).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": gin.H{"message": "invalid username or password"}})
+		respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid username or password", nil)
 		return
 	}
 	if !auth.VerifyPassword(u.PasswordHash, req.Password) {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": gin.H{"message": "invalid username or password"}})
+		respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid username or password", nil)
 		return
 	}
 
 	ttl := 24 * time.Hour
 	token, err := auth.SignToken(h.jwtSecret, u.ID, u.Username, u.Role, ttl)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": gin.H{"message": "token sign failed"}})
+		respondError(c, http.StatusInternalServerError, "TOKEN_SIGN_FAILED", "token sign failed", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": loginResponse{
-			AccessToken: token,
-			TokenType:   "Bearer",
-			ExpiresIn:   int64(ttl.Seconds()),
-			UserID:      u.ID,
-			Username:    u.Username,
-			Role:        u.Role,
-		},
+	respondOK(c, loginResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresIn:   int64(ttl.Seconds()),
+		UserID:      u.ID,
+		Username:    u.Username,
+		Role:        u.Role,
 	})
 }
 
@@ -84,21 +81,21 @@ type MeResponse struct {
 func (h *authHandlers) Me(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	// Fetch fresh user data from database
 	var dbUser models.User
 	if err := h.db.First(&dbUser, u.ID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		respondError(c, http.StatusNotFound, "USER_NOT_FOUND", "user not found", nil)
 		return
 	}
 
 	// Get permissions from RBAC
 	permissions := authz.GetPermissions(dbUser.Role)
 
-	c.JSON(http.StatusOK, MeResponse{
+	respondOK(c, MeResponse{
 		ID:          dbUser.ID,
 		Username:    dbUser.Username,
 		Name:        dbUser.Name,

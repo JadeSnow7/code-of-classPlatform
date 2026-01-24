@@ -39,13 +39,13 @@ type AnnouncementLatestInfo struct {
 func (h *announcementHandlers) GetSummary(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -73,7 +73,7 @@ func (h *announcementHandlers) GetSummary(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, AnnouncementSummaryResponse{
+	respondOK(c, AnnouncementSummaryResponse{
 		UnreadCount: unreadCount,
 		TotalCount:  int(totalCount),
 		Latest:      latestInfo,
@@ -96,20 +96,20 @@ type AnnouncementListItem struct {
 func (h *announcementHandlers) List(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
 
 	var announcements []models.Announcement
 	if err := h.db.Where("course_id = ?", courseID).Order("created_at DESC").Find(&announcements).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch announcements"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch announcements", nil)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (h *announcementHandlers) List(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	respondOK(c, result)
 }
 
 // --- Create ---
@@ -152,19 +152,19 @@ type createAnnouncementRequest struct {
 func (h *announcementHandlers) Create(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	var req createAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -177,11 +177,11 @@ func (h *announcementHandlers) Create(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&announcement).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create announcement"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create announcement", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, announcement)
+	respondCreated(c, announcement)
 }
 
 // --- Update ---
@@ -196,19 +196,19 @@ type updateAnnouncementRequest struct {
 func (h *announcementHandlers) Update(c *gin.Context) {
 	announcementID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid announcement id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid announcement id", nil)
 		return
 	}
 
 	var req updateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
 	var announcement models.Announcement
 	if err := h.db.First(&announcement, announcementID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "announcement not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "announcement not found", nil)
 		return
 	}
 
@@ -221,12 +221,12 @@ func (h *announcementHandlers) Update(c *gin.Context) {
 	}
 
 	if err := h.db.Model(&announcement).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update announcement"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update announcement", nil)
 		return
 	}
 
 	h.db.First(&announcement, announcementID)
-	c.JSON(http.StatusOK, announcement)
+	respondOK(c, announcement)
 }
 
 // --- Delete ---
@@ -236,7 +236,7 @@ func (h *announcementHandlers) Update(c *gin.Context) {
 func (h *announcementHandlers) Delete(c *gin.Context) {
 	announcementID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid announcement id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid announcement id", nil)
 		return
 	}
 
@@ -244,11 +244,11 @@ func (h *announcementHandlers) Delete(c *gin.Context) {
 	h.db.Where("announcement_id = ?", announcementID).Delete(&models.AnnouncementRead{})
 
 	if err := h.db.Delete(&models.Announcement{}, announcementID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete announcement"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete announcement", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	respondOK(c, gin.H{"message": "deleted"})
 }
 
 // --- Mark Read ---
@@ -258,13 +258,13 @@ func (h *announcementHandlers) Delete(c *gin.Context) {
 func (h *announcementHandlers) MarkRead(c *gin.Context) {
 	announcementID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid announcement id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid announcement id", nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -272,7 +272,7 @@ func (h *announcementHandlers) MarkRead(c *gin.Context) {
 	// Check if announcement exists
 	var announcement models.Announcement
 	if err := h.db.First(&announcement, announcementID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "announcement not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "announcement not found", nil)
 		return
 	}
 
@@ -287,12 +287,12 @@ func (h *announcementHandlers) MarkRead(c *gin.Context) {
 	if err := h.db.Create(&readRecord).Error; err != nil {
 		// If duplicate, it's already read - that's fine
 		if !isDuplicateKeyError(err) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to mark as read"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to mark as read", nil)
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	respondOK(c, gin.H{"success": true})
 }
 
 // isDuplicateKeyError checks if error is a duplicate key constraint violation

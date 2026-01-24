@@ -19,7 +19,7 @@ func newSimHandlers(sim *clients.SimClient) *simHandlers {
 func (h *simHandlers) Laplace2D(c *gin.Context) {
 	var req clients.Laplace2DRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 	if req.NX <= 0 {
@@ -37,10 +37,10 @@ func (h *simHandlers) Laplace2D(c *gin.Context) {
 
 	resp, err := h.sim.Laplace2D(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	respondOK(c, resp)
 }
 
 // SimProxy is a generic handler that proxies simulation requests to the Python service
@@ -49,13 +49,13 @@ func (h *simHandlers) SimProxy(path string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "failed to read request body", nil)
 			return
 		}
 
 		resp, err := h.sim.ProxyRequest(c.Request.Context(), path, body)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 			return
 		}
 
@@ -68,13 +68,13 @@ func (h *simHandlers) CalcProxy(path string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "failed to read request body", nil)
 			return
 		}
 
 		resp, err := h.sim.ProxyRequest(c.Request.Context(), path, body)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 			return
 		}
 

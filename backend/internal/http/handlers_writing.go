@@ -43,19 +43,19 @@ type submitWritingRequest struct {
 func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
 		return
 	}
 
 	var req submitWritingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request: "+err.Error(), nil)
 		return
 	}
 
 	// Validate writing type
 	if !validWritingTypes[req.WritingType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid writing_type, must be one of: literature_review, course_paper, thesis, abstract"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid writing_type, must be one of: literature_review, course_paper, thesis, abstract", nil)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&submission).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	// Trigger async AI analysis
 	go h.triggerAIAnalysis(submission)
 
-	c.JSON(http.StatusCreated, gin.H{"data": submission})
+	respondCreated(c, submission)
 }
 
 func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission) {
@@ -137,7 +137,7 @@ func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission)
 func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 
 	query.Order("created_at DESC").Find(&submissions)
 
-	c.JSON(http.StatusOK, gin.H{"data": submissions})
+	respondOK(c, submissions)
 }
 
 // GetWritingSubmission returns a single writing submission with feedback
@@ -167,17 +167,17 @@ func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 func (h *writingHandlers) GetWritingSubmission(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
 		return
 	}
 
 	var submission models.WritingSubmission
 	if err := h.db.First(&submission, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 		return
 	}
 
@@ -185,11 +185,11 @@ func (h *writingHandlers) GetWritingSubmission(c *gin.Context) {
 	studentID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && submission.StudentID != studentID.(uint) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot view other student's submission"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's submission", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": submission})
+	respondOK(c, submission)
 }
 
 // UpdateWritingFeedback updates AI-generated feedback for a submission (internal/AI service use)
@@ -202,13 +202,13 @@ type updateFeedbackRequest struct {
 func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
 		return
 	}
 
 	var req updateFeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -218,14 +218,14 @@ func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 	})
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
 	if result.RowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "feedback updated"})
+	respondOK(c, gin.H{"message": "feedback updated"})
 }

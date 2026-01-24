@@ -41,13 +41,13 @@ type ActiveSessionInfo struct {
 func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -105,7 +105,7 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, AttendanceSummaryResponse{
+	respondOK(c, AttendanceSummaryResponse{
 		AttendanceRate: attendanceRate,
 		SessionsCount:  int(sessionsCount),
 		LastSessionAt:  lastSessionAt,
@@ -128,13 +128,13 @@ type SessionListItem struct {
 func (h *attendanceHandlers) ListSessions(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	var sessions []models.AttendanceSession
 	if err := h.db.Where("course_id = ?", courseID).Order("start_at DESC").Find(&sessions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch sessions"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch sessions", nil)
 		return
 	}
 
@@ -151,7 +151,7 @@ func (h *attendanceHandlers) ListSessions(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	respondOK(c, result)
 }
 
 // --- Start Session ---
@@ -165,14 +165,14 @@ type startSessionRequest struct {
 func (h *attendanceHandlers) StartSession(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	// Check if there's already an active session
 	var existing models.AttendanceSession
 	if err := h.db.Where("course_id = ? AND is_active = ?", courseID, true).First(&existing).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "active session already exists", "session_id": existing.ID})
+		respondError(c, http.StatusConflict, "CONFLICT", "active session already exists", gin.H{"session_id": existing.ID})
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -201,11 +201,11 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&session).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create session", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	respondCreated(c, gin.H{
 		"id":      session.ID,
 		"code":    session.Code,
 		"ends_at": session.EndAt,
@@ -219,18 +219,18 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 func (h *attendanceHandlers) EndSession(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
 		return
 	}
 
 	var session models.AttendanceSession
 	if err := h.db.First(&session, sessionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "session not found", nil)
 		return
 	}
 
 	if !session.IsActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "session already ended"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session already ended", nil)
 		return
 	}
 
@@ -238,7 +238,7 @@ func (h *attendanceHandlers) EndSession(c *gin.Context) {
 	session.EndAt = time.Now()
 	h.db.Save(&session)
 
-	c.JSON(http.StatusOK, gin.H{"message": "session ended"})
+	respondOK(c, gin.H{"message": "session ended"})
 }
 
 // --- Checkin ---
@@ -258,19 +258,19 @@ type CheckinResponse struct {
 func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
 		return
 	}
 
 	var req checkinRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "code is required", nil)
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 	userID := userCtx.ID
@@ -278,13 +278,13 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	// Get session
 	var session models.AttendanceSession
 	if err := h.db.First(&session, sessionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "session not found", nil)
 		return
 	}
 
 	// Validate session is active
 	if !session.IsActive {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "session has ended"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session has ended", nil)
 		return
 	}
 
@@ -292,20 +292,20 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	if time.Now().After(session.EndAt) {
 		// Auto-close session
 		h.db.Model(&session).Update("is_active", false)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "session has expired"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session has expired", nil)
 		return
 	}
 
 	// Validate code
 	if req.Code != session.Code {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid code"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid code", nil)
 		return
 	}
 
 	// Check if already checked in
 	var existing models.AttendanceRecord
 	if err := h.db.Where("session_id = ? AND student_id = ?", sessionID, userID).First(&existing).Error; err == nil {
-		c.JSON(http.StatusOK, CheckinResponse{
+		respondOK(c, CheckinResponse{
 			Success:          true,
 			AlreadyCheckedIn: true,
 			CheckedInAt:      existing.CheckedInAt,
@@ -323,11 +323,11 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&record).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check in"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check in", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, CheckinResponse{
+	respondOK(c, CheckinResponse{
 		Success:     true,
 		CheckedInAt: now,
 	})
@@ -347,13 +347,13 @@ type RecordListItem struct {
 func (h *attendanceHandlers) GetRecords(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
 		return
 	}
 
 	var records []models.AttendanceRecord
 	if err := h.db.Where("session_id = ?", sessionID).Find(&records).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch records"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch records", nil)
 		return
 	}
 
@@ -384,7 +384,7 @@ func (h *attendanceHandlers) GetRecords(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, result)
+	respondOK(c, result)
 }
 
 // generateCode generates a 6-digit random code

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { FolderOpen, Plus, Video, FileText, Link as LinkIcon, ExternalLink, Trash2, Loader2, Upload, X } from 'lucide-react';
 import { resourceApi, type Resource } from '@/api/resource';
@@ -24,24 +24,25 @@ export function ResourcesPage() {
     const user = authStore.getUser();
     const canCreate = user?.role === 'admin' || user?.role === 'teacher';
 
-    useEffect(() => {
-        if (!courseId) return;
-        loadResources();
-    }, [courseId, activeType]);
-
-    const loadResources = async () => {
+    const loadResources = useCallback(async () => {
         if (!courseId) return;
         setIsLoading(true);
         setError(null);
         try {
             const data = await resourceApi.listByCourse(parseInt(courseId), activeType || undefined);
             setResources(data);
-        } catch (err: any) {
-            setError(err.message || 'Failed to load resources');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to load resources';
+            setError(message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [courseId, activeType]);
+
+    useEffect(() => {
+        if (!courseId) return;
+        void loadResources();
+    }, [courseId, activeType, loadResources]);
 
     const handleCreate = async (title: string, type: 'video' | 'paper' | 'link', url: string, description: string) => {
         if (!courseId) return;
@@ -55,8 +56,9 @@ export function ResourcesPage() {
             });
             setShowCreate(false);
             loadResources();
-        } catch (err: any) {
-            alert('添加失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '添加失败';
+            alert('添加失败: ' + message);
         }
     };
 
@@ -65,8 +67,9 @@ export function ResourcesPage() {
         try {
             await resourceApi.delete(id);
             loadResources();
-        } catch (err: any) {
-            alert('删除失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '删除失败';
+            alert('删除失败: ' + message);
         }
     };
 
@@ -241,8 +244,9 @@ function CreateResourceModal({
                     (progress) => setUploadProgress(progress)
                 );
                 onCreate(title, type, result.signed_url, description);
-            } catch (err: any) {
-                setUploadError(err.message || '上传失败');
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '上传失败';
+                setUploadError(message);
                 setIsUploading(false);
             }
         }

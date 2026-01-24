@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { chapterApi, type Chapter, type ChapterStudentStats } from '@/api/chapter';
 import { StudyTimer } from '@/components/StudyTimer';
@@ -13,27 +13,29 @@ export function ChapterContentPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (chapterId) {
-            loadData();
-        }
-    }, [chapterId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
+        if (!chapterId) return;
         setIsLoading(true);
         try {
             const [chapterData, statsData] = await Promise.all([
-                chapterApi.get(chapterId!),
-                chapterApi.getMyStats(chapterId!)
+                chapterApi.get(chapterId),
+                chapterApi.getMyStats(chapterId),
             ]);
             setChapter(chapterData);
             setStats(statsData);
-        } catch (err: any) {
-            setError(err.message || '加载失败');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '加载失败';
+            setError(message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [chapterId]);
+
+    useEffect(() => {
+        if (chapterId) {
+            void loadData();
+        }
+    }, [chapterId, loadData]);
 
     const handleDurationUpdate = (newDuration: number) => {
         // Optimistically update stats if needed

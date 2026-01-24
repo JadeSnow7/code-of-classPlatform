@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
@@ -26,13 +27,13 @@ type createCourseRequest struct {
 func (h *courseHandlers) Create(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	var req createCourseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -43,16 +44,16 @@ func (h *courseHandlers) Create(c *gin.Context) {
 		TeacherID: u.ID,
 	}
 	if err := h.db.Create(&course).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "create course failed"})
+		respondError(c, http.StatusInternalServerError, "CREATE_COURSE_FAILED", "create course failed", nil)
 		return
 	}
-	c.JSON(http.StatusOK, course)
+	respondCreated(c, course)
 }
 
 func (h *courseHandlers) List(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
@@ -62,13 +63,13 @@ func (h *courseHandlers) List(c *gin.Context) {
 	case "admin":
 		// Admin sees all courses
 		if err := h.db.Order("id desc").Find(&courses).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "list courses failed"})
+			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
 			return
 		}
 	case "teacher":
 		// Teacher sees courses they created
 		if err := h.db.Where("teacher_id = ?", u.ID).Order("id desc").Find(&courses).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "list courses failed"})
+			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
 			return
 		}
 	default:
@@ -77,10 +78,51 @@ func (h *courseHandlers) List(c *gin.Context) {
 			Where("course_enrollments.user_id = ? AND course_enrollments.deleted_at IS NULL", u.ID).
 			Order("courses.id desc").
 			Find(&courses).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "list courses failed"})
+			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
 			return
 		}
 	}
 
-	c.JSON(http.StatusOK, courses)
+	respondOK(c, courses)
+}
+
+func (h *courseHandlers) Get(c *gin.Context) {
+	u, ok := middleware.GetUser(c)
+	if !ok {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		return
+	}
+
+	idStr := c.Param("id")
+	courseID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		return
+	}
+
+	var course models.Course
+	if err := h.db.First(&course, courseID).Error; err != nil {
+		respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+		return
+	}
+
+	// Access control
+	switch u.Role {
+	case "admin":
+		// allow
+	case "teacher":
+		if course.TeacherID != u.ID {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
+	default:
+		var enrollment models.CourseEnrollment
+		if err := h.db.Where("course_id = ? AND user_id = ? AND deleted_at IS NULL", course.ID, u.ID).
+			First(&enrollment).Error; err != nil {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
+	}
+
+	respondOK(c, course)
 }

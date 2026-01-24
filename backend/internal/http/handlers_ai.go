@@ -27,7 +27,7 @@ type chatRequest struct {
 func (h *aiHandlers) Chat(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -43,10 +43,10 @@ func (h *aiHandlers) Chat(c *gin.Context) {
 		Messages: req.Messages,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	respondOK(c, resp)
 }
 
 func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
@@ -90,16 +90,16 @@ func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
 func (h *aiHandlers) ChatWithTools(c *gin.Context) {
 	var req clients.ChatWithToolsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
 	resp, err := h.ai.ChatWithTools(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	respondOK(c, resp)
 }
 
 // guidedChatRequest is the request body for guided chat
@@ -115,14 +115,14 @@ type guidedChatRequest struct {
 func (h *aiHandlers) ChatGuided(c *gin.Context) {
 	var req guidedChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
 	// Extract user from JWT context (set by AuthRequired middleware)
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not found in context", nil)
 		return
 	}
 
@@ -137,8 +137,8 @@ func (h *aiHandlers) ChatGuided(c *gin.Context) {
 
 	resp, err := h.ai.ChatGuided(c.Request.Context(), aiReq)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	respondOK(c, resp)
 }

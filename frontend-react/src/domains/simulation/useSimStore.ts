@@ -107,12 +107,13 @@ export const useSimStore = create<SimulationState>((set, get) => ({
                 timeout,
             });
             set({ codeResult: response.data });
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Execution failed';
             set({
                 codeResult: {
                     success: false,
                     output: '',
-                    error: err.message || 'Execution failed',
+                    error: message,
                     plots: [],
                 },
             });
@@ -145,7 +146,7 @@ Modify or improve the code based on the user's request. Return ONLY the modified
             });
 
             // Extract code from response
-            const responseText = response.data.response;
+            const responseText = response.data.reply ?? response.data.response;
             const codeMatch = responseText.match(/```python\n([\s\S]*?)```/);
             if (codeMatch) {
                 set({ code: codeMatch[1] });
@@ -153,9 +154,10 @@ Modify or improve the code based on the user's request. Return ONLY the modified
                 set({ code: responseText });
             }
             set({ aiPrompt: '', showAIPanel: false });
-        } catch (err: any) {
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'AI assist failed';
             // Store error but don't throw - just log
-            console.error('AI assist failed:', err.message);
+            console.error('AI assist failed:', message);
         } finally {
             set({ isAIProcessing: false });
         }

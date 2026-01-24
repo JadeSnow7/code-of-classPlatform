@@ -1,5 +1,16 @@
-# 共享资源 (Shared Resources)
+# Shared Types & SDK
 
-用于存放各服务间共享的资源（例如公共 schema、示例数据、接口契约等）。
+This package holds cross-platform API contracts and (future) shared SDK utilities.
+It is intended to be imported by both web and mobile clients to keep interfaces consistent.
 
-当前目录仅包含占位文件与忽略规则，后续可按需补充共享资产，并在此 README 中维护结构说明。
+## Structure (draft)
+
+- types/  - shared TypeScript interfaces aligned with OpenAPI
+- sdk/    - shared API client helpers (planned)
+
+## Usage (draft)
+
+```ts
+import { Course, ChatRequest } from '@/shared/types'
+```
+

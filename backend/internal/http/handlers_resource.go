@@ -32,38 +32,38 @@ type createResourceRequest struct {
 func (h *resourceHandlers) CreateResource(c *gin.Context) {
 	var req createResourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
 	// Validate URL
 	if _, err := url.ParseRequestURI(req.URL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid URL format"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid URL format", nil)
 		return
 	}
 
 	// Get current user
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	// Validate user is teacher of the course
 	var course models.Course
 	if err := h.db.First(&course, req.CourseID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "course not found", nil)
 		return
 	}
 	if course.TeacherID != user.ID && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "you are not the course teacher"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "you are not the course teacher", nil)
 		return
 	}
 
 	// Validate type
 	validTypes := map[string]bool{"video": true, "paper": true, "link": true}
 	if !validTypes[req.Type] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource type, must be: video, paper, or link"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid resource type, must be: video, paper, or link", nil)
 		return
 	}
 
@@ -77,18 +77,18 @@ func (h *resourceHandlers) CreateResource(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&resource).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create resource"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create resource", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, resource)
+	respondCreated(c, resource)
 }
 
 func (h *resourceHandlers) ListResources(c *gin.Context) {
 	courseIDStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(courseIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
@@ -102,43 +102,43 @@ func (h *resourceHandlers) ListResources(c *gin.Context) {
 
 	var resources []models.Resource
 	if err := query.Order("created_at DESC").Find(&resources).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list resources"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list resources", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, resources)
+	respondOK(c, resources)
 }
 
 func (h *resourceHandlers) DeleteResource(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	var resource models.Resource
 	if err := h.db.First(&resource, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "resource not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "resource not found", nil)
 		return
 	}
 
 	// Only creator or admin can delete
 	if resource.CreatedByID != user.ID && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "you are not authorized to delete this resource"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "you are not authorized to delete this resource", nil)
 		return
 	}
 
 	if err := h.db.Delete(&resource).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete resource"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete resource", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "resource deleted"})
+	respondOK(c, gin.H{"message": "resource deleted"})
 }

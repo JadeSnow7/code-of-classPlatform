@@ -46,13 +46,13 @@ type WecomLoginResponse struct {
 // POST /auth/wecom
 func (h *wecomHandlers) Login(c *gin.Context) {
 	if !h.wecom.IsConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "WeChat Work is not configured"})
+		respondError(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "WeChat Work is not configured", nil)
 		return
 	}
 
 	var req WecomLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "code is required", nil)
 		return
 	}
 
@@ -61,12 +61,12 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 	// Exchange code for user info
 	userInfo, err := h.wecom.GetUserInfoByCode(ctx, req.Code)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("wecom auth failed: %v", err)})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", fmt.Sprintf("wecom auth failed: %v", err), nil)
 		return
 	}
 
 	if userInfo.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "failed to get user ID from WeChat Work"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "failed to get user ID from WeChat Work", nil)
 		return
 	}
 
@@ -93,11 +93,11 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 				WecomUserID:  userInfo.UserID,
 			}
 			if err := h.db.Create(&user).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+				respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create user", nil)
 				return
 			}
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "database error", nil)
 			return
 		}
 	}
@@ -111,11 +111,11 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 	expiresIn := 86400 // 24 hours
 	token, err := auth.SignToken(h.jwtSecret, user.ID, user.Username, user.Role, time.Duration(expiresIn)*time.Second)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate token", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, WecomLoginResponse{
+	respondOK(c, WecomLoginResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",
 		ExpiresIn:   expiresIn,
@@ -142,13 +142,13 @@ type WecomConfigResponse struct {
 // POST /auth/wecom/jsconfig
 func (h *wecomHandlers) GetJSConfig(c *gin.Context) {
 	if !h.wecom.IsConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "WeChat Work is not configured"})
+		respondError(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "WeChat Work is not configured", nil)
 		return
 	}
 
 	var req WecomConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "url is required", nil)
 		return
 	}
 
@@ -157,7 +157,7 @@ func (h *wecomHandlers) GetJSConfig(c *gin.Context) {
 	// Get jsapi_ticket
 	ticket, err := h.wecom.GetJSAPITicket(ctx)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("failed to get jsapi ticket: %v", err)})
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", fmt.Sprintf("failed to get jsapi ticket: %v", err), nil)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *wecomHandlers) GetJSConfig(c *gin.Context) {
 	h1.Write([]byte(signStr))
 	signature := fmt.Sprintf("%x", h1.Sum(nil))
 
-	c.JSON(http.StatusOK, WecomConfigResponse{
+	respondOK(c, WecomConfigResponse{
 		CorpID:    h.wecom.GetCorpID(),
 		AgentID:   h.wecom.GetAgentID(),
 		Timestamp: timestamp,
@@ -190,13 +190,13 @@ type WecomOAuthURLResponse struct {
 // GET /auth/wecom/oauth-url
 func (h *wecomHandlers) GetOAuthURL(c *gin.Context) {
 	if !h.wecom.IsConfigured() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "WeChat Work is not configured"})
+		respondError(c, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "WeChat Work is not configured", nil)
 		return
 	}
 
 	redirectURI := c.Query("redirect_uri")
 	if redirectURI == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "redirect_uri is required"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "redirect_uri is required", nil)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *wecomHandlers) GetOAuthURL(c *gin.Context) {
 		state,
 	)
 
-	c.JSON(http.StatusOK, WecomOAuthURLResponse{URL: oauthURL})
+	respondOK(c, WecomOAuthURLResponse{URL: oauthURL})
 }
 
 // generateNonceStr generates a random string

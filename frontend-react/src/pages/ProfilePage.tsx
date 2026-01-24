@@ -26,8 +26,9 @@ export function ProfilePage() {
         try {
             const data = await userApi.getStats();
             setStats(data);
-        } catch (err: any) {
-            setError(err.message || '加载统计数据失败');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '加载统计数据失败';
+            setError(message);
         } finally {
             setIsLoading(false);
         }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Calendar, User, FileText, Send, CheckCircle, Loader2, Star, Upload, X } from 'lucide-react';
 import { assignmentApi, type Assignment, type Submission } from '@/api/assignment';
@@ -27,12 +27,7 @@ export function AssignmentDetailPage() {
     const isTeacher = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'assistant';
     const isStudent = user?.role === 'student';
 
-    useEffect(() => {
-        if (!assignmentId) return;
-        loadData();
-    }, [assignmentId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         if (!assignmentId) return;
         setIsLoading(true);
         setError(null);
@@ -44,12 +39,18 @@ export function AssignmentDetailPage() {
                 const subs = await assignmentApi.listSubmissions(parseInt(assignmentId));
                 setSubmissions(subs);
             }
-        } catch (err: any) {
-            setError(err.message || 'Failed to load assignment');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to load assignment';
+            setError(message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [assignmentId, isTeacher]);
+
+    useEffect(() => {
+        if (!assignmentId) return;
+        void loadData();
+    }, [assignmentId, loadData]);
 
     const handleSubmit = async () => {
         if (!assignmentId || !content.trim()) return;
@@ -81,9 +82,10 @@ export function AssignmentDetailPage() {
             setSelectedFile(null);
             setUploadProgress(0);
             alert('提交成功!');
-        } catch (err: any) {
-            setUploadError(err.message || '提交失败');
-            alert('提交失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '提交失败';
+            setUploadError(message);
+            alert('提交失败: ' + message);
         } finally {
             setIsSubmitting(false);
         }
@@ -93,8 +95,9 @@ export function AssignmentDetailPage() {
         try {
             await assignmentApi.grade(submissionId, { grade, feedback });
             loadData();
-        } catch (err: any) {
-            alert('评分失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '评分失败';
+            alert('评分失败: ' + message);
         }
     };
 
@@ -329,8 +332,9 @@ function SubmissionCard({
         try {
             const result = await assignmentApi.aiGrade(submission.ID);
             setAiSuggestion(result.suggestion);
-        } catch (err: any) {
-            alert('AI 评分失败: ' + (err.message || '服务不可用'));
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '服务不可用';
+            alert('AI 评分失败: ' + message);
         } finally {
             setIsAIGrading(false);
         }

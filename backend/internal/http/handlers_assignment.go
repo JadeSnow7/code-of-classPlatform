@@ -33,25 +33,39 @@ type createAssignmentRequest struct {
 func (h *assignmentHandlers) CreateAssignment(c *gin.Context) {
 	var req createAssignmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
+	}
+	// If courseId is provided in path, enforce consistency
+	if courseIDStr := c.Param("courseId"); courseIDStr != "" {
+		courseID, err := strconv.ParseUint(courseIDStr, 10, 64)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
+			return
+		}
+		if req.CourseID == 0 {
+			req.CourseID = uint(courseID)
+		} else if uint64(req.CourseID) != courseID {
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "course_id mismatch", nil)
+			return
+		}
 	}
 
 	// Get current user from context (set by AuthRequired middleware)
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	// Validate teacher is owner of the course
 	var course models.Course
 	if err := h.db.First(&course, req.CourseID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "course not found", nil)
 		return
 	}
 	if course.TeacherID != user.ID && user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "you are not the course teacher"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "you are not the course teacher", nil)
 		return
 	}
 
@@ -67,45 +81,45 @@ func (h *assignmentHandlers) CreateAssignment(c *gin.Context) {
 	// Simplified: not implemented here, can add time.Parse
 
 	if err := h.db.Create(&assignment).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create assignment"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create assignment", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, assignment)
+	respondCreated(c, assignment)
 }
 
 func (h *assignmentHandlers) ListAssignments(c *gin.Context) {
 	courseIDStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(courseIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	var assignments []models.Assignment
 	if err := h.db.Where("course_id = ?", courseID).Order("created_at DESC").Find(&assignments).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list assignments"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list assignments", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, assignments)
+	respondOK(c, assignments)
 }
 
 func (h *assignmentHandlers) GetAssignment(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
 		return
 	}
 
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "assignment not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "assignment not found", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, assignment)
+	respondOK(c, assignment)
 }
 
 // --- Submission ---
@@ -119,26 +133,26 @@ func (h *assignmentHandlers) SubmitAssignment(c *gin.Context) {
 	idStr := c.Param("id")
 	assignmentID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid assignment id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid assignment id", nil)
 		return
 	}
 
 	var req submitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	// Check if assignment exists
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, assignmentID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "assignment not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "assignment not found", nil)
 		return
 	}
 
@@ -151,10 +165,10 @@ func (h *assignmentHandlers) SubmitAssignment(c *gin.Context) {
 		existing.Content = req.Content
 		existing.FileURL = req.FileURL
 		if err := h.db.Save(&existing).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update submission"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update submission", nil)
 			return
 		}
-		c.JSON(http.StatusOK, existing)
+		respondOK(c, existing)
 		return
 	}
 
@@ -166,11 +180,11 @@ func (h *assignmentHandlers) SubmitAssignment(c *gin.Context) {
 		FileURL:      req.FileURL,
 	}
 	if err := h.db.Create(&submission).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create submission"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create submission", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, submission)
+	respondCreated(c, submission)
 }
 
 // GetMySubmission returns the current user's submission for an assignment
@@ -178,24 +192,24 @@ func (h *assignmentHandlers) GetMySubmission(c *gin.Context) {
 	idStr := c.Param("id")
 	assignmentID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid assignment id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid assignment id", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	var submission models.Submission
 	if err := h.db.Where("assignment_id = ? AND student_id = ?", assignmentID, user.ID).First(&submission).Error; err != nil {
 		// Return null instead of error if no submission
-		c.JSON(http.StatusOK, nil)
+		respondOK(c, nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, submission)
+	respondOK(c, submission)
 }
 
 // --- Grading ---
@@ -209,43 +223,43 @@ func (h *assignmentHandlers) GradeSubmission(c *gin.Context) {
 	idStr := c.Param("submissionId")
 	submissionID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid submission id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid submission id", nil)
 		return
 	}
 
 	var req gradeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	var submission models.Submission
 	if err := h.db.First(&submission, submissionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
 		return
 	}
 
 	// Validate grader is teacher of the course
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, submission.AssignmentID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "assignment not found"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "assignment not found", nil)
 		return
 	}
 
 	var course models.Course
 	if err := h.db.First(&course, assignment.CourseID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "course not found"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "course not found", nil)
 		return
 	}
 
 	if course.TeacherID != user.ID && user.Role != "admin" && user.Role != "assistant" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "you are not authorized to grade this submission"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "you are not authorized to grade this submission", nil)
 		return
 	}
 
@@ -254,28 +268,28 @@ func (h *assignmentHandlers) GradeSubmission(c *gin.Context) {
 	submission.GradedBy = &user.ID
 
 	if err := h.db.Save(&submission).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save grade"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to save grade", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, submission)
+	respondOK(c, submission)
 }
 
 func (h *assignmentHandlers) ListSubmissions(c *gin.Context) {
 	idStr := c.Param("id")
 	assignmentID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid assignment id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid assignment id", nil)
 		return
 	}
 
 	var submissions []models.Submission
 	if err := h.db.Where("assignment_id = ?", assignmentID).Order("created_at DESC").Find(&submissions).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list submissions"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list submissions", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, submissions)
+	respondOK(c, submissions)
 }
 
 // AIGradeSubmission uses AI to analyze a submission and suggest a grade
@@ -285,39 +299,39 @@ func (h *assignmentHandlers) AIGradeSubmission(c *gin.Context) {
 	idStr := c.Param("submissionId")
 	submissionID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid submission id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid submission id", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
 	// Get submission
 	var submission models.Submission
 	if err := h.db.First(&submission, submissionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
 		return
 	}
 
 	// Get assignment and course for authorization
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, submission.AssignmentID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "assignment not found"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "assignment not found", nil)
 		return
 	}
 
 	var course models.Course
 	if err := h.db.First(&course, assignment.CourseID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "course not found"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "course not found", nil)
 		return
 	}
 
 	// Only course teacher, admin, or assistant can use AI grading
 	if course.TeacherID != user.ID && user.Role != "admin" && user.Role != "assistant" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "you are not authorized to grade this submission"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "you are not authorized to grade this submission", nil)
 		return
 	}
 
@@ -338,11 +352,11 @@ func (h *assignmentHandlers) AIGradeSubmission(c *gin.Context) {
 	}
 	aiResponse, err := h.aiClient.Chat(c.Request.Context(), aiRequest)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "AI service unavailable"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "AI service unavailable", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"suggestion":        aiResponse.Reply,
 		"recommended_grade": nil, // Let teacher decide based on AI suggestion
 	})
@@ -361,13 +375,13 @@ func (h *assignmentHandlers) GetCourseAssignmentStats(c *gin.Context) {
 	courseIDStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(courseIDStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
 		return
 	}
 
@@ -376,7 +390,7 @@ func (h *assignmentHandlers) GetCourseAssignmentStats(c *gin.Context) {
 	// 1. Total assignments count
 	var totalAssignments int64
 	if err := h.db.Model(&models.Assignment{}).Where("course_id = ?", courseID).Count(&totalAssignments).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count assignments"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to count assignments", nil)
 		return
 	}
 	stats.TotalAssignments = int(totalAssignments)
@@ -390,7 +404,7 @@ func (h *assignmentHandlers) GetCourseAssignmentStats(c *gin.Context) {
 			Where("assignments.course_id = ? AND submissions.student_id = ?", courseID, user.ID).
 			Count(&submittedCount).Error
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count submissions"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to count submissions", nil)
 			return
 		}
 		stats.SubmittedCount = int(submittedCount)
@@ -431,5 +445,5 @@ func (h *assignmentHandlers) GetCourseAssignmentStats(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, stats)
+	respondOK(c, stats)
 }

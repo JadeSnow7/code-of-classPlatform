@@ -23,13 +23,13 @@ func newLearningProfileHandlers(db *gorm.DB) *learningProfileHandlers {
 func (h *learningProfileHandlers) GetProfile(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
 		return
 	}
 
 	studentID, err := strconv.ParseUint(c.Param("studentId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid student_id", nil)
 		return
 	}
 
@@ -37,7 +37,7 @@ func (h *learningProfileHandlers) GetProfile(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && fmt.Sprintf("%v", currentUserID) != fmt.Sprintf("%d", studentID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot view other student's profile"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's profile", nil)
 		return
 	}
 
@@ -45,14 +45,14 @@ func (h *learningProfileHandlers) GetProfile(c *gin.Context) {
 	result := h.db.Where("course_id = ? AND student_id = ?", courseID, studentID).First(&profile)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusOK, gin.H{"data": nil, "message": "profile not found"})
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "profile not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	respondOK(c, profile)
 }
 
 // SaveProfile creates or updates a student's learning profile.
@@ -71,7 +71,7 @@ type saveProfileRequest struct {
 func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 	var req saveProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -91,15 +91,15 @@ func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 			RecommendedTopics: req.RecommendedTopics,
 		}
 		if err := h.db.Create(&profile).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 			return
 		}
-		c.JSON(http.StatusCreated, gin.H{"data": profile})
+		respondCreated(c, profile)
 		return
 	}
 
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
@@ -111,10 +111,10 @@ func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 	profile.RecommendedTopics = req.RecommendedTopics
 
 	if err := h.db.Save(&profile).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": profile})
+	respondOK(c, profile)
 }
 
 // ListCourseProfiles returns all profiles for a course (teacher only).
@@ -122,16 +122,16 @@ func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 func (h *learningProfileHandlers) ListCourseProfiles(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course_id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
 		return
 	}
 
 	var profiles []models.StudentLearningProfile
 	result := h.db.Where("course_id = ?", courseID).Find(&profiles)
 	if result.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": profiles, "count": len(profiles)})
+	respondOK(c, gin.H{"items": profiles, "count": len(profiles)})
 }

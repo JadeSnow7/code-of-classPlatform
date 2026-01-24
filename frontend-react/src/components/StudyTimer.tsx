@@ -18,6 +18,7 @@ export function StudyTimer({ chapterId, initialDuration, onDurationUpdate }: Stu
     const isTrackingRef = useRef(true);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setDuration(initialDuration);
         durationRef.current = initialDuration;
     }, [initialDuration]);

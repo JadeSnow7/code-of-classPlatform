@@ -59,7 +59,7 @@ export function ChapterList({ chapters, courseId }: ChapterListProps) {
                                                 </span>
                                             ));
                                         }
-                                    } catch (e) {
+                                    } catch {
                                         return null;
                                     }
                                 })()}

@@ -115,12 +115,12 @@ func (h *chapterHandlers) ListChapters(c *gin.Context) {
 	courseIDStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(courseIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
 		return
 	}
 
 	if !h.checkCourseMembership(c, uint(courseID)) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 		return
 	}
 
@@ -128,24 +128,24 @@ func (h *chapterHandlers) ListChapters(c *gin.Context) {
 	if err := h.db.Where("course_id = ?", courseID).
 		Order("order_num ASC, id ASC").
 		Find(&chapters).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "list chapters failed"})
+		respondError(c, http.StatusInternalServerError, "LIST_CHAPTERS_FAILED", "list chapters failed", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, chapters)
+	respondOK(c, chapters)
 }
 
 // CreateChapter creates a new chapter
 func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	var req createChapterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -153,11 +153,11 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 	if u.Role != "admin" {
 		var course models.Course
 		if err := h.db.First(&course, req.CourseID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
 			return
 		}
 		if u.Role == "teacher" && course.TeacherID != u.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 			return
 		}
 	}
@@ -171,11 +171,11 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&chapter).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "create chapter failed"})
+		respondError(c, http.StatusInternalServerError, "CREATE_CHAPTER_FAILED", "create chapter failed", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, chapter)
+	respondOK(c, chapter)
 }
 
 // GetChapter returns a single chapter
@@ -183,42 +183,42 @@ func (h *chapterHandlers) GetChapter(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	var chapter models.Chapter
 	if err := h.db.First(&chapter, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
 	if !h.checkCourseMembership(c, chapter.CourseID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, chapter)
+	respondOK(c, chapter)
 }
 
 // UpdateChapter updates a chapter
 func (h *chapterHandlers) UpdateChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	var chapter models.Chapter
 	if err := h.db.First(&chapter, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
@@ -226,18 +226,18 @@ func (h *chapterHandlers) UpdateChapter(c *gin.Context) {
 	if u.Role != "admin" {
 		var course models.Course
 		if err := h.db.First(&course, chapter.CourseID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
 			return
 		}
 		if u.Role == "teacher" && course.TeacherID != u.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 			return
 		}
 	}
 
 	var req updateChapterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
 		return
 	}
 
@@ -257,33 +257,33 @@ func (h *chapterHandlers) UpdateChapter(c *gin.Context) {
 
 	if len(updates) > 0 {
 		if err := h.db.Model(&chapter).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "update chapter failed"})
+			respondError(c, http.StatusInternalServerError, "UPDATE_CHAPTER_FAILED", "update chapter failed", nil)
 			return
 		}
 	}
 
 	h.db.First(&chapter, id)
-	c.JSON(http.StatusOK, chapter)
+	respondOK(c, chapter)
 }
 
 // DeleteChapter deletes a chapter
 func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	var chapter models.Chapter
 	if err := h.db.First(&chapter, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
@@ -291,11 +291,11 @@ func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 	if u.Role != "admin" {
 		var course models.Course
 		if err := h.db.First(&course, chapter.CourseID).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
 			return
 		}
 		if u.Role == "teacher" && course.TeacherID != u.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 			return
 		}
 	}
@@ -310,11 +310,11 @@ func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 
 	// Delete chapter
 	if err := h.db.Delete(&chapter).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete chapter failed"})
+		respondError(c, http.StatusInternalServerError, "DELETE_CHAPTER_FAILED", "delete chapter failed", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	respondOK(c, gin.H{"message": "deleted"})
 }
 
 // ============ Heartbeat Handler ============
@@ -323,31 +323,31 @@ func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	// Only students can record study time
 	if u.Role != "student" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only students can record study time"})
+		respondError(c, http.StatusForbidden, "ROLE_NOT_ALLOWED", "only students can record study time", nil)
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	courseID, err := h.getChapterCourseID(uint(chapterID))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
 	if !h.checkCourseMembership(c, courseID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 		return
 	}
 
@@ -369,10 +369,10 @@ func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 			LastActiveAt:         &now,
 		}
 		h.db.Create(&progress)
-		c.JSON(http.StatusOK, gin.H{"message": "started", "duration": 0})
+		respondOK(c, gin.H{"message": "started", "duration": 0})
 		return
 	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		respondError(c, http.StatusInternalServerError, "DATABASE_ERROR", "database error", nil)
 		return
 	}
 
@@ -395,7 +395,7 @@ func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 
 	// Reload to get updated value
 	h.db.First(&progress, progress.ID)
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"message":  "recorded",
 		"duration": progress.StudyDurationSeconds,
 	})
@@ -407,25 +407,25 @@ func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 func (h *chapterHandlers) GetMyStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	var chapter models.Chapter
 	if err := h.db.First(&chapter, chapterID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
 	if !h.checkCourseMembership(c, chapter.CourseID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 		return
 	}
 
@@ -517,33 +517,33 @@ func (h *chapterHandlers) GetMyStats(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, stats)
+	respondOK(c, stats)
 }
 
 // GetClassStats returns class-wide stats for a chapter (teachers only)
 func (h *chapterHandlers) GetClassStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	// Only teachers/admin can view class stats
 	if u.Role != "admin" && u.Role != "teacher" && u.Role != "assistant" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+		respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
 		return
 	}
 
 	var chapter models.Chapter
 	if err := h.db.First(&chapter, chapterID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "chapter not found"})
+		respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
 		return
 	}
 
@@ -551,7 +551,7 @@ func (h *chapterHandlers) GetClassStats(c *gin.Context) {
 	if u.Role == "teacher" {
 		var course models.Course
 		if err := h.db.First(&course, chapter.CourseID).Error; err != nil || course.TeacherID != u.ID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
 			return
 		}
 	}
@@ -626,5 +626,5 @@ func (h *chapterHandlers) GetClassStats(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, response)
+	respondOK(c, response)
 }

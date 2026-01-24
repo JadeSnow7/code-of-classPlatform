@@ -1,4 +1,5 @@
 import { authStore } from './auth-store';
+import type { ChatMessage } from '@/api/ai';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -19,7 +20,7 @@ interface SSEEvent {
 }
 
 export const aiStreamClient = {
-    async streamChat(messages: any[], options: StreamOptions) {
+    async streamChat(messages: ChatMessage[], options: StreamOptions) {
         const token = authStore.getToken();
 
         try {
@@ -89,7 +90,7 @@ export const aiStreamClient = {
                                 } else if (event.content) {
                                     options.onMessage(event.content);
                                 }
-                            } catch (e) {
+                            } catch {
                                 // Not valid JSON, might be raw text
                                 console.warn('Failed to parse SSE event:', dataStr);
                             }
@@ -106,4 +107,3 @@ export const aiStreamClient = {
         }
     }
 };
-

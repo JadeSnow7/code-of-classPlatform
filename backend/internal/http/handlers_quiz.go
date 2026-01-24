@@ -30,7 +30,7 @@ func newQuizHandlers(db *gorm.DB) *quizHandlers {
 func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
 		return
 	}
 
@@ -44,7 +44,7 @@ func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 		query = query.Where("is_published = ?", true)
 	}
 	if err := query.Find(&quizzes).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load quizzes"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load quizzes", nil)
 		return
 	}
 
@@ -68,11 +68,11 @@ func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 			}
 			result = append(result, qa)
 		}
-		c.JSON(http.StatusOK, result)
+		respondOK(c, result)
 		return
 	}
 
-	c.JSON(http.StatusOK, quizzes)
+	respondOK(c, quizzes)
 }
 
 // CreateQuiz creates a new quiz
@@ -91,7 +91,7 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 		ShowAnswerAfterEnd bool       `json:"show_answer_after_end"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
@@ -115,11 +115,11 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&quiz).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create quiz"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create quiz", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, quiz)
+	respondCreated(c, quiz)
 }
 
 // GetQuiz returns quiz details with questions
@@ -127,7 +127,7 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 func (h *quizHandlers) GetQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 			questionsWithAnswers[i] = questionWithAnswer{Question: q}
 			questionsWithAnswers[i].Answer = q.Answer
 		}
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"quiz":      quiz,
 			"questions": questionsWithAnswers,
 		})
@@ -164,11 +164,11 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 
 	// For students: check if published
 	if !quiz.IsPublished {
-		c.JSON(http.StatusForbidden, gin.H{"error": "quiz not available"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz not available", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"quiz":      quiz,
 		"questions": questions, // Answer field has json:"-" so it's not included
 	})
@@ -179,13 +179,13 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 		ShowAnswerAfterEnd *bool      `json:"show_answer_after_end"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
@@ -227,12 +227,12 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 	}
 
 	if err := h.db.Model(&quiz).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quiz"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update quiz", nil)
 		return
 	}
 
 	h.db.First(&quiz, quizID)
-	c.JSON(http.StatusOK, quiz)
+	respondOK(c, quiz)
 }
 
 // DeleteQuiz deletes a quiz and its questions
@@ -240,13 +240,13 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 func (h *quizHandlers) DeleteQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -257,7 +257,7 @@ func (h *quizHandlers) DeleteQuiz(c *gin.Context) {
 	// Delete quiz
 	h.db.Delete(&quiz)
 
-	c.JSON(http.StatusOK, gin.H{"message": "quiz deleted"})
+	respondOK(c, gin.H{"message": "quiz deleted"})
 }
 
 // PublishQuiz publishes a quiz (locks questions)
@@ -265,13 +265,13 @@ func (h *quizHandlers) DeleteQuiz(c *gin.Context) {
 func (h *quizHandlers) PublishQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -283,7 +283,7 @@ func (h *quizHandlers) PublishQuiz(c *gin.Context) {
 	quiz.TotalPoints = totalPoints
 	h.db.Save(&quiz)
 
-	c.JSON(http.StatusOK, quiz)
+	respondOK(c, quiz)
 }
 
 // UnpublishQuiz unpublishes a quiz (allows editing)
@@ -291,13 +291,13 @@ func (h *quizHandlers) PublishQuiz(c *gin.Context) {
 func (h *quizHandlers) UnpublishQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -305,14 +305,14 @@ func (h *quizHandlers) UnpublishQuiz(c *gin.Context) {
 	var attemptCount int64
 	h.db.Model(&models.QuizAttempt{}).Where("quiz_id = ?", quizID).Count(&attemptCount)
 	if attemptCount > 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot unpublish: students have already attempted"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot unpublish: students have already attempted", nil)
 		return
 	}
 
 	quiz.IsPublished = false
 	h.db.Save(&quiz)
 
-	c.JSON(http.StatusOK, quiz)
+	respondOK(c, quiz)
 }
 
 // --- Question CRUD ---
@@ -322,18 +322,18 @@ func (h *quizHandlers) UnpublishQuiz(c *gin.Context) {
 func (h *quizHandlers) AddQuestion(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
 	if quiz.IsPublished {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot add questions to published quiz"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot add questions to published quiz", nil)
 		return
 	}
 
@@ -347,14 +347,14 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 		OrderNum  int      `json:"order_num"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
 	// Validate type
 	validTypes := map[string]bool{"single_choice": true, "multiple_choice": true, "true_false": true, "fill_blank": true}
 	if !validTypes[req.Type] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid question type"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question type", nil)
 		return
 	}
 
@@ -362,12 +362,12 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 	optionsJSON := ""
 	if len(req.Options) > 0 {
 		if len(req.Options) > 10 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "too many options (max 10)"})
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "too many options (max 10)", nil)
 			return
 		}
 		b, _ := json.Marshal(req.Options)
 		if len(b) > 10*1024 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "options too large"})
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "options too large", nil)
 			return
 		}
 		optionsJSON = string(b)
@@ -392,12 +392,12 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&question).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create question"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create question", nil)
 		return
 	}
 
 	// Return with answer for teacher
-	c.JSON(http.StatusCreated, gin.H{
+	respondCreated(c, gin.H{
 		"ID":         question.ID,
 		"quiz_id":    question.QuizID,
 		"type":       question.Type,
@@ -415,13 +415,13 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 	questionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid question id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question id", nil)
 		return
 	}
 
 	var question models.Question
 	if err := h.db.First(&question, questionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "question not found", nil)
 		return
 	}
 
@@ -429,7 +429,7 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 	var quiz models.Quiz
 	h.db.First(&quiz, question.QuizID)
 	if quiz.IsPublished {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot edit questions in published quiz"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot edit questions in published quiz", nil)
 		return
 	}
 
@@ -442,7 +442,7 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 		OrderNum  *int     `json:"order_num"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
@@ -468,7 +468,7 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 
 	h.db.Save(&question)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"ID":         question.ID,
 		"quiz_id":    question.QuizID,
 		"type":       question.Type,
@@ -486,13 +486,13 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 func (h *quizHandlers) DeleteQuestion(c *gin.Context) {
 	questionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid question id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question id", nil)
 		return
 	}
 
 	var question models.Question
 	if err := h.db.First(&question, questionID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "question not found", nil)
 		return
 	}
 
@@ -500,12 +500,12 @@ func (h *quizHandlers) DeleteQuestion(c *gin.Context) {
 	var quiz models.Quiz
 	h.db.First(&quiz, question.QuizID)
 	if quiz.IsPublished {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete questions from published quiz"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot delete questions from published quiz", nil)
 		return
 	}
 
 	h.db.Delete(&question)
-	c.JSON(http.StatusOK, gin.H{"message": "question deleted"})
+	respondOK(c, gin.H{"message": "question deleted"})
 }
 
 // --- Quiz Attempts ---
@@ -515,7 +515,7 @@ func (h *quizHandlers) DeleteQuestion(c *gin.Context) {
 func (h *quizHandlers) StartQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
@@ -523,23 +523,23 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
 	// Validate quiz availability
 	if !quiz.IsPublished {
-		c.JSON(http.StatusForbidden, gin.H{"error": "quiz not available"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz not available", nil)
 		return
 	}
 
 	now := time.Now()
 	if quiz.StartTime != nil && now.Before(*quiz.StartTime) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "quiz has not started yet"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz has not started yet", nil)
 		return
 	}
 	if quiz.EndTime != nil && now.After(*quiz.EndTime) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "quiz has ended"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz has ended", nil)
 		return
 	}
 
@@ -547,7 +547,7 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 	var attemptCount int64
 	h.db.Model(&models.QuizAttempt{}).Where("quiz_id = ? AND student_id = ?", quizID, user.ID).Count(&attemptCount)
 	if int(attemptCount) >= quiz.MaxAttempts {
-		c.JSON(http.StatusForbidden, gin.H{"error": "maximum attempts reached"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "maximum attempts reached", nil)
 		return
 	}
 
@@ -558,7 +558,7 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 		var questions []models.Question
 		h.db.Where("quiz_id = ?", quizID).Order("order_num ASC").Find(&questions)
 
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"attempt":   existingAttempt,
 			"questions": questions,
 			"resumed":   true,
@@ -585,14 +585,14 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&attempt).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start quiz"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to start quiz", nil)
 		return
 	}
 
 	var questions []models.Question
 	h.db.Where("quiz_id = ?", quizID).Order("order_num ASC").Find(&questions)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"attempt":   attempt,
 		"questions": questions,
 		"resumed":   false,
@@ -604,7 +604,7 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
@@ -613,14 +613,14 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 	// Find in-progress attempt
 	var attempt models.QuizAttempt
 	if err := h.db.Where("quiz_id = ? AND student_id = ? AND submitted_at IS NULL", quizID, user.ID).First(&attempt).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no active attempt found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "no active attempt found", nil)
 		return
 	}
 
 	// Check deadline
 	now := time.Now()
 	if now.After(attempt.Deadline) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "submission deadline passed"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "submission deadline passed", nil)
 		return
 	}
 
@@ -628,14 +628,14 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 		Answers map[string]interface{} `json:"answers" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
 	// Validate answers size
 	answersJSON, _ := json.Marshal(req.Answers)
 	if len(answersJSON) > 100*1024 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "answers too large"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "answers too large", nil)
 		return
 	}
 
@@ -664,7 +664,7 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 
 	h.db.Save(&attempt)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"score":     score,
 		"max_score": attempt.MaxScore,
 		"attempt":   attempt,
@@ -676,7 +676,7 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quiz id"})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
 		return
 	}
 
@@ -685,7 +685,7 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 
 	var quiz models.Quiz
 	if err := h.db.First(&quiz, quizID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "quiz not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
 		return
 	}
 
@@ -693,7 +693,7 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 		// Return all attempts
 		var attempts []models.QuizAttempt
 		h.db.Where("quiz_id = ?", quizID).Order("score DESC").Find(&attempts)
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"quiz":     quiz,
 			"attempts": attempts,
 		})
@@ -724,7 +724,7 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 			questionsWithAnswers[i].Answer = q.Answer
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"quiz":      quiz,
 			"attempts":  attempts,
 			"questions": questionsWithAnswers,
@@ -732,7 +732,7 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"quiz":     quiz,
 		"attempts": attempts,
 	})

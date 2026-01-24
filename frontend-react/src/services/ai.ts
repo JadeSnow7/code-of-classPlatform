@@ -72,10 +72,16 @@ export async function streamChat(
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json() as { reply: string; model: string | null };
+        const raw = await response.json();
+        let payload = raw;
+        if (raw && typeof raw === 'object' && 'success' in raw) {
+            if (!raw.success) {
+                throw new Error(raw.error?.message ?? 'AI request failed');
+            }
+            payload = raw.data;
+        }
 
-        // Simulate streaming by outputting character by character
-        const reply = data.reply || '';
+        const reply = (payload?.reply ?? payload?.response ?? '') as string;
         for (let i = 0; i < reply.length; i++) {
             if (options.signal.aborted) break;
             options.onToken(reply[i]);

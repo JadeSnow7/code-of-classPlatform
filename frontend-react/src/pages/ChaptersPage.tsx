@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCourse } from '@/domains/course/useCourse';
 import { chapterApi, type Chapter } from '@/api/chapter';
 import { ChapterList } from '@/domains/chapter/ChapterList';
@@ -9,13 +9,7 @@ export function ChaptersPage() {
     const [chapters, setChapters] = useState<Chapter[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        if (course?.ID) {
-            loadChapters();
-        }
-    }, [course?.ID]);
-
-    const loadChapters = async () => {
+    const loadChapters = useCallback(async () => {
         if (!course?.ID) return;
         try {
             const data = await chapterApi.list(course.ID);
@@ -25,7 +19,13 @@ export function ChaptersPage() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [course?.ID]);
+
+    useEffect(() => {
+        if (course?.ID) {
+            void loadChapters();
+        }
+    }, [course?.ID, loadChapters]);
 
     if (isLoading) {
         return (

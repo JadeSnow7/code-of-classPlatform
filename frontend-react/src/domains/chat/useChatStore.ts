@@ -138,7 +138,8 @@ export const useChatStore = create<ChatStoreState>()(
 
             // Send message - async action
             sendMessage: async (prompt: string) => {
-                let { currentConversationId, conversations, mode, rag } = get();
+                const { conversations, mode, rag, currentConversationId: initialConversationId } = get();
+                let currentConversationId = initialConversationId;
 
                 // Create new conversation if none exists
                 if (!currentConversationId) {
@@ -190,9 +191,10 @@ export const useChatStore = create<ChatStoreState>()(
                         onFinish: () => get().finishStreaming(),
                         onError: (error: Error) => get().setError(error.message),
                     });
-                } catch (err: any) {
-                    if (err.name !== 'AbortError') {
-                        get().setError(err.message || 'Stream failed');
+                } catch (err: unknown) {
+                    const error = err instanceof Error ? err : new Error('Stream failed');
+                    if (error.name !== 'AbortError') {
+                        get().setError(error.message);
                     }
                 }
             },

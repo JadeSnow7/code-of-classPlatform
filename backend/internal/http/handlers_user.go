@@ -63,19 +63,19 @@ type TeacherStats struct {
 func (h *userHandlers) GetStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
 		return
 	}
 
 	switch u.Role {
 	case "student":
 		stats := h.getStudentStats(u.ID)
-		c.JSON(http.StatusOK, stats)
+		respondOK(c, stats)
 	case "teacher", "admin", "assistant":
 		stats := h.getTeacherStats(u.ID, u.Role)
-		c.JSON(http.StatusOK, stats)
+		respondOK(c, stats)
 	default:
-		c.JSON(http.StatusOK, gin.H{})
+		respondOK(c, gin.H{})
 	}
 }
 

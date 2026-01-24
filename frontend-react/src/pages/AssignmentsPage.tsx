@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { FileText, Plus, Calendar, User, ChevronRight, Loader2 } from 'lucide-react';
 import { assignmentApi, type Assignment } from '@/api/assignment';
@@ -14,24 +14,25 @@ export function AssignmentsPage() {
     const user = authStore.getUser();
     const canCreate = user?.role === 'admin' || user?.role === 'teacher';
 
-    useEffect(() => {
-        if (!courseId) return;
-        loadAssignments();
-    }, [courseId]);
-
-    const loadAssignments = async () => {
+    const loadAssignments = useCallback(async () => {
         if (!courseId) return;
         setIsLoading(true);
         setError(null);
         try {
             const data = await assignmentApi.listByCourse(parseInt(courseId));
             setAssignments(data);
-        } catch (err: any) {
-            setError(err.message || 'Failed to load assignments');
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to load assignments';
+            setError(message);
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [courseId]);
+
+    useEffect(() => {
+        if (!courseId) return;
+        void loadAssignments();
+    }, [courseId, loadAssignments]);
 
     const handleCreate = async (title: string, description: string) => {
         if (!courseId) return;
@@ -43,8 +44,9 @@ export function AssignmentsPage() {
             });
             setShowCreate(false);
             loadAssignments();
-        } catch (err: any) {
-            alert('创建失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '创建失败';
+            alert('创建失败: ' + message);
         }
     };
 
@@ -204,4 +206,3 @@ function CreateAssignmentModal({
         </div>
     );
 }
-

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
     ArrowLeft, Clock, Trophy, Plus, Trash2,
@@ -28,14 +28,46 @@ export function QuizDetailPage() {
     const user = authStore.getUser();
     const isTeacher = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'assistant';
 
+    const loadQuiz = useCallback(async () => {
+        if (!quizId) return;
+        setIsLoading(true);
+        setError(null);
+        try {
+            const data = await quizApi.get(parseInt(quizId));
+            setQuiz(data.quiz);
+            setQuestions(data.questions);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Failed to load quiz';
+            setError(message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [quizId]);
+
+    const handleSubmit = useCallback(async () => {
+        if (!quizId || isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            const result = await quizApi.submit(parseInt(quizId), answers);
+            setResultData({ score: result.score, max_score: result.max_score });
+            setShowResult(true);
+            setAttempt(result.attempt);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '提交失败';
+            alert('提交失败: ' + message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [quizId, isSubmitting, answers]);
+
     useEffect(() => {
         if (!quizId) return;
-        loadQuiz();
-    }, [quizId]);
+        void loadQuiz();
+    }, [quizId, loadQuiz]);
 
     // Countdown timer
     useEffect(() => {
-        if (!attempt || attempt.submitted_at || !timeLeft) return;
+        if (!attempt || attempt.submitted_at) return;
 
         const interval = setInterval(() => {
             const deadline = new Date(attempt.deadline).getTime();
@@ -44,35 +76,21 @@ export function QuizDetailPage() {
             setTimeLeft(remaining);
 
             if (remaining <= 0) {
-                handleSubmit();
+                void handleSubmit();
             }
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [attempt, timeLeft]);
-
-    const loadQuiz = async () => {
-        if (!quizId) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await quizApi.get(parseInt(quizId));
-            setQuiz(data.quiz);
-            setQuestions(data.questions);
-        } catch (err: any) {
-            setError(err.message || 'Failed to load quiz');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    }, [attempt, handleSubmit]);
 
     const handlePublish = async () => {
         if (!quizId) return;
         try {
             const updated = await quizApi.publish(parseInt(quizId));
             setQuiz(updated);
-        } catch (err: any) {
-            alert('发布失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '发布失败';
+            alert('发布失败: ' + message);
         }
     };
 
@@ -81,8 +99,9 @@ export function QuizDetailPage() {
         try {
             const updated = await quizApi.unpublish(parseInt(quizId));
             setQuiz(updated);
-        } catch (err: any) {
-            alert('取消发布失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '取消发布失败';
+            alert('取消发布失败: ' + message);
         }
     };
 
@@ -91,8 +110,9 @@ export function QuizDetailPage() {
         try {
             await quizApi.deleteQuestion(questionId);
             setQuestions(questions.filter(q => q.ID !== questionId));
-        } catch (err: any) {
-            alert('删除失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '删除失败';
+            alert('删除失败: ' + message);
         }
     };
 
@@ -112,25 +132,13 @@ export function QuizDetailPage() {
             if (data.resumed && data.attempt.answers) {
                 try {
                     setAnswers(JSON.parse(data.attempt.answers));
-                } catch { }
+                } catch (error) {
+                    console.warn('Failed to parse saved answers', error);
+                }
             }
-        } catch (err: any) {
-            alert('开始测验失败: ' + err.message);
-        }
-    };
-
-    const handleSubmit = async () => {
-        if (!quizId || isSubmitting) return;
-        setIsSubmitting(true);
-        try {
-            const result = await quizApi.submit(parseInt(quizId), answers);
-            setResultData({ score: result.score, max_score: result.max_score });
-            setShowResult(true);
-            setAttempt(result.attempt);
-        } catch (err: any) {
-            alert('提交失败: ' + err.message);
-        } finally {
-            setIsSubmitting(false);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '开始测验失败';
+            alert('开始测验失败: ' + message);
         }
     };
 
@@ -530,6 +538,12 @@ function AddQuestionModal({
     const [answer, setAnswer] = useState('');
     const [points, setPoints] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const questionTypes = [
+        { value: 'single_choice', label: '单选题' },
+        { value: 'multiple_choice', label: '多选题' },
+        { value: 'true_false', label: '判断题' },
+        { value: 'fill_blank', label: '填空题' },
+    ] as const;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -547,8 +561,9 @@ function AddQuestionModal({
                 points,
             });
             onAdd(question);
-        } catch (err: any) {
-            alert('添加失败: ' + err.message);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '添加失败';
+            alert('添加失败: ' + message);
         } finally {
             setIsSubmitting(false);
         }
@@ -563,17 +578,12 @@ function AddQuestionModal({
                     <div>
                         <label className="block text-sm text-gray-400 mb-1">题目类型</label>
                         <div className="grid grid-cols-2 gap-2">
-                            {[
-                                { value: 'single_choice', label: '单选题' },
-                                { value: 'multiple_choice', label: '多选题' },
-                                { value: 'true_false', label: '判断题' },
-                                { value: 'fill_blank', label: '填空题' },
-                            ].map((t) => (
+                            {questionTypes.map((t) => (
                                 <button
                                     key={t.value}
                                     type="button"
                                     onClick={() => {
-                                        setType(t.value as any);
+                                        setType(t.value);
                                         setAnswer('');
                                     }}
                                     className={`py-2 rounded-lg text-sm transition-colors ${type === t.value

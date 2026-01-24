@@ -85,7 +85,7 @@ export interface LearningTimelineParams {
 }
 
 export interface LearningTimelineResponse {
-    data: LearningEvent[];
+    items: LearningEvent[];
     total: number;
     page: number;
     page_size: number;
@@ -99,7 +99,20 @@ export async function getLearningTimeline(
     params?: LearningTimelineParams
 ): Promise<LearningTimelineResponse> {
     const response = await apiClient.get(`/students/${studentId}/learning-timeline`, { params });
-    return response.data;
+    const payload = response.data as {
+        items?: LearningEvent[];
+        data?: LearningEvent[];
+        total?: number;
+        page?: number;
+        page_size?: number;
+    };
+    const items = payload.items ?? payload.data ?? [];
+    return {
+        items,
+        total: payload.total ?? items.length,
+        page: payload.page ?? params?.page ?? 1,
+        page_size: payload.page_size ?? params?.page_size ?? items.length,
+    };
 }
 
 /**

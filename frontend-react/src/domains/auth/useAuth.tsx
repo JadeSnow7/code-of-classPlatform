@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useReducer, useEffect, useCallback, createContext, useContext, type ReactNode } from 'react';
 import { authApi } from '@/api/auth';
 import { authStore, type User } from '@/lib/auth-store';

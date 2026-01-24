@@ -22,9 +22,20 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // Response interceptor: handle errors
 apiClient.interceptors.response.use(
     (response) => {
-        // Unwrap { success, data } pattern if present
-        if (response.data && typeof response.data === 'object' && 'data' in response.data) {
-            return { ...response, data: response.data.data };
+        const payload = response.data;
+        if (payload && typeof payload === 'object') {
+            // Envelope format
+            if ('success' in payload) {
+                if (payload.success) {
+                    return { ...response, data: payload.data };
+                }
+                const message = payload.error?.message ?? 'Request failed';
+                return Promise.reject(new Error(message));
+            }
+            // Legacy { data } format (without success field)
+            if ('data' in payload) {
+                return { ...response, data: payload.data };
+            }
         }
         return response;
     },

@@ -59,7 +59,7 @@ func (h *adminHandlers) GetSystemStats(c *gin.Context) {
 		stats.UsersByRole[role] = count
 	}
 
-	c.JSON(http.StatusOK, stats)
+	respondOK(c, stats)
 }
 
 // ListUsers returns a list of all users
@@ -84,7 +84,7 @@ func (h *adminHandlers) ListUsers(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"users": result})
+	respondOK(c, gin.H{"users": result})
 }
 
 // CreateUserRequest is the request body for creating a user
@@ -99,20 +99,20 @@ type CreateUserRequest struct {
 func (h *adminHandlers) CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
 	// Check if username already exists
 	var existing models.User
 	if h.db.Where("username = ?", req.Username).First(&existing).Error == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "username already exists"})
+		respondError(c, http.StatusConflict, "CONFLICT", "username already exists", nil)
 		return
 	}
 
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to hash password", nil)
 		return
 	}
 
@@ -124,11 +124,11 @@ func (h *adminHandlers) CreateUser(c *gin.Context) {
 	}
 
 	if err := h.db.Create(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create user", nil)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	respondCreated(c, gin.H{
 		"id":       user.ID,
 		"username": user.Username,
 		"role":     user.Role,
@@ -149,13 +149,13 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 
 	var user models.User
 	if err := h.db.First(&user, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "user not found", nil)
 		return
 	}
 
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	if req.Password != "" {
 		passwordHash, err := auth.HashPassword(req.Password)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to hash password", nil)
 			return
 		}
 		updates["password_hash"] = passwordHash
@@ -172,7 +172,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 
 	if req.Role != "" {
 		if req.Role != "admin" && req.Role != "teacher" && req.Role != "assistant" && req.Role != "student" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role"})
+			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid role", nil)
 			return
 		}
 		updates["role"] = req.Role
@@ -184,7 +184,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 
 	if len(updates) > 0 {
 		if err := h.db.Model(&user).Updates(updates).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update user"})
+			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update user", nil)
 			return
 		}
 	}
@@ -192,7 +192,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	// Reload user
 	h.db.First(&user, id)
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"id":       user.ID,
 		"username": user.Username,
 		"role":     user.Role,
@@ -207,20 +207,20 @@ func (h *adminHandlers) DeleteUser(c *gin.Context) {
 
 	var user models.User
 	if err := h.db.First(&user, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		respondError(c, http.StatusNotFound, "NOT_FOUND", "user not found", nil)
 		return
 	}
 
 	// Prevent deleting yourself
 	if user.ID == currentUser.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot delete yourself"})
+		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot delete yourself", nil)
 		return
 	}
 
 	if err := h.db.Delete(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete user"})
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete user", nil)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
+	respondOK(c, gin.H{"message": "user deleted"})
 }
