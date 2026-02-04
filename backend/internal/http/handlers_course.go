@@ -1,27 +1,30 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/emfield-teaching-platform/backend/internal/services"
 	"gorm.io/gorm"
 )
 
 type courseHandlers struct {
-	db *gorm.DB
+	service *services.CourseService
 }
 
 func newCourseHandlers(db *gorm.DB) *courseHandlers {
-	return &courseHandlers{db: db}
+	return &courseHandlers{service: services.NewCourseService(db)}
 }
 
 type createCourseRequest struct {
-	Name     string `json:"name" binding:"required"`
-	Code     string `json:"code"`
-	Semester string `json:"semester"`
+	Name           string                 `json:"name" binding:"required"`
+	Code           string                 `json:"code"`
+	Semester       string                 `json:"semester"`
+	EnabledModules []string               `json:"enabled_modules"`
+	ModuleSettings map[string]interface{} `json:"module_settings"`
 }
 
 func (h *courseHandlers) Create(c *gin.Context) {
@@ -37,13 +40,21 @@ func (h *courseHandlers) Create(c *gin.Context) {
 		return
 	}
 
-	course := models.Course{
-		Name:      req.Name,
-		Code:      req.Code,
-		Semester:  req.Semester,
-		TeacherID: u.ID,
+	user := services.UserInfo{ID: u.ID, Role: u.Role}
+	svcReq := services.CreateCourseRequest{
+		Name:           req.Name,
+		Code:           req.Code,
+		Semester:       req.Semester,
+		EnabledModules: req.EnabledModules,
+		ModuleSettings: req.ModuleSettings,
 	}
-	if err := h.db.Create(&course).Error; err != nil {
+
+	course, err := h.service.CreateCourse(c.Request.Context(), user, svcReq)
+	if err != nil {
+		if errors.Is(err, services.ErrAccessDeniedService) {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "CREATE_COURSE_FAILED", "create course failed", nil)
 		return
 	}
@@ -57,30 +68,11 @@ func (h *courseHandlers) List(c *gin.Context) {
 		return
 	}
 
-	var courses []models.Course
-
-	switch u.Role {
-	case "admin":
-		// Admin sees all courses
-		if err := h.db.Order("id desc").Find(&courses).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
-			return
-		}
-	case "teacher":
-		// Teacher sees courses they created
-		if err := h.db.Where("teacher_id = ?", u.ID).Order("id desc").Find(&courses).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
-			return
-		}
-	default:
-		// Student/Assistant: filter by enrollment
-		if err := h.db.Joins("JOIN course_enrollments ON course_enrollments.course_id = courses.id").
-			Where("course_enrollments.user_id = ? AND course_enrollments.deleted_at IS NULL", u.ID).
-			Order("courses.id desc").
-			Find(&courses).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
-			return
-		}
+	user := services.UserInfo{ID: u.ID, Role: u.Role}
+	courses, err := h.service.ListCourses(c.Request.Context(), user)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "LIST_COURSES_FAILED", "list courses failed", nil)
+		return
 	}
 
 	respondOK(c, courses)
@@ -93,36 +85,115 @@ func (h *courseHandlers) Get(c *gin.Context) {
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
 		return
 	}
 
-	var course models.Course
-	if err := h.db.First(&course, courseID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+	user := services.UserInfo{ID: u.ID, Role: u.Role}
+	course, err := h.service.GetCourse(c.Request.Context(), uint(courseID), user)
+	if err != nil {
+		if errors.Is(err, services.ErrCourseNotFoundService) {
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			return
+		}
+		if errors.Is(err, services.ErrAccessDeniedService) {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "GET_COURSE_FAILED", "get course failed", nil)
 		return
 	}
 
-	// Access control
-	switch u.Role {
-	case "admin":
-		// allow
-	case "teacher":
-		if course.TeacherID != u.ID {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
-			return
-		}
-	default:
-		var enrollment models.CourseEnrollment
-		if err := h.db.Where("course_id = ? AND user_id = ? AND deleted_at IS NULL", course.ID, u.ID).
-			First(&enrollment).Error; err != nil {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
-			return
-		}
+	respondOK(c, course)
+}
+
+type updateCourseModulesRequest struct {
+	EnabledModules []string               `json:"enabled_modules" binding:"required"`
+	ModuleSettings map[string]interface{} `json:"module_settings"`
+}
+
+func (h *courseHandlers) GetModules(c *gin.Context) {
+	u, ok := middleware.GetUser(c)
+	if !ok {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		return
 	}
 
-	respondOK(c, course)
+	idStr := c.Param("courseId")
+	courseID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		return
+	}
+
+	user := services.UserInfo{ID: u.ID, Role: u.Role}
+	modules, settings, err := h.service.GetModules(c.Request.Context(), uint(courseID), user)
+	if err != nil {
+		if errors.Is(err, services.ErrCourseNotFoundService) {
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			return
+		}
+		if errors.Is(err, services.ErrAccessDeniedService) {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "MODULE_CONFIG_INVALID", "invalid module config", nil)
+		return
+	}
+
+	respondOK(c, gin.H{
+		"course_id":       courseID,
+		"enabled_modules": modules,
+		"module_settings": settings,
+	})
+}
+
+func (h *courseHandlers) UpdateModules(c *gin.Context) {
+	u, ok := middleware.GetUser(c)
+	if !ok {
+		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		return
+	}
+
+	idStr := c.Param("courseId")
+	courseID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		return
+	}
+
+	var req updateCourseModulesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
+		return
+	}
+
+	user := services.UserInfo{ID: u.ID, Role: u.Role}
+	svcReq := services.UpdateModulesRequest{
+		EnabledModules: req.EnabledModules,
+		ModuleSettings: req.ModuleSettings,
+	}
+
+	modules, settings, err := h.service.UpdateModules(c.Request.Context(), uint(courseID), user, svcReq)
+	if err != nil {
+		if errors.Is(err, services.ErrCourseNotFoundService) {
+			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			return
+		}
+		if errors.Is(err, services.ErrAccessDeniedService) {
+			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "UPDATE_FAILED", "failed to update modules", nil)
+		return
+	}
+
+	respondOK(c, gin.H{
+		"course_id":       courseID,
+		"enabled_modules": modules,
+		"module_settings": settings,
+	})
 }
