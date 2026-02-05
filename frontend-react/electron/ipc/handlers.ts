@@ -82,6 +82,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     });
 
     ipcMain.handle(IPC_CHANNELS.MODEL_DOWNLOAD, async (_event, _modelId: string) => {
+        void _event;
+        void _modelId;
         // TODO: 实现模型下载
         void _event;
         void _modelId;
@@ -89,6 +91,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     });
 
     ipcMain.handle(IPC_CHANNELS.MODEL_DELETE, async (_event, _modelId: string) => {
+        void _event;
+        void _modelId;
         // TODO: 实现模型删除
         void _event;
         void _modelId;

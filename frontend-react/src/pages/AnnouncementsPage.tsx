@@ -19,7 +19,10 @@ export function AnnouncementsPage() {
 
     const loadAnnouncements = useCallback(async () => {
         const courseId = course?.ID;
-        if (!courseId) return;
+        if (!courseId) {
+            setLoading(false);
+            return;
+        }
         try {
             const data = await announcementApi.list(courseId);
             setAnnouncements(data);
@@ -31,10 +34,9 @@ export function AnnouncementsPage() {
     }, [course?.ID]);
 
     useEffect(() => {
-        if (!course?.ID) return;
         setLoading(true);
         loadAnnouncements();
-    }, [course?.ID, loadAnnouncements]);
+    }, [loadAnnouncements]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -43,12 +45,12 @@ export function AnnouncementsPage() {
         try {
             await announcementApi.create(course.ID, {
                 title: newTitle,
-                content: newContent
+                content: newContent,
             });
             setIsCreating(false);
             setNewTitle('');
             setNewContent('');
-            loadAnnouncements();
+            await loadAnnouncements();
         } catch (error) {
             logger.error('failed to create announcement', { error, courseId: course?.ID });
             alert('Failed to create announcement');
@@ -59,7 +61,7 @@ export function AnnouncementsPage() {
         if (!confirm('Are you sure you want to delete this announcement?')) return;
         try {
             await announcementApi.delete(id);
-            loadAnnouncements();
+            await loadAnnouncements();
         } catch (error) {
             logger.error('failed to delete announcement', { error, id });
         }

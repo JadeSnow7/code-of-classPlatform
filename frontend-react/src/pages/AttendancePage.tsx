@@ -27,12 +27,15 @@ export function AttendancePage() {
 
     const refreshData = useCallback(async () => {
         const courseId = course?.ID;
-        if (!courseId) return;
+        if (!courseId) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
             const [summaryData, sessionsData] = await Promise.all([
                 attendanceApi.getSummary(courseId),
-                attendanceApi.listSessions(courseId)
+                attendanceApi.listSessions(courseId),
             ]);
             setSummary(summaryData);
             setSessions(sessionsData);
@@ -64,8 +67,9 @@ export function AttendancePage() {
 
     const handleStartSession = async () => {
         try {
-            await attendanceApi.startSession(course!.ID, timeoutMinutes);
-            refreshData();
+            if (!course?.ID) return;
+            await attendanceApi.startSession(course.ID, timeoutMinutes);
+            await refreshData();
         } catch (error) {
             logger.error('failed to start session', { error, courseId: course?.ID });
             alert('Failed to start session');
@@ -75,7 +79,7 @@ export function AttendancePage() {
     const handleEndSession = async (sessionId: number) => {
         try {
             await attendanceApi.endSession(sessionId);
-            refreshData();
+            await refreshData();
         } catch (error) {
             logger.error('failed to end session', { error, sessionId });
             alert('Failed to end session');
@@ -90,7 +94,7 @@ export function AttendancePage() {
             await attendanceApi.checkin(summary.active_session.id, checkinCode);
             setCheckinStatus('success');
             setCheckinMessage('签到成功！');
-            refreshData();
+            await refreshData();
         } catch (error) {
             logger.error('failed to check in', { error, sessionId: summary.active_session.id });
             setCheckinStatus('error');

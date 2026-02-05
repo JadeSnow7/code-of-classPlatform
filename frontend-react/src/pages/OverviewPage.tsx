@@ -37,7 +37,6 @@ export function OverviewPage() {
     }, [course?.ID]);
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadStats();
     }, [loadStats]);
 

@@ -25,12 +25,6 @@ type loginData struct {
 	Role        string `json:"role"`
 }
 
-type envelope[T any] struct {
-	Success bool     `json:"success"`
-	Data    T        `json:"data,omitempty"`
-	Error   *apiError `json:"error,omitempty"`
-}
-
 func setupAuthTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)

@@ -32,7 +32,7 @@ func setupAssignmentTestDB(t *testing.T) *gorm.DB {
 }
 
 func setupAssignmentRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
-	hAssignment := newAssignmentHandlers(db)
+	hAssignment := newAssignmentHandlers(db, nil)
 	hAuth := newAuthHandlers(db, jwtSecret)
 
 	r := gin.New()
@@ -43,7 +43,7 @@ func setupAssignmentRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	{
 		api.GET("/courses/:courseId/assignments", hAssignment.ListAssignments)
 		api.POST("/assignments/:id/submit", hAssignment.SubmitAssignment)
-		api.POST("/submissions/:id/grade", hAssignment.GradeSubmission)
+		api.POST("/submissions/:submissionId/grade", hAssignment.GradeSubmission)
 	}
 
 	return r

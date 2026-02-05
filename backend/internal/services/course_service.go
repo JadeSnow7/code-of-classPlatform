@@ -24,6 +24,11 @@ type UserInfo struct {
 	Role string
 }
 
+// IsTeacher returns true for roles that can manage courses/quizzes.
+func (u UserInfo) IsTeacher() bool {
+	return u.Role == "admin" || u.Role == "teacher" || u.Role == "assistant"
+}
+
 // CourseService handles course management and module configuration.
 type CourseService struct {
 	repo *repositories.CourseRepository

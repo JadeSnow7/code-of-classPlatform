@@ -16,29 +16,29 @@ class TestDetectWeakPoints:
     def test_positive_feedback_returns_empty(self):
         """Positive feedback should not trigger weak point detection."""
         reply = "你的回答正确！高斯定律的理解很到位。"
-        result = detect_weak_points(reply)
+        result = detect_weak_points(reply, domain="emfield")
         assert result == []
 
     def test_negative_feedback_triggers_detection(self):
         """Negative feedback should detect concepts."""
         reply = "这个想法有道理，但是还需要注意高斯定律的适用范围。"
-        result = detect_weak_points(reply)
+        result = detect_weak_points(reply, domain="emfield")
         assert "高斯定律" in result
 
     def test_multiple_concepts_detected(self):
         """Multiple concepts in negative context should all be detected."""
         reply = "你对边界条件和麦克斯韦方程的理解都有偏差。"
-        result = detect_weak_points(reply)
+        result = detect_weak_points(reply, domain="emfield")
         assert "边界条件" in result or "麦克斯韦方程" in result
 
     def test_empty_input_returns_empty(self):
         """Empty input should return empty list."""
-        result = detect_weak_points("")
+        result = detect_weak_points("", domain="emfield")
         assert result == []
 
     def test_neutral_text_returns_empty(self):
         """Neutral text without indicators should return empty."""
-        result = detect_weak_points("今天天气不错。")
+        result = detect_weak_points("今天天气不错。", domain="emfield")
         assert result == []
 
 
@@ -47,7 +47,7 @@ class TestWeakPointDetector:
 
     @pytest.fixture
     def detector(self):
-        return WeakPointDetector()
+        return WeakPointDetector(domain="emfield")
 
     def test_analyze_positive_response(self, detector):
         """Positive response should not be marked as negative."""
@@ -100,7 +100,7 @@ class TestDomainConcepts:
 
     @pytest.fixture
     def detector(self):
-        return WeakPointDetector()
+        return WeakPointDetector(domain="emfield")
 
     @pytest.mark.parametrize("concept,text", [
         ("高斯定律", "高斯定律的积分形式有问题"),

@@ -26,7 +26,6 @@ func newChapterHandlers(db *gorm.DB) *chapterHandlers {
 // ============ Request/Response Types ============
 
 type createChapterRequest struct {
-	CourseID        uint   `json:"course_id" binding:"required"`
 	Title           string `json:"title" binding:"required"`
 	OrderNum        int    `json:"order_num"`
 	Summary         string `json:"summary"`
@@ -85,6 +84,12 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 		return
 	}
 
+	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		return
+	}
+
 	var req createChapterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
@@ -95,7 +100,7 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 		ID:   u.ID,
 		Role: u.Role,
 	}, services.CreateChapterRequest{
-		CourseID:        req.CourseID,
+		CourseID:        uint(courseID),
 		Title:           req.Title,
 		OrderNum:        req.OrderNum,
 		Summary:         req.Summary,
@@ -114,7 +119,7 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 		return
 	}
 
-	respondOK(c, chapter)
+	respondCreated(c, chapter)
 }
 
 // GetChapter returns a single chapter

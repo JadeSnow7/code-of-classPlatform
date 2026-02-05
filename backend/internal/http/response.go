@@ -12,6 +12,12 @@ type apiError struct {
 	Details interface{} `json:"details,omitempty"`
 }
 
+type envelope[T any] struct {
+	Success bool      `json:"success"`
+	Data    T         `json:"data,omitempty"`
+	Error   *apiError `json:"error,omitempty"`
+}
+
 type apiEnvelope struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`

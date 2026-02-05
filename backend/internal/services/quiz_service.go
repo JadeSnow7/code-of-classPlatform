@@ -46,17 +46,6 @@ var (
 	ErrUnpublishNotAllowed = errors.New("cannot unpublish: attempts exist")
 )
 
-// UserInfo represents user context for authorization decisions.
-type UserInfo struct {
-	ID   uint
-	Role string
-}
-
-// IsTeacher returns true for roles that can manage quizzes.
-func (u UserInfo) IsTeacher() bool {
-	return u.Role == "admin" || u.Role == "teacher" || u.Role == "assistant"
-}
-
 // QuizService handles quiz management and attempts.
 type QuizService struct {
 	repo *repositories.QuizRepository
