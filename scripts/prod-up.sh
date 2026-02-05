@@ -84,13 +84,15 @@ docker-compose -f "$COMPOSE_FILE" ps
 echo -e "${BLUE}运行健康检查...${NC}"
 sleep 10
 
-# Check if services are responding
-services=("backend:8080/health" "ai:8001/health" "sim:8002/health")
-for service in "${services[@]}"; do
-    if docker-compose -f "$COMPOSE_FILE" exec -T ${service%:*} curl -f "http://localhost:${service#*:}" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ ${service%:*} 服务健康${NC}"
+# Check if services are responding (host-level healthz)
+services=("backend:8080/healthz" "ai:8001/healthz" "sim:8002/healthz")
+for entry in "${services[@]}"; do
+    name="${entry%%:*}"
+    path="${entry#*:}"
+    if curl -sf "http://localhost:${path}" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ ${name} 服务健康${NC}"
     else
-        echo -e "${YELLOW}⚠ ${service%:*} 服务可能未完全启动${NC}"
+        echo -e "${YELLOW}⚠ ${name} 服务可能未完全启动${NC}"
     fi
 done
 

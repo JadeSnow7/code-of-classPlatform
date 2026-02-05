@@ -347,7 +347,9 @@ function SubmissionCard({
                     <span className="text-gray-400 text-sm">学生 #{submission.student_id}</span>
                     <span className="text-gray-600 mx-2">•</span>
                     <span className="text-gray-500 text-sm">
-                        {new Date(submission.CreatedAt).toLocaleString('zh-CN')}
+                        {submission.CreatedAt || submission.submitted_at
+                            ? new Date(submission.CreatedAt ?? submission.submitted_at ?? '').toLocaleString('zh-CN')
+                            : '未知时间'}
                     </span>
                 </div>
                 {submission.grade !== null ? (

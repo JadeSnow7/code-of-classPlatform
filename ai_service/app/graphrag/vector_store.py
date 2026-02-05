@@ -20,6 +20,7 @@ _executor = ThreadPoolExecutor(max_workers=2)
 @dataclass
 class SearchResult:
     """Result from vector search."""
+
     chunk_id: str
     score: float
     metadata: dict = field(default_factory=dict)
@@ -72,6 +73,7 @@ class FAISSStore(VectorStore):
     """
 
     def __init__(self, dimension: int = 1024):
+        """Initialize the FAISS vector store."""
         self.dimension = dimension
         self._index = None
         self._id_to_idx: dict[str, int] = {}  # chunk_id -> faiss index
@@ -112,7 +114,7 @@ class FAISSStore(VectorStore):
         vectors: list[list[float]],
         metadata: list[dict],
     ) -> None:
-        """Synchronous add."""
+        """Synchronize vector additions."""
         import numpy as np
 
         index = self._ensure_index()
@@ -171,7 +173,7 @@ class FAISSStore(VectorStore):
         top_k: int,
         filters: dict | None,
     ) -> list[SearchResult]:
-        """Synchronous search with filtering."""
+        """Synchronize search with filtering."""
         import numpy as np
 
         if self._index is None or self._index.ntotal == 0:
@@ -224,7 +226,7 @@ class FAISSStore(VectorStore):
         return await loop.run_in_executor(_executor, self._sync_delete, ids)
 
     def _sync_delete(self, ids: list[str]) -> int:
-        """Synchronous delete."""
+        """Synchronize deletions."""
         deleted = 0
         for chunk_id in ids:
             if chunk_id in self._id_to_idx:
@@ -268,7 +270,7 @@ class FAISSStore(VectorStore):
         await loop.run_in_executor(_executor, self._sync_save, path)
 
     def _sync_save(self, path: str) -> None:
-        """Synchronous save."""
+        """Synchronize persistence to disk."""
         import faiss
 
         p = Path(path)
@@ -298,7 +300,7 @@ class FAISSStore(VectorStore):
         await loop.run_in_executor(_executor, self._sync_load, path)
 
     def _sync_load(self, path: str) -> None:
-        """Synchronous load."""
+        """Synchronize loading from disk."""
         import faiss
 
         p = Path(path)
@@ -327,7 +329,7 @@ class FAISSStore(VectorStore):
 
 
 def get_vector_store(dimension: int = 1024) -> VectorStore:
-    """Factory function to get vector store."""
+    """Return the configured vector store."""
     store_type = os.getenv("VECTOR_STORE_TYPE", "faiss").lower()
     
     if store_type == "faiss":

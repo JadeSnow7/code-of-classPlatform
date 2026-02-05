@@ -2,11 +2,19 @@ import { apiClient } from './api/client';
 
 const MOCK_MODE = import.meta.env.VITE_MOCK_API === 'true';
 
+/**
+ * Course representation used by the frontend.
+ */
 export interface Course {
+    /** Course identifier. */
     id: string;
+    /** Course display name. */
     name: string;
+    /** Course description text. */
     description: string;
+    /** Instructor display name or label. */
     instructor: string;
+    /** Optional cover image URL. */
     coverImage?: string;
 }
 
@@ -34,14 +42,19 @@ interface BackendCourse {
 }
 
 export const courseService = {
+    /**
+     * Fetch the list of courses.
+     *
+     * @returns The list of courses.
+     */
     async list(): Promise<Course[]> {
         if (MOCK_MODE) {
             return MOCK_COURSES;
         }
 
-        const response = await apiClient.get<BackendCourse[]>('/courses');
+        const data = await apiClient.get<BackendCourse[]>('/courses');
         // Map backend format to frontend format
-        return response.data.map((c) => ({
+        return data.map((c) => ({
             id: String(c.ID),
             name: c.name,
             description: c.description || '暂无描述',
@@ -49,12 +62,18 @@ export const courseService = {
         }));
     },
 
+    /**
+     * Fetch a course by its identifier.
+     *
+     * @param id Course identifier.
+     * @returns The course or undefined if not found.
+     */
     async getById(id: string): Promise<Course | undefined> {
         if (MOCK_MODE) {
             return MOCK_COURSES.find((c) => c.id === id);
         }
 
-        const response = await apiClient.get<Course>(`/courses/${id}`);
-        return response.data;
+        const data = await apiClient.get<Course>(`/courses/${id}`);
+        return data;
     },
 };

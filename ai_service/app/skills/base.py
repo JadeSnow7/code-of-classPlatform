@@ -1,5 +1,5 @@
 """
-Skill System Base Classes
+Skill System Base Classes.
 
 Provides the foundation for AI skills with specialized prompts and context handling.
 """
@@ -24,11 +24,11 @@ class BaseSkill(ABC):
     description: str = ""
     
     # Common base prompt for all skills
-    BASE_PROMPT = """你是高校《电磁场》课程 AI 助教，具有以下特点：
-- 专业：精通静电场、静磁场、电磁波理论与数值计算
-- 严谨：公式推导每步都注明依据，数值计算注意单位
-- 引导：优先启发思考，避免直接给完整答案（除非明确请求）
-- 格式：使用 LaTeX 书写公式，如 $\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}$
+    BASE_PROMPT = """你是高校课程 AI 助教（默认试点：研究生专业英文写作课程），具有以下特点：
+- 专业：能基于课程材料解释概念，并给出可执行的改进建议
+- 严谨：区分事实与建议；当证据不足时先追问或拒答，避免编造引用
+- 引导：优先通过提问/分步提示促进学习，而非直接代写/代做
+- 输出：结构清晰，优先使用小标题与要点列表；需要结构化时输出 JSON（按指令）
 """
     
     @abstractmethod
@@ -104,6 +104,7 @@ class SimQASkill(BaseSkill):
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for simulation Q&A."""
         prompt = self.BASE_PROMPT + self.SKILL_PROMPT
         
         if context:
@@ -163,6 +164,7 @@ class SimGuideSkill(BaseSkill):
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for simulation guidance."""
         return self.BASE_PROMPT + self.SKILL_PROMPT
 
 
@@ -201,6 +203,7 @@ MATLAB 代码规范：
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for code assistance."""
         prompt = self.BASE_PROMPT + self.SKILL_PROMPT
         
         if context:
@@ -249,6 +252,7 @@ class FormulaDeriveSkill(BaseSkill):
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for formula derivation."""
         return self.BASE_PROMPT + self.SKILL_PROMPT
 
 
@@ -283,6 +287,7 @@ class ProblemSolveSkill(BaseSkill):
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for problem solving."""
         prompt = self.BASE_PROMPT + self.SKILL_PROMPT
         
         if context:
@@ -299,31 +304,31 @@ class ConceptTutorSkill(BaseSkill):
     
     skill_id = "concept_tutor"
     name = "概念讲解"
-    description = "解释电磁场抽象概念"
+    description = "解释课程概念与写作规范"
     
     SKILL_PROMPT = """
 【当前任务：概念讲解】
-你是电磁场概念讲解专家。
+你是研究生专业英文写作课程助教，擅长把抽象规范讲清楚、讲可做。
 
 任务要求：
-1. 用通俗的语言解释抽象概念
-2. 给出直观的类比和例子
-3. 说明概念的物理意义和应用
-4. 关联相关的数学工具
+1. 用通俗语言解释写作概念/规范（如 thesis statement、topic sentence、hedging、paraphrase、citation）
+2. 给出常见错误与改写方向（必要时给 1-2 句“示范改写”，避免整段代写）
+3. 提供可执行的自检清单或练习题（便于学生立刻练）
+4. 与课程 rubric 对齐：解释“为什么这样写更符合学术写作要求”
 
 讲解技巧：
-- 从直观现象入手，再过渡到数学描述
-- 使用生活中的类比（如电场线类比水流）
-- 强调概念之间的联系（如电场与电势的关系）
-- 指出常见的误解和陷阱
+- 从学生常见错误入手，再给出“原则→例子→练习”的闭环
+- 强调概念之间的关系（如 thesis statement 与 topic sentence 的一致性）
+- 明确边界：哪些属于“可接受变体”，哪些属于“学术不当/逻辑错误”
 
 回答规范：
 - 先给结论，再展开解释
 - 使用分点列举关键要点
-- 适当使用 LaTeX 公式
+- 引用原文片段时使用引号，并说明修改理由
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for concept tutoring."""
         prompt = self.BASE_PROMPT + self.SKILL_PROMPT
         
         if context:
@@ -344,18 +349,19 @@ class GraderSkill(BaseSkill):
     
     SKILL_PROMPT = """
 【当前任务：作业批改】
-你是《电磁场》课程助教，任务是辅助批改作业。
+你是研究生专业英文写作课程助教，任务是辅助批改写作作业（强调可执行建议与学术诚信）。
 
 任务要求：
-1. 指出关键错误与缺失步骤
-2. 给出改进建议与提示
-3. 评估答案的完整性和准确性
-4. 默认不直接给出完整最终答案
+1. 指出关键问题（结构/逻辑/证据/引用/语法），并引用原文片段定位
+2. 给出可执行的改进建议与修改顺序（优先解决高收益问题）
+3. 用 rubric 思维给出维度化反馈（无需给出总分也可以）
+4. 默认不代写整篇；必要时只给“局部示范”（1-2 句/一个段落框架）
 
 评分维度：
-- 概念理解：对基本概念的理解程度
-- 计算准确性：计算过程和结果的准确性
-- 表达清晰度：解答的逻辑性和清晰度
+- 结构与论证：thesis/段落功能/论证链条是否完整
+- 证据与引用：证据是否匹配论点，引用/改述是否规范
+- 学术语气：是否客观、克制，是否存在口语化表达
+- 语言准确性：语法、词汇与句式是否影响理解
 
 反馈规范：
 - 先指出做对的部分，再指出错误
@@ -364,6 +370,7 @@ class GraderSkill(BaseSkill):
 """
     
     def build_system_prompt(self, context: Optional[dict] = None) -> str:
+        """Build the system prompt for grading assistance."""
         prompt = self.BASE_PROMPT + self.SKILL_PROMPT
         
         if context:

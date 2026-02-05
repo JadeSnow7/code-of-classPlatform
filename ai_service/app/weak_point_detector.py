@@ -1,5 +1,5 @@
 """
-Weak Point Detector
+Weak Point Detector.
 
 Uses NLP techniques to detect student weak points from AI responses.
 Analyzes conversation to identify concepts the student struggles with.
@@ -7,9 +7,16 @@ Analyzes conversation to identify concepts the student struggles with.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+
+from app.writing_concepts import (
+    WRITING_CONCEPTS,
+    NEGATIVE_INDICATORS as WRITING_NEGATIVE_INDICATORS,
+    POSITIVE_INDICATORS as WRITING_POSITIVE_INDICATORS,
+)
 
 # Domain-specific terminology for electromagnetic field course
 EM_CONCEPTS = {
@@ -90,10 +97,30 @@ POSITIVE_INDICATORS = [
     "掌握了",
 ]
 
+def _normalize_domain(domain: str) -> str:
+    d = (domain or "").strip().lower()
+    if d in {"em", "emfield", "em_field", "electromagnetics"}:
+        return "emfield"
+    if d in {"writing", "academic_writing", "academic-writing", "academic"}:
+        return "writing"
+    return "writing"
+
+
+DOMAIN_CONCEPTS: dict[str, dict[str, list[str]]] = {
+    "emfield": EM_CONCEPTS,
+    "writing": WRITING_CONCEPTS,
+}
+
+DOMAIN_INDICATORS: dict[str, tuple[list[str], list[str]]] = {
+    "emfield": (NEGATIVE_INDICATORS, POSITIVE_INDICATORS),
+    "writing": (WRITING_NEGATIVE_INDICATORS, WRITING_POSITIVE_INDICATORS),
+}
+
 
 @dataclass
 class WeakPointAnalysis:
     """Result of weak point analysis."""
+
     detected_concepts: list[str] = field(default_factory=list)
     confidence: float = 0.0
     is_positive_response: bool = False
@@ -109,14 +136,25 @@ class WeakPointDetector:
     concepts that the student struggles with.
     """
     
-    def __init__(self, custom_concepts: Optional[dict[str, list[str]]] = None):
+    def __init__(self, domain: str = "writing", custom_concepts: Optional[dict[str, list[str]]] = None):
         """
         Initialize detector with concept dictionary.
         
         Args:
+            domain: Concept domain. Supported: writing (default), emfield.
             custom_concepts: Additional domain-specific concepts to detect
         """
-        self.concepts = EM_CONCEPTS.copy()
+        normalized_domain = _normalize_domain(domain)
+        base_concepts = DOMAIN_CONCEPTS.get(normalized_domain, WRITING_CONCEPTS)
+        negative, positive = DOMAIN_INDICATORS.get(
+            normalized_domain,
+            (WRITING_NEGATIVE_INDICATORS, WRITING_POSITIVE_INDICATORS),
+        )
+
+        self.domain = normalized_domain
+        self.concepts = base_concepts.copy()
+        self.negative_indicators = list(negative)
+        self.positive_indicators = list(positive)
         if custom_concepts:
             self.concepts.update(custom_concepts)
     
@@ -132,10 +170,11 @@ class WeakPointDetector:
             WeakPointAnalysis with detected concepts and metadata
         """
         result = WeakPointAnalysis()
+        ai_reply_lower = ai_reply.lower()
         
         # Check for positive/negative indicators
-        result.is_positive_response = any(ind in ai_reply for ind in POSITIVE_INDICATORS)
-        result.is_negative_response = any(ind in ai_reply for ind in NEGATIVE_INDICATORS)
+        result.is_positive_response = any(ind.lower() in ai_reply_lower for ind in self.positive_indicators)
+        result.is_negative_response = any(ind.lower() in ai_reply_lower for ind in self.negative_indicators)
         
         # If positive response, student likely doesn't have weak points in this topic
         if result.is_positive_response and not result.is_negative_response:
@@ -159,14 +198,16 @@ class WeakPointDetector:
         sentences = re.split(r'[。！？\n]', text)
         
         for sentence in sentences:
+            sentence_lower = sentence.lower()
             # Check if sentence contains negative indicator
-            has_negative = any(ind in sentence for ind in NEGATIVE_INDICATORS)
+            has_negative = any(ind.lower() in sentence_lower for ind in self.negative_indicators)
             
             if has_negative:
                 # Look for domain concepts in this sentence
                 for concept_name, keywords in self.concepts.items():
-                    for keyword in keywords:
-                        if keyword in sentence:
+                    candidates = list(keywords) + [concept_name]
+                    for keyword in candidates:
+                        if keyword.lower() in sentence_lower:
                             detected.add(concept_name)
                             break
         
@@ -178,7 +219,8 @@ class WeakPointDetector:
         sentences = re.split(r'[。！？\n]', text)
         
         for sentence in sentences:
-            if any(ind in sentence for ind in NEGATIVE_INDICATORS):
+            sentence_lower = sentence.lower()
+            if any(ind.lower() in sentence_lower for ind in self.negative_indicators):
                 sentence = sentence.strip()
                 if sentence and len(sentence) > 10:
                     excerpts.append(sentence)
@@ -217,27 +259,30 @@ class WeakPointDetector:
 
 
 # Global detector instance
-_detector: Optional[WeakPointDetector] = None
+_detectors: dict[str, WeakPointDetector] = {}
 
 
-def get_weak_point_detector() -> WeakPointDetector:
-    """Get or create the global weak point detector."""
-    global _detector
-    if _detector is None:
-        _detector = WeakPointDetector()
-    return _detector
+def get_weak_point_detector(domain: str | None = None) -> WeakPointDetector:
+    """Get or create the global weak point detector for a domain."""
+    normalized_domain = _normalize_domain(domain or os.getenv("WEAK_POINT_DOMAIN", "writing"))
+    detector = _detectors.get(normalized_domain)
+    if detector is None:
+        detector = WeakPointDetector(domain=normalized_domain)
+        _detectors[normalized_domain] = detector
+    return detector
 
 
-def detect_weak_points(ai_reply: str) -> list[str]:
+def detect_weak_points(ai_reply: str, domain: str | None = None) -> list[str]:
     """
-    Convenience function to detect weak points from AI reply.
+    Detect weak points from an AI reply.
     
     Args:
         ai_reply: The AI assistant's response
+        domain: Optional concept domain override (writing/emfield)
         
     Returns:
         List of detected weak point concept names
     """
-    detector = get_weak_point_detector()
+    detector = get_weak_point_detector(domain)
     analysis = detector.analyze(ai_reply)
     return analysis.detected_concepts

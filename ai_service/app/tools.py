@@ -1,5 +1,5 @@
 """
-AI Tool Calling Support
+AI Tool Calling Support.
 
 Defines tools that AI can invoke to perform calculations and simulations.
 """
@@ -162,6 +162,7 @@ AVAILABLE_TOOLS = [
 
 class ToolResult(BaseModel):
     """Result of tool execution."""
+
     success: bool
     result: Any | None = None
     error: str | None = None
@@ -299,9 +300,7 @@ async def _call_simulation(args: dict) -> ToolResult:
 
 
 def get_tool_result_message(name: str, result: ToolResult) -> str:
-    """
-    Format tool result as a message for the AI to process.
-    """
+    """Format tool result as a message for the AI to process."""
     if result.success:
         return f"工具 `{name}` 执行成功，结果：\n```json\n{result.result}\n```"
     else:

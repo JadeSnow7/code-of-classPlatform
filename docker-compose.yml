@@ -48,6 +48,7 @@ services:
     environment:
       HTTP_ADDR: ${BACKEND_HTTP_ADDR}
       JWT_SECRET: ${BACKEND_JWT_SECRET}
+      SECRETS_DIR: ${BACKEND_SECRETS_DIR}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
       DB_DSN: ${BACKEND_DB_DSN}
       AI_BASE_URL: ${BACKEND_AI_BASE_URL}
@@ -62,6 +63,9 @@ services:
       MINIO_USE_SSL: "false"
     ports:
       - "8080:8080"
+
+    volumes:
+      - ./secrets:/var/secrets:ro
 
     depends_on:
       mysql:

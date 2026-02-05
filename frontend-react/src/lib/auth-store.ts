@@ -1,11 +1,20 @@
 import { jwtDecode } from 'jwt-decode';
+import { createTokenStore } from '@classplatform/shared';
+import { logger } from '@/lib/logger';
 
 const TOKEN_KEY = 'auth_token';
 
+/**
+ * Authenticated user information derived from the JWT.
+ */
 export interface User {
+    /** User ID as a string. */
     id: string;
+    /** Display name of the user. */
     name: string;
+    /** Role used for permission checks. */
     role: 'admin' | 'teacher' | 'assistant' | 'student';
+    /** Feature permissions granted to the user. */
     permissions: string[];
 }
 
@@ -17,19 +26,46 @@ interface JWTPayload {
     iat: number;
 }
 
+const tokenStore = createTokenStore(
+    {
+        getItem: (key) => localStorage.getItem(key),
+        setItem: (key, value) => localStorage.setItem(key, value),
+        removeItem: (key) => localStorage.removeItem(key),
+    },
+    TOKEN_KEY
+);
+
 export const authStore = {
+    /**
+     * Persist a JWT in storage.
+     *
+     * @param token JWT string.
+     */
     setToken(token: string) {
-        localStorage.setItem(TOKEN_KEY, token);
+        tokenStore.setToken(token);
     },
 
+    /**
+     * Retrieve the stored JWT.
+     *
+     * @returns The token or null if missing.
+     */
     getToken(): string | null {
-        return localStorage.getItem(TOKEN_KEY);
+        return tokenStore.getToken();
     },
 
+    /**
+     * Remove the stored JWT.
+     */
     clearToken() {
-        localStorage.removeItem(TOKEN_KEY);
+        tokenStore.clearToken();
     },
 
+    /**
+     * Decode the JWT and return the user profile.
+     *
+     * @returns The user info or null if unauthenticated.
+     */
     getUser(): User | null {
         const token = this.getToken();
         if (!token) return null;
@@ -50,12 +86,17 @@ export const authStore = {
                 permissions: ['ai:use', 'sim:use', 'course:read'], // Default perms, should come from backend ideally
             };
         } catch (e) {
-            console.error('Failed to decode token', e);
+            logger.error('failed to decode token', { error: e });
             this.clearToken();
             return null;
         }
     },
 
+    /**
+     * Check whether a valid user is available.
+     *
+     * @returns True when authenticated.
+     */
     isAuthenticated(): boolean {
         return !!this.getUser();
     }

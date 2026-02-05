@@ -11,6 +11,8 @@ require (
 	github.com/minio/minio-go/v7 v7.0.97
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.43.0
+	golang.org/x/time v0.10.0
+	gorm.io/datatypes v1.2.7
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.0
 )

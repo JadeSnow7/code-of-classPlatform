@@ -7,6 +7,7 @@ import (
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/authz"
 )
 
+// RequirePermission enforces a permission check using the user's role.
 func RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		u, ok := GetUser(c)

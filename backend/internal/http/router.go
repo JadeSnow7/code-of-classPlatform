@@ -1,7 +1,6 @@
 package http
 
 import (
-	"net/http"
 	"strings"
 	"time"
 
@@ -11,13 +10,21 @@ import (
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/config"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
+// NewRouter builds the Gin engine with all routes and middleware configured.
 func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, simClient *clients.SimClient, minioClient *clients.MinioClient) *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(middleware.RequestID(), middleware.RequestLogger(), gin.Recovery())
 	r.Use(newCORS(cfg.CorsOrigins))
+
+	globalLimiter := middleware.NewRateLimiter(rate.Every(100*time.Millisecond), 20, 10*time.Minute)
+	authLimiter := middleware.NewRateLimiter(rate.Every(12*time.Second), 5, 30*time.Minute)
+	aiLimiter := middleware.NewRateLimiter(rate.Every(3*time.Second), 10, 30*time.Minute)
+
+	r.Use(middleware.RateLimitByIP(globalLimiter))
 
 	r.GET("/healthz", func(c *gin.Context) {
 		respondOK(c, gin.H{"status": "ok"})
@@ -50,7 +57,7 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 
 	api := r.Group("/api/v1")
 	{
-		api.POST("/auth/login", hAuth.Login)
+		api.POST("/auth/login", middleware.RateLimitByIP(authLimiter), hAuth.Login)
 		api.GET("/auth/me", middleware.AuthRequired(cfg.JWTSecret), hAuth.Me)
 
 		// User stats route
@@ -70,16 +77,28 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			hCourse.List,
 		)
 		api.GET(
-			"/courses/:id",
+			"/courses/:courseId",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermCourseRead),
 			hCourse.Get,
+		)
+		api.GET(
+			"/courses/:courseId/modules",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermCourseRead),
+			hCourse.GetModules,
 		)
 		api.POST(
 			"/courses",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermCourseWrite),
 			hCourse.Create,
+		)
+		api.PUT(
+			"/courses/:courseId/modules",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermCourseWrite),
+			hCourse.UpdateModules,
 		)
 
 		// Chapter routes
@@ -171,6 +190,12 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			middleware.RequirePermission(authz.PermAssignmentRead),
 			hAssignment.GetAssignment,
 		)
+		api.GET(
+			"/assignments/:id/stats",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermAssignmentRead),
+			hAssignment.GetAssignmentStats,
+		)
 		api.POST(
 			"/assignments/:id/submit",
 			middleware.AuthRequired(cfg.JWTSecret),
@@ -242,18 +267,21 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			"/ai/chat",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAIUse),
+			middleware.RateLimitByUserOrIP(aiLimiter),
 			hAI.Chat,
 		)
 		api.POST(
 			"/ai/chat_with_tools",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAIUse),
+			middleware.RateLimitByUserOrIP(aiLimiter),
 			hAI.ChatWithTools,
 		)
 		api.POST(
 			"/ai/chat/guided",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAIUse),
+			middleware.RateLimitByUserOrIP(aiLimiter),
 			hAI.ChatGuided,
 		)
 
@@ -379,18 +407,27 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			hGlobalProfile.RecordLearningEvent,
 		)
 
-		// Writing submission routes (for Professional English Writing course)
+		// Writing submission routes
 		api.POST(
 			"/courses/:courseId/writing",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAssignmentSubmit),
+			RequireCourseModule(gormDB, "course.writing"),
 			hWriting.SubmitWriting,
 		)
 		api.GET(
 			"/courses/:courseId/writing",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAssignmentRead),
+			RequireCourseModule(gormDB, "course.writing"),
 			hWriting.GetWritingSubmissions,
+		)
+		api.GET(
+			"/courses/:courseId/writing/stats",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermAssignmentGrade),
+			RequireCourseModule(gormDB, "course.writing"),
+			hWriting.GetWritingStats,
 		)
 		api.GET(
 			"/writing/:id",
@@ -489,6 +526,7 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 		simMW := []gin.HandlerFunc{
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermSimUse),
+			RequireCourseModule(gormDB, "course.simulation"),
 		}
 
 		// Legacy Laplace2D endpoint

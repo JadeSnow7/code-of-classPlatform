@@ -28,6 +28,7 @@ type AnnouncementSummaryResponse struct {
 	Latest      *AnnouncementLatestInfo `json:"latest"`
 }
 
+// AnnouncementLatestInfo describes the latest announcement metadata.
 type AnnouncementLatestInfo struct {
 	ID        uint      `json:"id"`
 	Title     string    `json:"title"`

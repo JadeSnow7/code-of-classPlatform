@@ -1,21 +1,47 @@
 import { useEffect, useRef, useState } from 'react';
 import { chapterApi } from '@/api/chapter';
 import { Timer, AlertCircle } from 'lucide-react';
+import { logger } from '@/lib/logger';
 
+/**
+ * Props for StudyTimer.
+ */
 interface StudyTimerProps {
+    /** Chapter ID used for heartbeat tracking. */
     chapterId: number;
-    initialDuration: number; // in seconds
+    /** Initial duration in seconds. */
+    initialDuration: number;
+    /** Callback invoked when the server returns an updated duration. */
     onDurationUpdate?: (newDuration: number) => void;
+    /** Whether to call the heartbeat endpoint periodically. */
+    enableHeartbeat?: boolean;
+    /** Whether tracking should start immediately. */
+    initialTracking?: boolean;
+    /** Initial error message to display. */
+    initialError?: string | null;
 }
 
-export function StudyTimer({ chapterId, initialDuration, onDurationUpdate }: StudyTimerProps) {
+/**
+ * Displays a study timer with optional heartbeat syncing.
+ *
+ * @param props Component props.
+ * @returns The timer UI.
+ */
+export function StudyTimer({
+    chapterId,
+    initialDuration,
+    onDurationUpdate,
+    enableHeartbeat = true,
+    initialTracking = true,
+    initialError = null,
+}: StudyTimerProps) {
     const [duration, setDuration] = useState(initialDuration);
-    const [isTracking, setIsTracking] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [isTracking, setIsTracking] = useState(initialTracking);
+    const [error, setError] = useState<string | null>(initialError);
 
     // Use refs to access latest values in effects/intervals
     const durationRef = useRef(initialDuration);
-    const isTrackingRef = useRef(true);
+    const isTrackingRef = useRef(initialTracking);
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -56,6 +82,7 @@ export function StudyTimer({ chapterId, initialDuration, onDurationUpdate }: Stu
         // Heartbeat interval (30 seconds)
         // We set it slightly shorter (e.g. 29s) or exactly 30s. 
         // Logic: Frontend calls heartbeat every 30s. Backend treats calls within 35s as valid increment.
+        if (!enableHeartbeat) return;
         const intervalId = setInterval(async () => {
             if (!isTrackingRef.current) return;
 
@@ -68,14 +95,14 @@ export function StudyTimer({ chapterId, initialDuration, onDurationUpdate }: Stu
                 }
                 setError(null);
             } catch (err) {
-                console.error('Heartbeat failed:', err);
+                logger.error('heartbeat failed', { error: err, chapterId });
                 setError('同步失败');
                 // Don't stop tracking on network error, retry next time
             }
         }, 30000);
 
         return () => clearInterval(intervalId);
-    }, [chapterId, onDurationUpdate]);
+    }, [chapterId, onDurationUpdate, enableHeartbeat]);
 
     // Format duration helper
     const formatTime = (secs: number) => {

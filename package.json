@@ -1,0 +1,18 @@
+{
+  "name": "classplatform-workspace",
+  "private": true,
+  "workspaces": [
+    "frontend-react",
+    "mobile",
+    "shared"
+  ],
+  "scripts": {
+    "build:shared": "npm -w shared run build",
+    "test:shared": "npm -w shared run test",
+    "dev:web": "npm -w frontend-react run dev",
+    "dev:mobile": "npm -w mobile run start"
+  },
+  "dependencies": {
+    "lodash": "^4.17.23"
+  }
+}

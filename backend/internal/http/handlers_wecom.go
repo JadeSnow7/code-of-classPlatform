@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -201,14 +202,16 @@ func (h *wecomHandlers) GetOAuthURL(c *gin.Context) {
 	}
 
 	state := c.DefaultQuery("state", "STATE")
+	scope := c.DefaultQuery("scope", "snsapi_base")
 
 	// Build OAuth URL
 	oauthURL := fmt.Sprintf(
-		"https://open.weixin.qq.com/connect/oauth2/authorize?appid=%s&redirect_uri=%s&response_type=code&scope=snsapi_privateinfo&agentid=%s&state=%s#wechat_redirect",
+		"https://open.weixin.qq.com/connect/oauth2/authorize?appid=%s&redirect_uri=%s&response_type=code&scope=%s&agentid=%s&state=%s#wechat_redirect",
 		h.wecom.GetCorpID(),
-		redirectURI,
+		url.QueryEscape(redirectURI),
+		url.QueryEscape(scope),
 		h.wecom.GetAgentID(),
-		state,
+		url.QueryEscape(state),
 	)
 
 	respondOK(c, WecomOAuthURLResponse{URL: oauthURL})

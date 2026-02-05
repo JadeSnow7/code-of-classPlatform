@@ -1,3 +1,5 @@
+"""Build a lightweight GraphRAG index from Markdown sources."""
+
 from __future__ import annotations
 
 import argparse
@@ -52,6 +54,7 @@ def _parse_markdown_sections(md: str) -> list[_Section]:
 
 
 def build_index_from_markdown(paths: list[Path], *, root: Path) -> dict:
+    """Build a GraphRAG index dictionary from Markdown files."""
     nodes: list[dict] = []
     chunks: list[dict] = []
     edges: list[dict] = []
@@ -96,6 +99,7 @@ def _collect_markdown_files(input_path: Path) -> list[Path]:
 
 
 def main() -> int:
+    """Run the CLI to build a GraphRAG index from Markdown inputs."""
     ap = argparse.ArgumentParser(description="Build a lightweight GraphRAG index from Markdown files.")
     ap.add_argument("--input", required=True, help="Markdown file or directory (recursive).")
     ap.add_argument("--output", required=True, help="Output index JSON path.")
@@ -115,4 +119,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

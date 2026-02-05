@@ -8,6 +8,7 @@ import (
 type Config struct {
 	HTTPAddr    string
 	JWTSecret   string
+	SecretsDir  string
 	CorsOrigins []string
 
 	DBDsn string
@@ -31,7 +32,13 @@ type Config struct {
 
 func Load() Config {
 	httpAddr := getenv("HTTP_ADDR", "0.0.0.0:8080")
+	secretsDir := strings.TrimSpace(getenv("SECRETS_DIR", ""))
 	jwtSecret := getenv("JWT_SECRET", "change_me_in_prod")
+	if secretsDir != "" {
+		if secretFromFile, err := loadJWTSecretFromDir(secretsDir); err == nil && strings.TrimSpace(secretFromFile) != "" {
+			jwtSecret = secretFromFile
+		}
+	}
 
 	corsOriginsRaw := strings.TrimSpace(getenv("CORS_ORIGINS", "http://localhost:5173"))
 	corsOrigins := splitComma(corsOriginsRaw)
@@ -55,6 +62,7 @@ func Load() Config {
 	return Config{
 		HTTPAddr:             httpAddr,
 		JWTSecret:            jwtSecret,
+		SecretsDir:           secretsDir,
 		CorsOrigins:          corsOrigins,
 		DBDsn:                dbDsn,
 		AIBaseURL:            aiBaseURL,

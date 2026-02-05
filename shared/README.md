@@ -1,16 +1,16 @@
-# Shared Types & SDK
+# Shared Types, SDK & Core
 
-This package holds cross-platform API contracts and (future) shared SDK utilities.
+This package holds cross-platform API contracts, a shared SDK, and core utilities.
 It is intended to be imported by both web and mobile clients to keep interfaces consistent.
 
-## Structure (draft)
+## Structure
 
-- types/  - shared TypeScript interfaces aligned with OpenAPI
-- sdk/    - shared API client helpers (planned)
+- src/types/  - shared TypeScript interfaces aligned with OpenAPI
+- src/sdk/    - shared API client and endpoint wrappers
+- src/core/   - platform-agnostic utilities (storage, etc.)
 
-## Usage (draft)
+## Usage
 
 ```ts
-import { Course, ChatRequest } from '@/shared/types'
+import { createApi, Course, ChatRequest } from '@classplatform/shared'
 ```
-

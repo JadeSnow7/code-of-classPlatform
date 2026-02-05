@@ -138,10 +138,10 @@ export function QuizzesPage() {
                                 </p>
 
                                 <div className="flex items-center gap-4 text-sm text-gray-500">
-                                    {quiz.time_limit > 0 && (
+                                    {(quiz.time_limit ?? 0) > 0 && (
                                         <div className="flex items-center gap-1">
                                             <Clock className="w-4 h-4" />
-                                            <span>{quiz.time_limit}分钟</span>
+                                            <span>{quiz.time_limit ?? 0}分钟</span>
                                         </div>
                                     )}
                                     <div className="flex items-center gap-1">

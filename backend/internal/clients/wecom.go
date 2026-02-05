@@ -43,7 +43,7 @@ func NewWecomClient(cfg WecomConfig) *WecomClient {
 
 // IsConfigured returns true if WeChat Work is properly configured
 func (c *WecomClient) IsConfigured() bool {
-	return c.corpID != "" && c.secret != ""
+	return c.corpID != "" && c.agentID != "" && c.secret != ""
 }
 
 // GetCorpID returns the configured Corp ID

@@ -1,5 +1,5 @@
 """
-Writing Concepts for Professional English Writing Course
+Writing Concepts for Professional English Writing Course.
 
 This module replaces the EM_CONCEPTS from weak_point_detector.py with 
 writing-related concepts for the student-centric Professional English Writing course.
@@ -100,6 +100,10 @@ NEGATIVE_INDICATORS = [
     "问题",
     "错误",
     "需要改进",
+    "需要注意",
+    "还需要",
+    "注意",
+    "建议",
     "不恰当",
     "不合适",
     "混乱",
@@ -146,6 +150,10 @@ def detect_writing_concepts(text: str) -> list:
     detected = []
     
     for concept, keywords in WRITING_CONCEPTS.items():
+        # Also match the concept name itself (often appears in Chinese feedback)
+        if concept.lower() in text_lower:
+            detected.append(concept)
+            continue
         for keyword in keywords:
             if keyword.lower() in text_lower:
                 detected.append(concept)

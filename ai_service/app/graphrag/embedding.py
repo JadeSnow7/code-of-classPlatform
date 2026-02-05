@@ -52,6 +52,7 @@ class APIEmbedding(EmbeddingProvider):
         api_key: str | None = None,
         model: str | None = None,
     ):
+        """Initialize the API embedding provider."""
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", "")).rstrip("/")
         self.api_key = api_key or os.getenv("LLM_API_KEY", "")
         self.model = model or os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
@@ -59,7 +60,10 @@ class APIEmbedding(EmbeddingProvider):
 
     @property
     def dimension(self) -> int:
-        """Return embedding dimension (cached after first call)."""
+        """Return the embedding dimension.
+
+        Cached after the first call.
+        """
         if self._dimension is None:
             # Default dimensions for common models
             model_dims = {
@@ -86,7 +90,7 @@ class APIEmbedding(EmbeddingProvider):
         return results[0] if results else []
 
     def _sync_embed(self, texts: list[str]) -> list[list[float]]:
-        """Synchronous embedding call."""
+        """Synchronize the embedding call."""
         url = f"{self.base_url}/v1/embeddings"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         payload = {"model": self.model, "input": texts}
@@ -118,6 +122,7 @@ class LocalEmbedding(EmbeddingProvider):
     """
 
     def __init__(self, model_name: str = "shibing624/text2vec-base-chinese"):
+        """Initialize the local embedding provider."""
         self.model_name = model_name
         self._model = None
         self._dimension: int | None = None
@@ -156,7 +161,7 @@ class LocalEmbedding(EmbeddingProvider):
         return results[0] if results else []
 
     def _sync_embed(self, texts: list[str]) -> list[list[float]]:
-        """Synchronous embedding."""
+        """Synchronize local embeddings."""
         model = self._load_model()
         embeddings = model.encode(texts, convert_to_numpy=True)
         return embeddings.tolist()
@@ -164,9 +169,9 @@ class LocalEmbedding(EmbeddingProvider):
 
 def get_embedding_provider() -> EmbeddingProvider:
     """
-    Factory function to get the configured embedding provider.
-    
-    Reads EMBEDDING_PROVIDER env var: 'api' (default) or 'local'
+    Return the configured embedding provider.
+
+    Reads EMBEDDING_PROVIDER env var: 'api' (default) or 'local'.
     """
     provider = os.getenv("EMBEDDING_PROVIDER", "api").lower()
     

@@ -15,9 +15,11 @@
 
 ## 快速开始
 
-1. 查看各模块的 README.md 了解具体使用方法
+1. 首次在 `code/` 根目录安装依赖（workspace）：`npm install --workspaces`
 2. 在 `code/` 下使用 `docker-compose.yml` 启动后端依赖服务（推荐先配置 `code/.env`）
-3. Web 前端在 `code/frontend-react/` 中单独启动（Vite dev server）
+3. Web 前端：`npm -w frontend-react run dev`（Vite dev server）
+4. Mobile：`npm -w mobile run start`（Expo）
+5. 共享包：`@classplatform/shared` 会在安装时自动构建，如需手动更新运行 `npm -w shared run build`
 
 ## 开发环境
 

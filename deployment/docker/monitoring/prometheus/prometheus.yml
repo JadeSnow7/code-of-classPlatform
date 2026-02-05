@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8080"]
+
+  - job_name: "ai-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ai:8001"]
+
+  - job_name: "simulation-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["sim:8002"]
+
+  - job_name: "mysql"
+    static_configs:
+      - targets: ["mysql:3306"]
+

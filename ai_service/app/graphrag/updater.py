@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 @dataclass
 class Document:
     """Document to be indexed."""
+
     id: str
     content: str
     source: str  # e.g., "assignment:12345" or "docs/chapter1.md"
@@ -48,6 +49,7 @@ class IndexUpdater:
         index_path: str | None = None,
         vector_path: str | None = None,
     ):
+        """Initialize the index updater."""
         self.index = index
         self.vector_store = vector_store
         self.embedding = embedding

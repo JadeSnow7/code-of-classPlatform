@@ -3,6 +3,7 @@ import { useCourse } from '@/domains/course/useCourse';
 import { chapterApi, type Chapter } from '@/api/chapter';
 import { ChapterList } from '@/domains/chapter/ChapterList';
 import { Loader2, BookOpen } from 'lucide-react';
+import { logger } from '@/lib/logger';
 
 export function ChaptersPage() {
     const { course } = useCourse();
@@ -15,7 +16,7 @@ export function ChaptersPage() {
             const data = await chapterApi.list(course.ID);
             setChapters(data);
         } catch (err) {
-            console.error('Failed to load chapters:', err);
+            logger.error('failed to load chapters', { error: err, courseId: course?.ID });
         } finally {
             setIsLoading(false);
         }

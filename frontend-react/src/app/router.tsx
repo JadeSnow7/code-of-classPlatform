@@ -19,6 +19,10 @@ import { ChaptersPage } from '@/pages/ChaptersPage';
 import { ChapterContentPage } from '@/pages/ChapterContentPage';
 import WeComCallbackPage from '@/pages/WeComCallbackPage';
 import WritingPage from '@/pages/WritingPage';
+import { AnnouncementsPage } from '@/pages/AnnouncementsPage';
+import { AttendancePage } from '@/pages/AttendancePage';
+import WritingDetailPage from '@/pages/WritingDetailPage';
+import TeacherWritingDashboard from '@/pages/TeacherWritingDashboard';
 
 export function AppRouter() {
     return (
@@ -45,7 +49,11 @@ export function AppRouter() {
                             <Route path="quizzes/:quizId" element={<QuizDetailPage />} />
                             <Route path="chapters" element={<ChaptersPage />} />
                             <Route path="chapters/:chapterId" element={<ChapterContentPage />} />
+                            <Route path="attendance" element={<AttendancePage />} />
+                            <Route path="announcements" element={<AnnouncementsPage />} />
                             <Route path="writing" element={<WritingPage />} />
+                            <Route path="writing/dashboard" element={<TeacherWritingDashboard />} />
+                            <Route path="writing/:submissionId" element={<WritingDetailPage />} />
                         </Route>
                     </Route>
 

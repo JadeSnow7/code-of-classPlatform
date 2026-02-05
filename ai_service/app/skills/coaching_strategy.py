@@ -1,5 +1,5 @@
 """
-Coaching Strategy Skill
+Coaching Strategy Skill.
 
 Generates personalized tutoring strategies based on student learning profiles,
 including targeted exercises for weak points and recommended learning paths.
@@ -22,7 +22,7 @@ class CoachingStrategySkill(BaseSkill):
     SKILL_PROMPT = """
 【当前任务：个性化辅导策略生成】
 
-你是一位经验丰富的《电磁场》课程辅导教师。请基于学生的学习档案，生成个性化的辅导策略。
+你是一位经验丰富的研究生专业英文写作课程辅导教师。请基于学生的学习档案，生成个性化的辅导策略。
 
 ## 学生学习档案
 - 学生 ID：{student_id}
@@ -41,7 +41,7 @@ class CoachingStrategySkill(BaseSkill):
 ### 2. 薄弱点专项辅导
 针对每个薄弱点：
 - 概念澄清：简洁解释关键概念
-- 典型例题：1-2 道针对性练习题
+- 典型练习：1-2 个针对性写作练习（句子级/段落级/结构级）
 - 学习建议：具体的复习方法
 
 ### 3. 下一步学习建议

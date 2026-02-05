@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '@/lib/api-client';
+import { logger } from '@/lib/logger';
 
 interface CodeExecutionResult {
     success: boolean;
@@ -106,7 +107,7 @@ export const useSimStore = create<SimulationState>((set, get) => ({
                 code: get().code,
                 timeout,
             });
-            set({ codeResult: response.data });
+            set({ codeResult: response });
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Execution failed';
             set({
@@ -137,7 +138,7 @@ Available modules (pre-imported, NO import statements needed):
 
 Modify or improve the code based on the user's request. Return ONLY the modified Python code, no explanations.`;
 
-            const response = await apiClient.post<{ response: string }>('/ai/chat', {
+            const response = await apiClient.post<{ response?: string; reply?: string }>('/ai/chat', {
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: `Current code:\n\`\`\`python\n${code}\n\`\`\`\n\nRequest: ${aiPrompt}` }
@@ -146,7 +147,7 @@ Modify or improve the code based on the user's request. Return ONLY the modified
             });
 
             // Extract code from response
-            const responseText = response.data.reply ?? response.data.response;
+            const responseText = response.reply ?? response.response ?? '';
             const codeMatch = responseText.match(/```python\n([\s\S]*?)```/);
             if (codeMatch) {
                 set({ code: codeMatch[1] });
@@ -157,7 +158,7 @@ Modify or improve the code based on the user's request. Return ONLY the modified
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'AI assist failed';
             // Store error but don't throw - just log
-            console.error('AI assist failed:', message);
+            logger.error('ai assist failed', { error: message });
         } finally {
             set({ isAIProcessing: false });
         }

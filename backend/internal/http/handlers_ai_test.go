@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
+	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -97,7 +98,7 @@ func TestChatGuided_MissingUserID(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.Contains(t, w.Body.String(), "user_id not found")
+	assert.Contains(t, w.Body.String(), "user not found in context")
 }
 
 func TestChatGuided_InvalidJSON(t *testing.T) {
@@ -151,14 +152,12 @@ func TestChatGuided_EmptyMessages(t *testing.T) {
 func TestUserIDInjection(t *testing.T) {
 	// Test that user_id from context is correctly injected
 	testCases := []struct {
-		name       string
-		userID     interface{}
-		expectPass bool
+		name              string
+		user              *middleware.UserContext
+		expectUnauthorized bool
 	}{
-		{"uint user_id", uint(123), true},
-		{"int user_id", int(456), true},
-		{"string user_id", "789", true},
-		{"nil user_id", nil, false},
+		{"valid user", &middleware.UserContext{ID: 123, Username: "alice", Role: "teacher"}, false},
+		{"missing user", nil, true},
 	}
 
 	for _, tc := range testCases {
@@ -168,8 +167,8 @@ func TestUserIDInjection(t *testing.T) {
 
 			r := gin.New()
 			r.Use(func(c *gin.Context) {
-				if tc.userID != nil {
-					c.Set("user_id", tc.userID)
+				if tc.user != nil {
+					c.Set("user", *tc.user)
 				}
 				c.Next()
 			})
@@ -186,12 +185,10 @@ func TestUserIDInjection(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			r.ServeHTTP(w, req)
-
-			if tc.expectPass {
-				// Should not return 401
-				assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-			} else {
+			if tc.expectUnauthorized {
 				assert.Equal(t, http.StatusUnauthorized, w.Code)
+			} else {
+				assert.NotEqual(t, http.StatusUnauthorized, w.Code)
 			}
 		})
 	}

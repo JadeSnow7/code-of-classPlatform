@@ -1,3 +1,5 @@
+"""Define FastAPI endpoints for the AI service."""
+
 from __future__ import annotations
 
 import json
@@ -29,17 +31,23 @@ _index_updater: IndexUpdater | None = None
 
 
 class ChatMessage(BaseModel):
+    """Message payload for chat endpoints."""
+
     role: Literal["system", "user", "assistant"] = "user"
     content: str = Field(min_length=0, max_length=8000)
 
 
 class ChatRequest(BaseModel):
+    """Request payload for chat completion."""
+
     mode: str | None = None
     messages: list[ChatMessage] = Field(min_length=1)
     stream: bool = False
 
 
 class ChatResponse(BaseModel):
+    """Response payload for chat completion."""
+
     reply: str
     model: str | None = None
 
@@ -100,15 +108,15 @@ def _system_prompt(mode: str | None, context: dict | None = None) -> str | None:
     # Legacy prompts for backward compatibility
     if base_mode == "tutor":
         return (
-            "你是高校《电磁场》课程助教。"
-            "回答要循序渐进，先给结论，再给推导思路与关键公式，必要时给直观类比。"
-            "如果问题涉及计算，请说明变量含义与单位；避免编造来源。"
+            "你是研究生专业英文写作课程助教（也可适配其他课程）。"
+            "回答要循序渐进，先给结论/要点，再解释原因与例子，最后给可执行的修改/练习建议。"
+            "如果启用知识库检索（RAG），请严格按引用编号标注，不要编造引用。"
         )
     if base_mode == "grader":
         return (
-            "你是《电磁场》课程助教，任务是辅助批改作业。"
-            "请指出关键错误与缺失步骤，给出改进建议与提示。"
-            "默认不要直接给出完整最终答案，除非用户明确请求并且具有相应权限（此处按提示模式处理）。"
+            "你是研究生专业英文写作课程助教，任务是辅助批改写作作业。"
+            "请引用原文片段定位问题，按 rubric 给出可执行的改进建议与修改顺序。"
+            "默认不代写整篇；如需示范，仅提供 1-2 句或一个段落框架。"
         )
     if base_mode == "sim_explain":
         return (
@@ -147,6 +155,29 @@ def _system_prompt(mode: str | None, context: dict | None = None) -> str | None:
             "5. 代入数值计算，注意单位换算\n"
             "6. 检验结果的合理性（量纲、极限情况、物理直觉）\n"
             "使用 LaTeX 格式书写公式。"
+        )
+    if base_mode == "polish":
+        return (
+            "你是专业的学术英文写作编辑，致力于提升研究生的写作质量。"
+            "任务要求：\n"
+            "1. 润色提供的英文段落，提升学术语气（Formal Academic Tone）\n"
+            "2. 修正语法、拼写和标点错误\n"
+            "3. 改善句式结构，使其更地道流畅\n"
+            "4. 保持原意不变\n\n"
+            "请严格按照以下 JSON 格式返回结果（不要包含 Markdown 代码块标记，仅返回纯 JSON）：\n"
+            "{\n"
+            "  \"original\": \"原始文本\",\n"
+            "  \"polished\": \"润色后的文本\",\n"
+            "  \"changes\": [\n"
+            "    {\n"
+            "      \"type\": \"grammar/style/vocabulary\",\n"
+            "      \"original_fragment\": \"原句片段\",\n"
+            "      \"revised_fragment\": \"修改后片段\",\n"
+            "      \"reason\": \"修改原因解释\"\n"
+            "    }\n"
+            "  ],\n"
+            "  \"overall_comment\": \"总体评价和建议\"\n"
+            "}"
         )
     return None
 
@@ -219,6 +250,7 @@ def _build_graphrag_system_message(context: str) -> str:
 
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
+    """Return service health status."""
     return {"status": "ok"}
 
 
@@ -234,6 +266,7 @@ def list_skills() -> dict[str, Any]:
 
 @app.post("/v1/chat", response_model=None)
 async def chat(req: ChatRequest) -> ChatResponse | StreamingResponse:
+    """Handle chat requests with optional streaming and RAG."""
     base_url = _get_env("LLM_BASE_URL")
     api_key = _get_env("LLM_API_KEY")
     model = _get_env("LLM_MODEL") or "qwen-plus"
@@ -391,6 +424,7 @@ from app.tools import AVAILABLE_TOOLS, execute_tool, get_tool_result_message
 
 class ChatWithToolsRequest(BaseModel):
     """Request for chat with tool calling support."""
+
     mode: str | None = None
     messages: list[ChatMessage] = Field(min_length=1)
     enable_tools: bool = True  # Enable tool calling by default
@@ -400,12 +434,14 @@ class ChatWithToolsRequest(BaseModel):
 
 class ToolCall(BaseModel):
     """A single tool call."""
+
     name: str
     arguments: dict
 
 
 class ChatWithToolsResponse(BaseModel):
     """Response with tool call information."""
+
     reply: str
     model: str | None = None
     tool_calls: list[ToolCall] = []
@@ -583,6 +619,7 @@ async def chat_with_tools(req: ChatWithToolsRequest) -> ChatWithToolsResponse:
 
 class IndexDocumentRequest(BaseModel):
     """Request to add/update a document in the index."""
+
     doc_id: str = Field(..., description="Unique document ID")
     content: str = Field(..., description="Document content")
     source: str = Field(..., description="Source identifier, e.g., 'assignment:123'")
@@ -593,6 +630,7 @@ class IndexDocumentRequest(BaseModel):
 
 class IndexDocumentResponse(BaseModel):
     """Response from index operations."""
+
     success: bool
     chunks_affected: int
     message: str
@@ -653,6 +691,7 @@ async def add_to_index(req: IndexDocumentRequest) -> IndexDocumentResponse:
 
 class DeleteDocumentRequest(BaseModel):
     """Request to delete a document from the index."""
+
     doc_id: str = Field(..., description="Document ID to delete")
 
 
@@ -700,6 +739,7 @@ async def delete_from_index(req: DeleteDocumentRequest) -> IndexDocumentResponse
 
 class HybridChatRequest(BaseModel):
     """Request for hybrid RAG chat with ACL support."""
+
     mode: str | None = None
     messages: list[ChatMessage] = Field(min_length=1)
     stream: bool = False
@@ -863,6 +903,7 @@ import re
 
 class GuidedChatRequest(BaseModel):
     """Request for guided learning chat."""
+
     mode: str = "guided"  # Always guided
     session_id: str | None = None  # None = create new session
     topic: str | None = None  # Required for new session
@@ -873,6 +914,7 @@ class GuidedChatRequest(BaseModel):
 
 class GuidedChatResponse(BaseModel):
     """Response with learning session state."""
+
     reply: str
     session_id: str
     current_step: int
@@ -1195,6 +1237,7 @@ from app.writing_concepts import WRITING_TYPES, NEGATIVE_INDICATORS, POSITIVE_IN
 
 class WritingAnalysisRequest(BaseModel):
     """Request for writing analysis."""
+
     content: str = Field(..., min_length=50, description="Writing content to analyze")
     writing_type: str = Field("course_paper", description="Type: literature_review, course_paper, thesis, abstract")
     title: str | None = Field(None, description="Optional title")
@@ -1203,6 +1246,7 @@ class WritingAnalysisRequest(BaseModel):
 
 class DimensionScore(BaseModel):
     """Score for a single evaluation dimension."""
+
     name: str
     score: float = Field(..., ge=0, le=10)
     weight: float = Field(..., ge=0, le=1)
@@ -1211,6 +1255,7 @@ class DimensionScore(BaseModel):
 
 class WritingAnalysisResponse(BaseModel):
     """Structured writing analysis response."""
+
     overall_score: float = Field(..., ge=0, le=10)
     dimensions: list[DimensionScore]
     strengths: list[str]

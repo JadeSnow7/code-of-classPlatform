@@ -3,14 +3,25 @@ import { getAuthHeaders } from './api/getAuthHeaders';
 const MOCK_MODE = import.meta.env.VITE_MOCK_API === 'true';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
+/**
+ * Single chat message exchanged with the AI service.
+ */
 export interface ChatMessage {
+    /** Author role of the message. */
     role: 'user' | 'assistant';
+    /** Text content of the message. */
     content: string;
 }
 
+/**
+ * Payload accepted by the AI chat endpoint.
+ */
 export interface ChatPayload {
+    /** Conversation history in order. */
     messages: ChatMessage[];
+    /** Optional AI behavior mode. */
     mode?: 'tutor' | 'grader' | 'sim_explain';
+    /** Whether to enable retrieval-augmented generation. */
     rag?: boolean;
 }
 
@@ -26,9 +37,14 @@ async function* mockStreamGenerator(): AsyncGenerator<string> {
 }
 
 /**
- * Stream chat with AI service
+ * Stream chat with AI service.
+ *
  * Note: Backend doesn't support true streaming, so we fetch the full response
- * and simulate streaming by outputting character by character
+ * and simulate streaming by outputting character by character.
+ *
+ * @param payload Chat payload including messages and mode.
+ * @param options Streaming callbacks and abort signal.
+ * @returns Resolves when the stream completes or aborts.
  */
 export async function streamChat(
     payload: ChatPayload,
@@ -73,15 +89,15 @@ export async function streamChat(
         }
 
         const raw = await response.json();
-        let payload = raw;
+        let responseData = raw;
         if (raw && typeof raw === 'object' && 'success' in raw) {
             if (!raw.success) {
                 throw new Error(raw.error?.message ?? 'AI request failed');
             }
-            payload = raw.data;
+            responseData = raw.data;
         }
 
-        const reply = (payload?.reply ?? payload?.response ?? '') as string;
+        const reply = (responseData?.reply ?? responseData?.response ?? '') as string;
         for (let i = 0; i < reply.length; i++) {
             if (options.signal.aborted) break;
             options.onToken(reply[i]);

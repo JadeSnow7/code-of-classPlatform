@@ -23,6 +23,7 @@ func newAttendanceHandlers(db *gorm.DB) *attendanceHandlers {
 
 // --- Summary ---
 
+// AttendanceSummaryResponse is the API response for course attendance summary.
 type AttendanceSummaryResponse struct {
 	AttendanceRate float64            `json:"attendance_rate"`
 	SessionsCount  int                `json:"sessions_count"`
@@ -30,6 +31,7 @@ type AttendanceSummaryResponse struct {
 	ActiveSession  *ActiveSessionInfo `json:"active_session"`
 }
 
+// ActiveSessionInfo describes the currently active attendance session.
 type ActiveSessionInfo struct {
 	ID     uint      `json:"id"`
 	Code   string    `json:"code"`
@@ -115,6 +117,7 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 
 // --- List Sessions ---
 
+// SessionListItem is a summary row for an attendance session.
 type SessionListItem struct {
 	ID            uint      `json:"id"`
 	StartAt       time.Time `json:"start_at"`
@@ -247,6 +250,7 @@ type checkinRequest struct {
 	Code string `json:"code" binding:"required"`
 }
 
+// CheckinResponse is the API response payload for a check-in.
 type CheckinResponse struct {
 	Success          bool      `json:"success"`
 	AlreadyCheckedIn bool      `json:"already_checked_in,omitempty"`
@@ -335,6 +339,7 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 
 // --- Get Session Records ---
 
+// RecordListItem is a single attendance record in the session list.
 type RecordListItem struct {
 	StudentID   uint      `json:"student_id"`
 	StudentName string    `json:"student_name"`

@@ -181,6 +181,10 @@ func (h *writingHandlers) GetWritingSubmission(c *gin.Context) {
 		return
 	}
 
+	if !requireCourseModuleForCourseID(c, h.db, submission.CourseID, "course.writing") {
+		return
+	}
+
 	// Check permission
 	studentID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
@@ -206,6 +210,20 @@ func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 		return
 	}
 
+	var submission models.WritingSubmission
+	if err := h.db.First(&submission, id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+		return
+	}
+
+	if !requireCourseModuleForCourseID(c, h.db, submission.CourseID, "course.writing") {
+		return
+	}
+
 	var req updateFeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
@@ -228,4 +246,49 @@ func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 	}
 
 	respondOK(c, gin.H{"message": "feedback updated"})
+}
+
+// GetWritingStats returns aggregated writing statistics for a course (teacher only)
+// GET /api/v1/courses/:courseId/writing/stats
+func (h *writingHandlers) GetWritingStats(c *gin.Context) {
+	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		return
+	}
+
+	var profiles []models.StudentLearningProfile
+	if err := h.db.Where("course_id = ?", courseID).Find(&profiles).Error; err != nil {
+		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch profiles", nil)
+		return
+	}
+
+	// Aggregate weak points
+	weaknessCounts := make(map[string]int)
+	for _, p := range profiles {
+		if p.WeakPoints == "" {
+			continue
+		}
+		var wp map[string]int
+		if err := json.Unmarshal([]byte(p.WeakPoints), &wp); err == nil {
+			for k := range wp {
+				weaknessCounts[k]++
+			}
+		}
+	}
+
+	// Convert to list for frontend
+	type WeaknessStat struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	stats := make([]WeaknessStat, 0, len(weaknessCounts))
+	for k, v := range weaknessCounts {
+		stats = append(stats, WeaknessStat{Name: k, Count: v})
+	}
+
+	respondOK(c, gin.H{
+		"weakness_stats": stats,
+		"student_count":  len(profiles),
+	})
 }

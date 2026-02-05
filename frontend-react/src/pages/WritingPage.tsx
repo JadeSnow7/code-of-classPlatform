@@ -16,13 +16,15 @@ import {
     type WritingType,
     WRITING_TYPE_INFO,
 } from '../lib/student-api';
+import { WritingPolishPanel } from '@/components/writing/WritingPolishPanel';
+import { logger } from '@/lib/logger';
 import './WritingPage.css';
 
 export default function WritingPage() {
     const { courseId } = useParams<{ courseId: string }>();
     const navigate = useNavigate();
 
-    const [activeTab, setActiveTab] = useState<'submit' | 'history'>('submit');
+    const [activeTab, setActiveTab] = useState<'submit' | 'history' | 'polish'>('submit');
     const [submissions, setSubmissions] = useState<WritingSubmission[]>([]);
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -45,13 +47,13 @@ export default function WritingPage() {
             const data = await getWritingSubmissions(parseInt(courseId));
             setSubmissions(data);
         } catch (err) {
-            console.error('Failed to load submissions:', err);
+            logger.error('failed to load submissions', { error: err, courseId });
         } finally {
             setLoading(false);
         }
     };
 
-    const handleTabChange = (tab: 'submit' | 'history') => {
+    const handleTabChange = (tab: 'submit' | 'history' | 'polish') => {
         setActiveTab(tab);
         if (tab === 'history') {
             loadSubmissions();
@@ -94,7 +96,7 @@ export default function WritingPage() {
             }, 1500);
         } catch (err) {
             setError('提交失败，请重试');
-            console.error('Submit error:', err);
+            logger.error('writing submit failed', { error: err, courseId, writingType });
         } finally {
             setSubmitting(false);
         }
@@ -124,6 +126,12 @@ export default function WritingPage() {
                     onClick={() => handleTabChange('history')}
                 >
                     📋 历史记录
+                </button>
+                <button
+                    className={`tab-btn ${activeTab === 'polish' ? 'active' : ''}`}
+                    onClick={() => handleTabChange('polish')}
+                >
+                    ✨ 润色助手
                 </button>
             </div>
 
@@ -243,6 +251,13 @@ export default function WritingPage() {
                             })}
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* Polish Tab */}
+            {activeTab === 'polish' && (
+                <div className="polish-tab-container" style={{ padding: '0 20px 20px' }}>
+                    <WritingPolishPanel />
                 </div>
             )}
         </div>

@@ -146,7 +146,7 @@ export function ResourcesPage() {
             {!isLoading && resources.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {resources.map((resource) => {
-                        const Icon = getTypeIcon(resource.type);
+                        const Icon = getTypeIcon(resource.type ?? 'link');
                         return (
                             <div
                                 key={resource.ID}
@@ -157,7 +157,9 @@ export function ResourcesPage() {
                                         <Icon className="w-5 h-5 text-blue-400" />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <h3 className="font-semibold text-white truncate">{resource.title}</h3>
+                                        <h3 className="font-semibold text-white truncate">
+                                            {resource.title ?? resource.name ?? '未命名资源'}
+                                        </h3>
                                         <p className="text-gray-400 text-sm mt-1 line-clamp-2">
                                             {resource.description || '暂无描述'}
                                         </p>

@@ -118,7 +118,7 @@ export function useChat(options: UseChatOptions = {}) {
             // Filter out empty messages (e.g., assistant placeholders)
             const filteredMessages = state.messages.filter((m) => m.content.trim() !== '');
 
-            const messages = [...filteredMessages, { role: 'user', content: prompt }];
+            const messages: ChatMessage[] = [...filteredMessages, { role: 'user', content: prompt }];
 
             await aiStreamClient.streamChat(messages, {
                 mode: effectiveMode,

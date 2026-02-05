@@ -51,7 +51,12 @@ export function ChapterList({ chapters, courseId }: ChapterListProps) {
                             <div className="mt-4 pl-11 flex flex-wrap gap-2">
                                 {(() => {
                                     try {
-                                        const points = JSON.parse(chapter.knowledge_points);
+                                        const rawPoints = chapter.knowledge_points;
+                                        const points = Array.isArray(rawPoints)
+                                            ? rawPoints
+                                            : typeof rawPoints === 'string'
+                                                ? JSON.parse(rawPoints)
+                                                : null;
                                         if (Array.isArray(points)) {
                                             return points.slice(0, 3).map((point: string, i: number) => (
                                                 <span key={i} className="px-2 py-1 rounded bg-gray-700/50 text-xs text-gray-300 border border-gray-600/50">

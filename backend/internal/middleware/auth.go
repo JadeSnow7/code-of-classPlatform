@@ -8,6 +8,7 @@ import (
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/auth"
 )
 
+// UserContext stores authenticated user info in the request context.
 type UserContext struct {
 	ID       uint   `json:"id"`
 	Username string `json:"username"`
@@ -16,6 +17,7 @@ type UserContext struct {
 
 const userContextKey = "user"
 
+// AuthRequired validates the JWT and injects UserContext into the request.
 func AuthRequired(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authz := c.GetHeader("Authorization")
@@ -44,6 +46,7 @@ func AuthRequired(jwtSecret string) gin.HandlerFunc {
 	}
 }
 
+// GetUser returns the authenticated user from the Gin context.
 func GetUser(c *gin.Context) (UserContext, bool) {
 	v, ok := c.Get(userContextKey)
 	if !ok {

@@ -1,5 +1,5 @@
 """
-Skill Registry
+Skill Registry.
 
 Central registry for all available AI skills.
 """

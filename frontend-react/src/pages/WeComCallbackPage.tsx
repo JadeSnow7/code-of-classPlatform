@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/domains/auth/useAuth';
+import { logger } from '@/lib/logger';
 
 export default function WeComCallbackPage() {
     const [searchParams] = useSearchParams();
@@ -13,7 +14,7 @@ export default function WeComCallbackPage() {
         // const state = searchParams.get('state'); // State tracking not fully implemented yet
 
         if (!code) {
-            console.error('No code received from WeChat Work');
+            logger.error('no code received from wechat work');
             navigate('/login?error=no_wecom_code');
             return;
         }
@@ -29,7 +30,7 @@ export default function WeComCallbackPage() {
                 navigate('/');
             })
             .catch((err) => {
-                console.error('WeChat Work login failed:', err);
+                logger.error('wechat work login failed', { error: err });
                 navigate(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'Login failed')}`);
             });
     }, [searchParams, navigate, wecomLogin]);

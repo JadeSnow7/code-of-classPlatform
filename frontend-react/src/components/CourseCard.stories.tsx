@@ -4,13 +4,26 @@ import { BookOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 // Extracted CourseCard component for Storybook
+/**
+ * Props for CourseCard.
+ */
 export interface CourseCardProps {
+    /** Course identifier used for routing. */
     id: number;
+    /** Display name of the course. */
     name: string;
+    /** Optional course code shown as a badge. */
     code?: string;
+    /** Optional semester label. */
     semester?: string;
 }
 
+/**
+ * Card preview for a course with optional metadata.
+ *
+ * @param props Component props.
+ * @returns The course card UI.
+ */
 export function CourseCard({ id, name, code, semester }: CourseCardProps) {
     return (
         <Link

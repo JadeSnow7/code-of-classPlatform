@@ -1,5 +1,5 @@
 """
-Writing Type-Aware Prompts for AI Writing Analysis
+Writing Type-Aware Prompts for AI Writing Analysis.
 
 This module provides specialized prompts for different writing types
 to enable type-aware evaluation and feedback generation.

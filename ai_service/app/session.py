@@ -1,5 +1,5 @@
 """
-Learning Session Management
+Learning Session Management.
 
 Provides secure session storage for guided learning mode with user binding,
 TTL management, and session limit per user.
@@ -16,6 +16,7 @@ import uuid
 @dataclass
 class LearningStep:
     """A single step in the learning path."""
+
     step: int
     title: str
     description: str

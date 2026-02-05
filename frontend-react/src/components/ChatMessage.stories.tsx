@@ -3,12 +3,24 @@ import { Bot, User } from 'lucide-react';
 import { clsx } from 'clsx';
 
 // Extracted ChatMessage component for Storybook
+/**
+ * Props for ChatMessage.
+ */
 export interface ChatMessageProps {
+    /** Message author role. */
     role: 'user' | 'assistant';
+    /** Message text content. */
     content: string;
+    /** Whether to show a streaming cursor indicator. */
     isStreaming?: boolean;
 }
 
+/**
+ * Chat bubble that renders either user or assistant messages.
+ *
+ * @param props Component props.
+ * @returns The message UI.
+ */
 export function ChatMessage({ role, content, isStreaming = false }: ChatMessageProps) {
     return (
         <div

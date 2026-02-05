@@ -17,6 +17,14 @@ if TYPE_CHECKING:
 
 
 def _bigrams(text: str) -> set[str]:
+    """Generate lowercase bigrams from a string.
+
+    Args:
+        text: Source text.
+
+    Returns:
+        Set of bigrams.
+    """
     s = "".join(text.split()).lower()
     if len(s) < 2:
         return {s} if s else set()
@@ -25,6 +33,8 @@ def _bigrams(text: str) -> set[str]:
 
 @dataclass(frozen=True)
 class RetrievedChunk:
+    """Chunk with its retrieval score."""
+
     chunk: Chunk
     score: float
 
@@ -32,6 +42,7 @@ class RetrievedChunk:
 @dataclass
 class Citation:
     """Structured citation for retrieved chunks."""
+
     index: int  # Reference number [1], [2], ...
     source: str  # File source
     section: str | None  # Section/chapter
@@ -43,6 +54,7 @@ class Citation:
 @dataclass
 class RetrievalContext:
     """Context for retrieval with ACL information."""
+
     query: str
     course_id: str | None = None
     user_id: str | None = None
@@ -60,6 +72,15 @@ class RetrievalContext:
 
 
 def _score(query_bigrams: set[str], chunk_text: str) -> float:
+    """Score a chunk by bigram overlap with the query.
+
+    Args:
+        query_bigrams: Precomputed query bigrams.
+        chunk_text: Chunk content to score.
+
+    Returns:
+        Similarity score in [0, 1].
+    """
     if not query_bigrams:
         return 0.0
     chunk_bigrams = _bigrams(chunk_text)
@@ -70,6 +91,16 @@ def _score(query_bigrams: set[str], chunk_text: str) -> float:
 
 
 def _expand_nodes(index: GraphRAGIndex, seed_node_ids: set[str], hops: int) -> set[str]:
+    """Expand graph nodes by the given hop count.
+
+    Args:
+        index: GraphRAG index containing neighbor links.
+        seed_node_ids: Starting node IDs.
+        hops: Number of expansion hops.
+
+    Returns:
+        Set of reachable node IDs.
+    """
     if hops <= 0:
         return set(seed_node_ids)
     visited = set(seed_node_ids)
@@ -125,7 +156,17 @@ def _rank_chunks_keyword(
     chunk_ids: Iterable[str],
     top_k: int,
 ) -> list[RetrievedChunk]:
-    """Keyword-based ranking using bigram overlap."""
+    """Rank chunks by keyword overlap.
+
+    Args:
+        index: GraphRAG index containing chunks.
+        query: Query string.
+        chunk_ids: Candidate chunk IDs.
+        top_k: Maximum number of results to return.
+
+    Returns:
+        Ranked list of retrieved chunks.
+    """
     q = query.strip()
     if not q:
         return []
@@ -154,6 +195,15 @@ def rrf_merge(
     
     RRF score = 1/(k + rank_keyword) + 1/(k + rank_semantic)
     k=60 is the recommended value from the original paper.
+
+    Args:
+        keyword_results: Ranked keyword results.
+        semantic_results: Ranked semantic results (chunk_id, score).
+        index: GraphRAG index used to resolve chunks.
+        k: RRF constant.
+
+    Returns:
+        Fused ranked list of retrieved chunks.
     """
     scores: dict[str, float] = {}
     chunk_map: dict[str, Chunk] = {}
@@ -205,6 +255,9 @@ async def build_rag_context_hybrid(
         final_top_k: Final number of chunks to return
         max_chars: Maximum context length
         rrf_k: RRF parameter (default 60)
+
+    Returns:
+        Context string for the LLM prompt.
     """
     query = ctx.query.strip()
     if not query:
@@ -286,9 +339,21 @@ async def build_rag_context_with_citations(
 ) -> tuple[str, list[Citation]]:
     """
     Build RAG context with structured citations.
-    
+
+    Args:
+        index: GraphRAG index for keyword search and graph expansion.
+        ctx: Retrieval context with query and ACL info.
+        vector_store: Vector store for semantic search.
+        embedding: Embedding provider.
+        seed_top_k: Number of seed chunks for keyword search.
+        expand_hops: Graph expansion hops.
+        final_top_k: Final number of chunks to return.
+        max_chars: Maximum context length.
+        max_citation_text: Maximum text length per citation.
+        rrf_k: RRF parameter (default 60).
+
     Returns:
-        Tuple of (context_string, list of Citation objects)
+        Tuple of (context_string, list of Citation objects).
     """
     query = ctx.query.strip()
     if not query:
@@ -387,6 +452,17 @@ def build_rag_context(
     Legacy keyword-only RAG context builder.
     
     Kept for backward compatibility. Use build_rag_context_hybrid for new code.
+
+    Args:
+        index: GraphRAG index for keyword search and graph expansion.
+        query: Query string.
+        seed_top_k: Number of seed chunks for keyword search.
+        expand_hops: Graph expansion hops.
+        final_top_k: Final number of chunks to return.
+        max_chars: Maximum context length.
+
+    Returns:
+        Context string for the LLM prompt.
     """
     seed = _rank_chunks_keyword(index, query, index.chunks.keys(), top_k=seed_top_k)
     if not seed:

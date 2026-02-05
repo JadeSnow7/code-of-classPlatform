@@ -1,0 +1,6 @@
+node_modules
+
+# Large files
+ai_service/.venv/
+frontend-react/dist-electron/
+frontend-react/models/*.gguf

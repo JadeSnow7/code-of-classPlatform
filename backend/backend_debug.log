@@ -1,0 +1,2 @@
+2026/01/25 19:07:32 db open failed: dial tcp [::1]:3306: connect: connection refused
+exit status 1

@@ -1,5 +1,6 @@
 // API Configuration
-export const API_BASE_URL = __DEV__ ? 'http://localhost:8080' : 'https://your-production-server.com';
+const envApiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
+export const API_BASE_URL = envApiBaseUrl || (__DEV__ ? 'http://localhost:8080' : 'https://your-production-server.com');
 export const API_PREFIX = '/api/v1';
 
 // Network Configuration

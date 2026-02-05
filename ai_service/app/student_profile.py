@@ -1,5 +1,5 @@
 """
-Student Profile Persistence
+Student Profile Persistence.
 
 Provides API endpoints for syncing student learning profiles between
 the AI service (in-memory sessions) and the Go backend (database storage).
@@ -19,6 +19,7 @@ from pydantic import BaseModel
 @dataclass
 class StudentProfile:
     """Student learning profile for persistence."""
+
     student_id: int
     course_id: int
     weak_points: dict[str, int] = field(default_factory=dict)  # concept -> count
@@ -195,12 +196,14 @@ class ProfileSyncClient:
 
 class ProfileRequest(BaseModel):
     """Request to get or create a learning profile."""
+
     student_id: int
     course_id: int
 
 
 class ProfileUpdateRequest(BaseModel):
     """Request to update a learning profile."""
+
     student_id: int
     course_id: int
     weak_points: dict[str, int] = {}
@@ -210,6 +213,7 @@ class ProfileUpdateRequest(BaseModel):
 
 class ProfileResponse(BaseModel):
     """Response containing student profile."""
+
     profile: dict
     success: bool
     message: str = ""

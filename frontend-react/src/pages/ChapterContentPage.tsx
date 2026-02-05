@@ -169,19 +169,19 @@ export function ChapterContentPage() {
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">已提交</span>
                                     <span className="text-white font-medium">
-                                        {stats?.assignment_stats.submitted} / {stats?.assignment_stats.total}
+                                        {stats?.assignment_stats?.submitted ?? 0} / {stats?.assignment_stats?.total ?? 0}
                                     </span>
                                 </div>
                                 <div className="w-full bg-gray-700 rounded-full h-2">
                                     <div
                                         className="bg-green-500 h-2 rounded-full transition-all"
-                                        style={{ width: `${stats?.assignment_stats.total ? (stats.assignment_stats.submitted / stats.assignment_stats.total * 100) : 0}%` }}
+                                        style={{ width: `${stats?.assignment_stats?.total ? ((stats.assignment_stats?.submitted ?? 0) / stats.assignment_stats.total * 100) : 0}%` }}
                                     />
                                 </div>
                                 <div className="flex justify-between items-center pt-2 border-t border-gray-700">
                                     <span className="text-gray-400">平均分</span>
                                     <span className="text-green-400 font-bold text-lg">
-                                        {stats?.assignment_stats.avg_score.toFixed(1)}
+                                        {(stats?.assignment_stats?.avg_score ?? 0).toFixed(1)}
                                     </span>
                                 </div>
                             </div>
@@ -197,13 +197,13 @@ export function ChapterContentPage() {
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400">已参加</span>
                                     <span className="text-white font-medium">
-                                        {stats?.quiz_stats.attempted} / {stats?.quiz_stats.total}
+                                        {stats?.quiz_stats?.attempted ?? 0} / {stats?.quiz_stats?.total ?? 0}
                                     </span>
                                 </div>
                                 <div className="flex justify-between items-center pt-2 border-t border-gray-700">
                                     <span className="text-gray-400">平均分</span>
                                     <span className="text-yellow-400 font-bold text-lg">
-                                        {stats?.quiz_stats.avg_score.toFixed(1)}
+                                        {(stats?.quiz_stats?.avg_score ?? 0).toFixed(1)}
                                     </span>
                                 </div>
                             </div>

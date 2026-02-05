@@ -1,5 +1,6 @@
 import { authStore } from './auth-store';
 import type { ChatMessage } from '@/api/ai';
+import { logger } from '@/lib/logger';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -92,7 +93,7 @@ export const aiStreamClient = {
                                 }
                             } catch {
                                 // Not valid JSON, might be raw text
-                                console.warn('Failed to parse SSE event:', dataStr);
+                                logger.warn('failed to parse sse event', { data: dataStr });
                             }
                         }
                     }

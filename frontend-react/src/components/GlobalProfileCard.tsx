@@ -1,16 +1,24 @@
-/**
- * Global Profile Card Component
- * 
- * Displays a student's cross-course learning profile including
- * competencies, study hours, and learning style.
- */
-
 import { useState, useEffect } from 'react';
 import { getGlobalProfile, type StudentGlobalProfile } from '../lib/student-api';
+import { logger } from '@/lib/logger';
 import './GlobalProfileCard.css';
 
+/**
+ * Props for GlobalProfileCard.
+ */
 interface GlobalProfileCardProps {
+    /** Student ID used to load the global profile. */
     studentId: number;
+    /** Optional preloaded profile to render immediately. */
+    initialProfile?: StudentGlobalProfile | null;
+    /** Initial error message to display. */
+    initialError?: string;
+    /** Whether the component should render in loading state initially. */
+    initialLoading?: boolean;
+    /** Disable auto-loading when the parent manages data fetching. */
+    disableAutoLoad?: boolean;
+    /** Optional override for the profile fetcher. */
+    fetchProfile?: (studentId: number) => Promise<StudentGlobalProfile>;
 }
 
 interface ParsedCompetencies {
@@ -34,26 +42,50 @@ const COMPETENCY_NAMES: Record<string, string> = {
     critical_thinking: '批判性思维',
 };
 
-export default function GlobalProfileCard({ studentId }: GlobalProfileCardProps) {
-    const [profile, setProfile] = useState<StudentGlobalProfile | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+/**
+ * Renders a student's cross-course learning profile card.
+ *
+ * @param props Component props.
+ * @returns The profile card UI.
+ */
+export default function GlobalProfileCard({
+    studentId,
+    initialProfile = null,
+    initialError = '',
+    initialLoading,
+    disableAutoLoad = false,
+    fetchProfile,
+}: GlobalProfileCardProps) {
+    const [profile, setProfile] = useState<StudentGlobalProfile | null>(initialProfile);
+    const [loading, setLoading] = useState(initialLoading ?? !initialProfile);
+    const [error, setError] = useState(initialError);
 
     useEffect(() => {
+        if (disableAutoLoad) return;
+        let active = true;
         const loadProfile = async () => {
+            setLoading(true);
             try {
-                const data = await getGlobalProfile(studentId);
+                const fetcher = fetchProfile ?? getGlobalProfile;
+                const data = await fetcher(studentId);
+                if (!active) return;
                 setProfile(data);
             } catch (err) {
+                if (!active) return;
                 setError('加载档案失败');
-                console.error(err);
+                logger.error('global profile load failed', { error: err });
             } finally {
-                setLoading(false);
+                if (active) {
+                    setLoading(false);
+                }
             }
         };
 
         loadProfile();
-    }, [studentId]);
+        return () => {
+            active = false;
+        };
+    }, [studentId, disableAutoLoad, fetchProfile]);
 
     if (loading) {
         return (

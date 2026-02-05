@@ -1,122 +1,93 @@
 /**
- * Student-Centric API Client
- * 
- * API functions for global profiles, learning events, and writing submissions.
+ * Student-centric API client utilities.
+ *
+ * Provides functions for global profiles, learning events, and writing submissions.
  */
 
-import { apiClient } from './api-client';
+import { api } from './api-client';
+import type {
+    StudentGlobalProfile,
+    LearningEvent,
+    WritingSubmission,
+    WritingType,
+    WritingFeedback,
+} from '@classplatform/shared';
 
-// ============ Types ============
-
-export interface StudentGlobalProfile {
-    student_id: number;
-    global_competencies: string; // JSON string
-    total_study_hours: number;
-    learning_style: string; // JSON string
-    updated_at?: string;
-}
-
-export interface LearningEvent {
-    id: number;
-    student_id: number;
-    course_id?: number;
-    event_type: string;
-    payload: string;
-    created_at: string;
-}
-
-export interface WritingSubmission {
-    id: number;
-    student_id: number;
-    course_id: number;
-    assignment_id?: number;
-    writing_type: WritingType;
-    title: string;
-    content: string;
-    word_count: number;
-    feedback_json?: string;
-    dimension_json?: string;
-    created_at: string;
-    updated_at: string;
-}
-
-export type WritingType = 'literature_review' | 'course_paper' | 'thesis' | 'abstract';
-
-export interface WritingFeedback {
-    overall_score: number;
-    dimensions: Array<{
-        name: string;
-        score: number;
-        weight: number;
-        comment: string;
-    }>;
-    strengths: string[];
-    improvements: string[];
-    summary: string;
-}
+export type { StudentGlobalProfile, LearningEvent, WritingSubmission, WritingType, WritingFeedback };
 
 // ============ Global Profile API ============
 
 /**
- * Get a student's global profile (cross-course aggregated data)
+ * Get a student's global profile (cross-course aggregated data).
+ *
+ * @param studentId Student identifier.
+ * @returns The global profile record.
  */
 export async function getGlobalProfile(studentId: number): Promise<StudentGlobalProfile> {
-    const response = await apiClient.get(`/students/${studentId}/global-profile`);
-    return response.data;
+    return api.student.getGlobalProfile(studentId);
 }
 
 /**
- * Save or update a student's global profile
+ * Save or update a student's global profile.
+ *
+ * @param studentId Student identifier.
+ * @param profile Partial profile payload to upsert.
+ * @returns The updated global profile.
  */
 export async function saveGlobalProfile(
     studentId: number,
     profile: Partial<StudentGlobalProfile>
 ): Promise<StudentGlobalProfile> {
-    const response = await apiClient.post(`/students/${studentId}/global-profile`, profile);
-    return response.data;
+    return api.student.saveGlobalProfile(studentId, profile);
 }
 
 // ============ Learning Timeline API ============
 
+/**
+ * Query parameters for the learning timeline endpoint.
+ */
 export interface LearningTimelineParams {
+    /** Page index (1-based). */
     page?: number;
+    /** Page size limit. */
     page_size?: number;
+    /** Optional course filter. */
     course_id?: number;
 }
 
+/**
+ * Paginated learning timeline response.
+ */
 export interface LearningTimelineResponse {
+    /** Timeline items for the current page. */
     items: LearningEvent[];
+    /** Total number of events available. */
     total: number;
+    /** Current page index. */
     page: number;
+    /** Page size used for pagination. */
     page_size: number;
 }
 
 /**
- * Get a student's learning timeline (paginated events)
+ * Get a student's learning timeline (paginated events).
+ *
+ * @param studentId Student identifier.
+ * @param params Optional pagination and filtering parameters.
+ * @returns The paginated timeline response.
  */
 export async function getLearningTimeline(
     studentId: number,
     params?: LearningTimelineParams
 ): Promise<LearningTimelineResponse> {
-    const response = await apiClient.get(`/students/${studentId}/learning-timeline`, { params });
-    const payload = response.data as {
-        items?: LearningEvent[];
-        data?: LearningEvent[];
-        total?: number;
-        page?: number;
-        page_size?: number;
-    };
-    const items = payload.items ?? payload.data ?? [];
-    return {
-        items,
-        total: payload.total ?? items.length,
-        page: payload.page ?? params?.page ?? 1,
-        page_size: payload.page_size ?? params?.page_size ?? items.length,
-    };
+    return api.student.getLearningTimeline(studentId, params);
 }
 
 /**
- * Record a learning event
+ * Record a learning event.
+ *
+ * @param event Event payload to record.
+ * @returns The persisted learning event.
  */
 export async function recordLearningEvent(event: {
     student_id: number;
@@ -124,14 +95,17 @@ export async function recordLearningEvent(event: {
     event_type: string;
     payload: string;
 }): Promise<LearningEvent> {
-    const response = await apiClient.post('/learning-events', event);
-    return response.data;
+    return api.student.recordLearningEvent(event);
 }
 
 // ============ Writing Submission API ============
 
 /**
- * Submit a writing sample for analysis
+ * Submit a writing sample for analysis.
+ *
+ * @param courseId Course identifier.
+ * @param data Writing payload to submit.
+ * @returns The created writing submission.
  */
 export async function submitWriting(
     courseId: number,
@@ -142,32 +116,51 @@ export async function submitWriting(
         assignment_id?: number;
     }
 ): Promise<WritingSubmission> {
-    const response = await apiClient.post(`/courses/${courseId}/writing`, data);
-    return response.data;
+    return api.student.submitWriting(courseId, data);
 }
 
 /**
- * Get writing submissions for a course
+ * Get writing submissions for a course.
+ *
+ * @param courseId Course identifier.
+ * @param writingType Optional writing type filter.
+ * @returns A list of writing submissions.
  */
 export async function getWritingSubmissions(
     courseId: number,
     writingType?: WritingType
 ): Promise<WritingSubmission[]> {
-    const params = writingType ? { writing_type: writingType } : {};
-    const response = await apiClient.get(`/courses/${courseId}/writing`, { params });
-    return response.data;
+    return api.student.getWritingSubmissions(courseId, writingType);
 }
 
 /**
- * Get a single writing submission with feedback
+ * Get a single writing submission with feedback.
+ *
+ * @param id Submission identifier.
+ * @returns The submission with feedback.
  */
 export async function getWritingSubmission(id: number): Promise<WritingSubmission> {
-    const response = await apiClient.get(`/writing/${id}`);
-    return response.data;
+    return api.student.getWritingSubmission(id);
 }
 
 /**
- * Parse feedback JSON from a writing submission
+ * Get writing statistics for a course (teacher-only).
+ *
+ * @param courseId Course identifier.
+ * @returns Aggregated writing statistics.
+ */
+export async function getWritingStats(courseId: number): Promise<{
+    weakness_stats: Array<{ name: string; count: number }>;
+    student_count: number;
+}> {
+    return api.student.getWritingStats(courseId);
+}
+
+/**
+ * Parse feedback JSON from a writing submission.
+ *
+ * @param submission Submission containing feedback JSON.
+ * @returns Parsed feedback or null when absent/invalid.
  */
 export function parseFeedback(submission: WritingSubmission): WritingFeedback | null {
     if (!submission.feedback_json) return null;
@@ -200,7 +193,10 @@ export const WRITING_TYPE_INFO: Record<WritingType, { name: string; description:
 };
 
 /**
- * Get display name for a writing type
+ * Get display name for a writing type.
+ *
+ * @param type Writing type identifier.
+ * @returns The display name or the raw type string.
  */
 export function getWritingTypeName(type: WritingType): string {
     return WRITING_TYPE_INFO[type]?.name || type;

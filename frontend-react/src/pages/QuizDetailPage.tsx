@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { quizApi, type Quiz, type Question, type QuestionWithAnswer, type QuizAttempt } from '@/api/quiz';
 import { authStore } from '@/lib/auth-store';
+import { logger } from '@/lib/logger';
 
 export function QuizDetailPage() {
     const { courseId, quizId } = useParams<{ courseId: string; quizId: string }>();
@@ -133,7 +134,7 @@ export function QuizDetailPage() {
                 try {
                     setAnswers(JSON.parse(data.attempt.answers));
                 } catch (error) {
-                    console.warn('Failed to parse saved answers', error);
+                    logger.warn('failed to parse saved answers', { error, quizId });
                 }
             }
         } catch (err: unknown) {
@@ -297,10 +298,10 @@ export function QuizDetailPage() {
                 </div>
 
                 <div className="flex items-center gap-6 text-sm text-gray-400">
-                    {quiz.time_limit > 0 && (
+                    {(quiz.time_limit ?? 0) > 0 && (
                         <div className="flex items-center gap-1">
                             <Clock className="w-4 h-4" />
-                            <span>{quiz.time_limit} 分钟</span>
+                            <span>{quiz.time_limit ?? 0} 分钟</span>
                         </div>
                     )}
                     <div className="flex items-center gap-1">
@@ -419,7 +420,11 @@ function QuestionCard({
     onChange: (value: string | string[]) => void;
     readOnly: boolean;
 }) {
-    const options = question.options ? JSON.parse(question.options) : [];
+    const options = Array.isArray(question.options)
+        ? question.options
+        : question.options
+            ? JSON.parse(question.options)
+            : [];
 
     return (
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6">

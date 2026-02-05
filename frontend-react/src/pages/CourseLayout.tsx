@@ -13,6 +13,8 @@ import {
     ClipboardList,
     Menu,
     PenLine,
+    Megaphone,
+    UserCheck,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { authStore } from '@/lib/auth-store';
@@ -21,7 +23,9 @@ import { useLocation } from 'react-router-dom';
 
 const navItems = [
     { path: 'overview', label: '课程概览', icon: LayoutDashboard },
+    { path: 'announcements', label: '公告', icon: Megaphone },
     { path: 'chapters', label: '章节学习', icon: BookOpen },
+    { path: 'attendance', label: '考勤', icon: UserCheck },
     { path: 'chat', label: 'AI 答疑', icon: MessageSquare },
     { path: 'writing', label: '写作提交', icon: PenLine },
     { path: 'simulation', label: '电磁仿真', icon: Atom },

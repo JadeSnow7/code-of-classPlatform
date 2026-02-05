@@ -9,8 +9,12 @@ deployment/
 └── docker/
     ├── docker-compose.dev.yml      # 开发环境配置
     ├── docker-compose.prod.yml     # 生产环境配置
+    ├── nginx/                      # Nginx 反向代理（生产入口）
+    │   ├── nginx.conf
+    │   └── conf.d/default.conf
     └── monitoring/
-        └── docker-compose.monitoring.yml  # 监控服务配置
+        ├── docker-compose.monitoring.yml  # 监控服务配置
+        └── prometheus/prometheus.yml      # Prometheus 抓取配置
 ```
 
 ## 使用方式

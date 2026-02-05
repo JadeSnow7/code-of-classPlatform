@@ -1,3 +1,5 @@
+"""Define GraphRAG index data structures and helpers."""
+
 from __future__ import annotations
 
 import json
@@ -8,6 +10,8 @@ from typing import Any, Iterable
 
 @dataclass(frozen=True)
 class Chunk:
+    """Represent a text chunk stored in the index."""
+
     id: str
     text: str
     source: str | None = None
@@ -17,6 +21,8 @@ class Chunk:
 
 @dataclass(frozen=True)
 class Node:
+    """Represent a graph node linked to chunks."""
+
     id: str
     title: str
     chunk_ids: tuple[str, ...] = ()
@@ -24,6 +30,8 @@ class Node:
 
 @dataclass(frozen=True)
 class Edge:
+    """Represent a relationship between two nodes."""
+
     source: str
     target: str
     relation: str = "related"
@@ -31,6 +39,8 @@ class Edge:
 
 @dataclass
 class GraphRAGIndex:
+    """Store nodes, chunks, and edges for retrieval."""
+
     nodes: dict[str, Node]
     chunks: dict[str, Chunk]
     edges: tuple[Edge, ...]
@@ -41,6 +51,7 @@ class GraphRAGIndex:
 
     @staticmethod
     def from_dict(data: dict[str, Any]) -> "GraphRAGIndex":
+        """Build an index from a dictionary payload."""
         nodes_list = data.get("nodes", [])
         chunks_list = data.get("chunks", [])
         edges_list = data.get("edges", [])
@@ -117,6 +128,7 @@ class GraphRAGIndex:
 
     @staticmethod
     def load(path: str | Path) -> "GraphRAGIndex":
+        """Load an index from a JSON file."""
         p = Path(path)
         data = json.loads(p.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -124,8 +136,8 @@ class GraphRAGIndex:
         return GraphRAGIndex.from_dict(data)
 
     def iter_chunks(self, chunk_ids: Iterable[str]) -> Iterable[Chunk]:
+        """Iterate over chunk IDs and yield chunk objects."""
         for cid in chunk_ids:
             ch = self.chunks.get(cid)
             if ch:
                 yield ch
-

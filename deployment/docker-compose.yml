@@ -1,70 +1,85 @@
-version: '3.8'
+version: "3.8"
 
-# Development Docker Compose Configuration
-# Use this file for local development environment
+# Basic deployment compose (for convenience).
+# For richer setups (with nginx/monitoring), see `deployment/docker/`.
 
 services:
-  db:
-    image: mysql:8.0
-    container_name: emfield-db-dev
+  mysql:
+    image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-emfield}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     volumes:
       - mysql_data:/var/lib/mysql
-    networks:
-      - emfield-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ai:
+    build:
+      context: ../ai_service
+    environment:
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED}
+      GRAPH_RAG_INDEX_PATH: ${GRAPH_RAG_INDEX_PATH}
+      GRAPH_RAG_SEED_TOP_K: ${GRAPH_RAG_SEED_TOP_K}
+      GRAPH_RAG_EXPAND_HOPS: ${GRAPH_RAG_EXPAND_HOPS}
+      GRAPH_RAG_FINAL_TOP_K: ${GRAPH_RAG_FINAL_TOP_K}
+      GRAPH_RAG_MAX_CONTEXT_CHARS: ${GRAPH_RAG_MAX_CONTEXT_CHARS}
+    ports:
+      - "8001:8001"
+
+  sim:
+    build:
+      context: ../simulation
+    ports:
+      - "8002:8002"
 
   backend:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
-    container_name: emfield-backend-dev
+      context: ../backend
     environment:
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_USER=root
-      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123}
-      - DB_NAME=${MYSQL_DATABASE:-emfield}
-      - JWT_SECRET=${BACKEND_JWT_SECRET:-dev-secret}
+      HTTP_ADDR: ${BACKEND_HTTP_ADDR}
+      JWT_SECRET: ${BACKEND_JWT_SECRET}
+      CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      DB_DSN: ${BACKEND_DB_DSN}
+      AI_BASE_URL: ${BACKEND_AI_BASE_URL}
+      SIM_BASE_URL: ${BACKEND_SIM_BASE_URL}
+      WECOM_CORPID: ${WECOM_CORPID}
+      WECOM_AGENTID: ${WECOM_AGENTID}
+      WECOM_SECRET: ${WECOM_SECRET}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_USE_SSL: "false"
     ports:
       - "8080:8080"
     depends_on:
-      - db
-    networks:
-      - emfield-network
+      mysql:
+        condition: service_healthy
 
-  ai_service:
-    build:
-      context: ../../ai_service
-      dockerfile: Dockerfile
-    container_name: emfield-ai-dev
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
     environment:
-      - LLM_BASE_URL=${LLM_BASE_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
     ports:
-      - "8001:8000"
-    networks:
-      - emfield-network
-
-  frontend:
-    build:
-      context: ../../frontend
-      dockerfile: Dockerfile
-    container_name: emfield-frontend-dev
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-    networks:
-      - emfield-network
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
 
 volumes:
   mysql_data:
-
-
-networks:
-  emfield-network:
-    driver: bridge
+  minio_data:
