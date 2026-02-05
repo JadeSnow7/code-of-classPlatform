@@ -148,10 +148,6 @@ export async function chat(
             contextSequence: contextInstance.getSequence(),
         });
 
-        // 构建消息历史
-        const chatHistory: { role: 'user' | 'assistant' | 'system'; content: string }[] =
-            messages.map(m => ({ role: m.role, content: m.content }));
-
         // 获取最后一条用户消息
         const lastUserMessage = messages.filter(m => m.role === 'user').pop();
         if (!lastUserMessage) {
@@ -159,7 +155,7 @@ export async function chat(
         }
 
         // 流式生成
-        const response = await session.prompt(lastUserMessage.content, {
+        await session.prompt(lastUserMessage.content, {
             onTextChunk: (chunk: string) => {
                 if (!controller.signal.aborted) {
                     tokensGenerated++;

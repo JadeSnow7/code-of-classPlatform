@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCourse } from '@/domains/course/useCourse';
 import { useAuth } from '@/domains/auth/useAuth';
 import { attendanceApi, type AttendanceSummary, type SessionListItem, type AttendanceRecord } from '@/api/attendance';
@@ -25,48 +25,49 @@ export function AttendancePage() {
     const isTeacher = user?.role === 'teacher' || user?.role === 'admin';
     const canManage = isTeacher && course?.teacher_id === Number(user?.id);
 
-    useEffect(() => {
-        if (course?.ID) {
-            refreshData();
-        }
-    }, [course?.ID]);
-
-    useEffect(() => {
-        if (selectedSessionId && canManage) {
-            loadRecords(selectedSessionId);
-        }
-    }, [selectedSessionId]);
-
-    const refreshData = async () => {
+    const refreshData = useCallback(async () => {
+        const courseId = course?.ID;
+        if (!courseId) return;
         setLoading(true);
         try {
             const [summaryData, sessionsData] = await Promise.all([
-                attendanceApi.getSummary(course!.ID),
-                attendanceApi.listSessions(course!.ID)
+                attendanceApi.getSummary(courseId),
+                attendanceApi.listSessions(courseId)
             ]);
             setSummary(summaryData);
             setSessions(sessionsData);
         } catch (error) {
-            logger.error('failed to load attendance data', { error, courseId: course?.ID });
+            logger.error('failed to load attendance data', { error, courseId });
         } finally {
             setLoading(false);
         }
-    };
+    }, [course?.ID]);
 
-    const loadRecords = async (sessionId: number) => {
+    const loadRecords = useCallback(async (sessionId: number) => {
         try {
             const data = await attendanceApi.getRecords(sessionId);
             setRecords(data);
         } catch (error) {
             logger.error('failed to load attendance records', { error, sessionId });
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        refreshData();
+    }, [refreshData]);
+
+    useEffect(() => {
+        if (selectedSessionId && canManage) {
+            loadRecords(selectedSessionId);
+        }
+    }, [selectedSessionId, canManage, loadRecords]);
 
     const handleStartSession = async () => {
         try {
             await attendanceApi.startSession(course!.ID, timeoutMinutes);
             refreshData();
         } catch (error) {
+            logger.error('failed to start session', { error, courseId: course?.ID });
             alert('Failed to start session');
         }
     };
@@ -76,6 +77,7 @@ export function AttendancePage() {
             await attendanceApi.endSession(sessionId);
             refreshData();
         } catch (error) {
+            logger.error('failed to end session', { error, sessionId });
             alert('Failed to end session');
         }
     };
@@ -90,6 +92,7 @@ export function AttendancePage() {
             setCheckinMessage('签到成功！');
             refreshData();
         } catch (error) {
+            logger.error('failed to check in', { error, sessionId: summary.active_session.id });
             setCheckinStatus('error');
             setCheckinMessage('签到失败，请检查验证码');
         }

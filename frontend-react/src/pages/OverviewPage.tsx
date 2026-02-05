@@ -1,6 +1,6 @@
 import { useCourse } from '@/domains/course/useCourse';
 import { Megaphone, Calendar, Users, UserCheck } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { announcementApi } from '@/api/announcement';
 import { attendanceApi } from '@/api/attendance';
 import { assignmentApi } from '@/api/assignment';
@@ -16,18 +16,14 @@ export function OverviewPage() {
         attendanceRate: 0,
     });
 
-    useEffect(() => {
-        if (course?.ID) {
-            loadStats();
-        }
-    }, [course?.ID]);
-
-    const loadStats = async () => {
+    const loadStats = useCallback(async () => {
+        const courseId = course?.ID;
+        if (!courseId) return;
         try {
             const [announcementData, attendanceData, assignmentData] = await Promise.all([
-                announcementApi.getSummary(course!.ID),
-                attendanceApi.getSummary(course!.ID),
-                assignmentApi.getCourseAssignmentStats(course!.ID)
+                announcementApi.getSummary(courseId),
+                attendanceApi.getSummary(courseId),
+                assignmentApi.getCourseAssignmentStats(courseId)
             ]);
 
             setStats({
@@ -36,9 +32,14 @@ export function OverviewPage() {
                 attendanceRate: Math.round(attendanceData.attendance_rate * 100),
             });
         } catch (error) {
-            logger.error('failed to load overview stats', { error, courseId: course?.ID });
+            logger.error('failed to load overview stats', { error, courseId });
         }
-    };
+    }, [course?.ID]);
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        loadStats();
+    }, [loadStats]);
 
     return (
         <div className="p-6 space-y-6">

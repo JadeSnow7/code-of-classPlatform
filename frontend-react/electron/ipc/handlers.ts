@@ -83,11 +83,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     ipcMain.handle(IPC_CHANNELS.MODEL_DOWNLOAD, async (_event, _modelId: string) => {
         // TODO: 实现模型下载
+        void _event;
+        void _modelId;
         throw new Error('Not implemented');
     });
 
     ipcMain.handle(IPC_CHANNELS.MODEL_DELETE, async (_event, _modelId: string) => {
         // TODO: 实现模型删除
+        void _event;
+        void _modelId;
         throw new Error('Not implemented');
     });
 

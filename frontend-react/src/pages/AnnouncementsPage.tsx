@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCourse } from '@/domains/course/useCourse';
 import { announcementApi, type Announcement } from '@/api/announcement';
 import { Plus, Trash2, Megaphone } from 'lucide-react';
@@ -17,22 +17,24 @@ export function AnnouncementsPage() {
     const isTeacher = user?.role === 'teacher' || user?.role === 'admin';
     const canManage = isTeacher && course?.teacher_id === Number(user?.id);
 
-    useEffect(() => {
-        if (course?.ID) {
-            loadAnnouncements();
-        }
-    }, [course?.ID]);
-
-    const loadAnnouncements = async () => {
+    const loadAnnouncements = useCallback(async () => {
+        const courseId = course?.ID;
+        if (!courseId) return;
         try {
-            const data = await announcementApi.list(course!.ID);
+            const data = await announcementApi.list(courseId);
             setAnnouncements(data);
         } catch (error) {
-            logger.error('failed to load announcements', { error, courseId: course?.ID });
+            logger.error('failed to load announcements', { error, courseId });
         } finally {
             setLoading(false);
         }
-    };
+    }, [course?.ID]);
+
+    useEffect(() => {
+        if (!course?.ID) return;
+        setLoading(true);
+        loadAnnouncements();
+    }, [course?.ID, loadAnnouncements]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();

@@ -47,7 +47,7 @@ async function main() {
     let tokens = 0;
 
     console.log('Assistant: ');
-    const response = await session.prompt('什么是机器学习？请简短回答。', {
+    await session.prompt('什么是机器学习？请简短回答。', {
         onTextChunk: (chunk) => {
             process.stdout.write(chunk);
             tokens++;
