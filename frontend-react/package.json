@@ -13,9 +13,10 @@
     "test:e2e:ui": "playwright test --ui",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "electron:dev": "concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron:pack": "electron-builder --dir"
+    "electron:dev": "npm run electron:compile && concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:build": "npm run build && npm run electron:compile && electron-builder",
+    "electron:pack": "npm run electron:compile && electron-builder --dir"
   },
   "dependencies": {
     "@classplatform/shared": "0.1.0",
@@ -23,6 +24,7 @@
     "clsx": "^2.1.1",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.562.0",
+    "node-llama-cpp": "^3.15.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.11.0",
@@ -61,7 +63,7 @@
     "vitest": "^4.0.16",
     "wait-on": "^7.2.0"
   },
-  "main": "electron/main.js",
+  "main": "electron/dist/main.js",
   "build": {
     "appId": "com.graduation.design",
     "productName": "GraduationDesign",
