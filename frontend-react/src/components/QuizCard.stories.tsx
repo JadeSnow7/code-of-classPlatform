@@ -1,19 +1,32 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { ClipboardList, Clock, Trophy } from 'lucide-react';
+import { Clock, Trophy } from 'lucide-react';
 
 // Extracted QuizCard component for Storybook
+/**
+ * Props for QuizCard.
+ */
 export interface QuizCardProps {
+    /** Quiz identifier used for routing. */
     id: number;
+    /** Parent course identifier used for routing. */
     courseId: number;
+    /** Quiz title. */
     title: string;
+    /** Optional quiz description. */
     description?: string;
+    /** Optional time limit in minutes. */
     timeLimit?: number;
+    /** Total available points. */
     totalPoints: number;
+    /** Current quiz status. */
     status: 'draft' | 'not_started' | 'ended' | 'in_progress';
+    /** How many attempts the learner has made. */
     attemptCount?: number;
+    /** Maximum attempts allowed. */
     maxAttempts?: number;
+    /** Best score achieved, if any. */
     bestScore?: number | null;
 }
 
@@ -24,6 +37,12 @@ const statusStyles = {
     in_progress: { label: '进行中', color: 'bg-green-500/20 text-green-400' },
 };
 
+/**
+ * Card preview for a quiz with status and attempt metadata.
+ *
+ * @param props Component props.
+ * @returns The quiz card UI.
+ */
 export function QuizCard({
     id,
     courseId,

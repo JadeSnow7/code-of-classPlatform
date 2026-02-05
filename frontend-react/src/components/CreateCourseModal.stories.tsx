@@ -3,12 +3,24 @@ import { useState } from 'react';
 import { X, Loader2 } from 'lucide-react';
 
 // Extracted CreateCourseModal component for Storybook
+/**
+ * Props for CreateCourseModal.
+ */
 export interface CreateCourseModalProps {
+    /** Called when the modal should close. */
     onClose: () => void;
+    /** Called when the user submits the form. */
     onCreate: (name: string, code: string, semester: string) => Promise<void>;
+    /** Whether the modal is visible. */
     isOpen?: boolean;
 }
 
+/**
+ * Modal dialog for creating a new course.
+ *
+ * @param props Component props.
+ * @returns The modal UI or null when closed.
+ */
 export function CreateCourseModal({ onClose, onCreate, isOpen = true }: CreateCourseModalProps) {
     const [name, setName] = useState('');
     const [code, setCode] = useState('');
@@ -104,7 +116,7 @@ const meta: Meta<typeof CreateCourseModal> = {
     ],
     args: {
         onClose: () => console.log('Modal closed'),
-        onCreate: async (name, code, semester) => {
+        onCreate: async (name: string, code: string, semester: string) => {
             console.log('Creating course:', { name, code, semester });
             await new Promise((r) => setTimeout(r, 1000));
         },
