@@ -17,31 +17,31 @@ import (
 
 var (
 	// ErrQuizNotFound indicates the quiz does not exist.
-	ErrQuizNotFound        = errors.New("quiz not found")
+	ErrQuizNotFound = errors.New("quiz not found")
 	// ErrQuizNotAvailable indicates the quiz is not available to students.
-	ErrQuizNotAvailable    = errors.New("quiz not available")
+	ErrQuizNotAvailable = errors.New("quiz not available")
 	// ErrQuizNotStarted indicates the quiz start time has not been reached.
-	ErrQuizNotStarted      = errors.New("quiz not started")
+	ErrQuizNotStarted = errors.New("quiz not started")
 	// ErrQuizEnded indicates the quiz has passed its end time.
-	ErrQuizEnded           = errors.New("quiz ended")
+	ErrQuizEnded = errors.New("quiz ended")
 	// ErrMaxAttemptsReached indicates the student has exhausted attempts.
-	ErrMaxAttemptsReached  = errors.New("maximum attempts reached")
+	ErrMaxAttemptsReached = errors.New("maximum attempts reached")
 	// ErrNoActiveAttempt indicates no in-progress attempt exists.
-	ErrNoActiveAttempt     = errors.New("no active attempt")
+	ErrNoActiveAttempt = errors.New("no active attempt")
 	// ErrSubmissionDeadline indicates the attempt deadline has passed.
-	ErrSubmissionDeadline  = errors.New("submission deadline passed")
+	ErrSubmissionDeadline = errors.New("submission deadline passed")
 	// ErrAnswersTooLarge indicates the answer payload exceeds limits.
-	ErrAnswersTooLarge     = errors.New("answers too large")
+	ErrAnswersTooLarge = errors.New("answers too large")
 	// ErrQuizPublished indicates edits are blocked for published quizzes.
-	ErrQuizPublished       = errors.New("quiz is published")
+	ErrQuizPublished = errors.New("quiz is published")
 	// ErrQuestionNotFound indicates the question does not exist.
-	ErrQuestionNotFound    = errors.New("question not found")
+	ErrQuestionNotFound = errors.New("question not found")
 	// ErrInvalidQuestionType indicates the question type is not supported.
 	ErrInvalidQuestionType = errors.New("invalid question type")
 	// ErrTooManyOptions indicates a question exceeds the options limit.
-	ErrTooManyOptions      = errors.New("too many options")
+	ErrTooManyOptions = errors.New("too many options")
 	// ErrOptionsTooLarge indicates the options payload exceeds limits.
-	ErrOptionsTooLarge     = errors.New("options too large")
+	ErrOptionsTooLarge = errors.New("options too large")
 	// ErrUnpublishNotAllowed indicates a quiz cannot be unpublished due to attempts.
 	ErrUnpublishNotAllowed = errors.New("cannot unpublish: attempts exist")
 )
@@ -697,11 +697,15 @@ func gradeQuestion(q models.Question, studentAnswer interface{}) int {
 				}
 			}
 		case string:
-			json.Unmarshal([]byte(v), &studentAns)
+			if err := json.Unmarshal([]byte(v), &studentAns); err != nil {
+				return 0
+			}
 		}
 
 		var correctAns []string
-		json.Unmarshal([]byte(q.Answer), &correctAns)
+		if err := json.Unmarshal([]byte(q.Answer), &correctAns); err != nil {
+			return 0
+		}
 
 		sort.Strings(studentAns)
 		sort.Strings(correctAns)
@@ -755,7 +759,7 @@ func matchFillBlank(answer, studentAns, rule string) bool {
 				return true
 			}
 		case "regex":
-			if matched, _ := regexp.MatchString(ans, studentAns); matched {
+			if matched, err := regexp.MatchString(ans, studentAns); err == nil && matched {
 				return true
 			}
 		}

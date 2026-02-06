@@ -16,9 +16,9 @@ var (
 	// ErrChapterNotFound indicates the chapter does not exist.
 	ErrChapterNotFound = errors.New("chapter not found")
 	// ErrCourseNotFound indicates the course does not exist.
-	ErrCourseNotFound  = errors.New("course not found")
+	ErrCourseNotFound = errors.New("course not found")
 	// ErrAccessDenied indicates the user is not authorized for the action.
-	ErrAccessDenied    = errors.New("access denied")
+	ErrAccessDenied = errors.New("access denied")
 )
 
 // ChapterService handles chapter CRUD and study tracking.
@@ -355,7 +355,9 @@ func (s *ChapterService) GetMyStats(ctx context.Context, chapterID uint, user Us
 	}
 
 	if chapter.KnowledgePoints != "" {
-		_ = json.Unmarshal([]byte(chapter.KnowledgePoints), &stats.KnowledgePoints)
+		if err := json.Unmarshal([]byte(chapter.KnowledgePoints), &stats.KnowledgePoints); err != nil {
+			stats.KnowledgePoints = []string{}
+		}
 	}
 
 	var progress models.ChapterProgress
