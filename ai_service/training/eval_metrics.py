@@ -14,6 +14,24 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+REFUSAL_SENTENCE_PATTERNS = [
+    re.compile(r"^(?:抱歉|对不起)?[,，]?(?:我)?(?:现在)?(?:无法|不能|不便|没法|不能够).{0,24}(?:回答|提供|协助|完成|执行|给出|处理)"),
+    re.compile(r"^(?:无法|不能|不便|没法).{0,24}(?:作业|该题|题目|请求|问题).{0,16}(?:答案|内容|帮助)"),
+    re.compile(r"^(?:我)?(?:无法|不能|不便|没法)(?:确定|判断).{0,16}(?:答案|结果|结论)"),
+    re.compile(r"^(?:请|请先)(?:补充|提供).{0,20}(?:题目|上下文|信息|条件)"),
+    re.compile(r"(?:信息|资料|上下文).{0,10}(?:不足|缺失|不完整).{0,10}(?:无法|不能)"),
+]
+SHORT_REFUSAL_PHRASES = (
+    "无法回答",
+    "不能回答",
+    "无法提供",
+    "不能提供",
+    "无法确定",
+    "无法执行",
+    "拒绝回答",
+)
+TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate model outputs against benchmark.")
@@ -58,18 +76,113 @@ def extract_response(sample: Dict[str, Any]) -> str:
     return ""
 
 
+def _looks_like_math_interval(content: str) -> bool:
+    compact = content.strip()
+    if any(op in compact for op in ("∈", "≤", "≥", "<=", ">=")):
+        return True
+    if re.fullmatch(r"-?\d+(?:\.\d+)?\s*,\s*[A-Za-z]", compact):
+        return True
+    if re.fullmatch(r"[A-Za-z]\s*,\s*[A-Za-z]", compact):
+        return True
+    return False
+
+
+def _normalize_citation_token(token: str) -> str:
+    return token.strip().strip("[](){}<>.,;:!?\"'")
+
+
+def _is_valid_citation_token(token: str) -> bool:
+    if not token or token.startswith("#"):
+        return False
+    if re.fullmatch(r"\d{1,4}", token):
+        return True
+    if re.fullmatch(r"[A-Za-z]", token):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,63}", token))
+
+
+def _parse_citations_from_text(response: str) -> List[str]:
+    results: List[str] = []
+    for match in re.findall(r"\[([^\]]+)\]", response):
+        if _looks_like_math_interval(match):
+            continue
+        for token in re.split(r"[,\s]+", match):
+            normalized = _normalize_citation_token(token)
+            if _is_valid_citation_token(normalized) and normalized not in results:
+                results.append(normalized)
+    return results
+
+
 def extract_citations(sample: Dict[str, Any], response: str) -> List[str]:
     citations = sample.get("citations") or sample.get("references")
     if isinstance(citations, list):
-        return [str(x) for x in citations if x]
-    matches = re.findall(r"\[([^\]]+)\]", response)
-    results: List[str] = []
-    for m in matches:
-        for token in re.split(r"[,\s]+", m):
-            token = token.strip()
-            if token:
-                results.append(token)
-    return results
+        normalized = []
+        for item in citations:
+            token = _normalize_citation_token(str(item))
+            if _is_valid_citation_token(token) and token not in normalized:
+                normalized.append(token)
+        return normalized
+    return _parse_citations_from_text(response)
+
+
+def _append_unique(values: List[str], candidate: str) -> None:
+    name = candidate.strip().strip("`\"'")
+    if not name or not TOOL_NAME_RE.fullmatch(name):
+        return
+    if name not in values:
+        values.append(name)
+
+
+def _collect_tool_names_from_obj(obj: Any, names: List[str]) -> None:
+    if isinstance(obj, dict):
+        fn = obj.get("function")
+        if isinstance(fn, dict):
+            fn_name = fn.get("name")
+            if isinstance(fn_name, str):
+                _append_unique(names, fn_name)
+        name = obj.get("name")
+        if isinstance(name, str) and (
+            "arguments" in obj or "function" in obj or obj.get("type") in {"function", "tool"}
+        ):
+            _append_unique(names, name)
+        for value in obj.values():
+            _collect_tool_names_from_obj(value, names)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_tool_names_from_obj(item, names)
+
+
+def _parse_tool_calls_from_text(response: str) -> List[str]:
+    tools: List[str] = []
+
+    for block in re.findall(r"<tool_calls>(.*?)</tool_calls>", response, re.DOTALL):
+        payload = block.strip()
+        if not payload:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            for name in re.findall(r'"name"\s*:\s*"([^"]+)"', payload):
+                _append_unique(tools, name)
+        else:
+            _collect_tool_names_from_obj(parsed, tools)
+
+    for block in re.findall(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", response, re.DOTALL):
+        try:
+            parsed = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        _collect_tool_names_from_obj(parsed, tools)
+
+    for pattern in (
+        r'"function"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"',
+        r'"tool_name"\s*:\s*"([^"]+)"',
+        r'(?:调用(?:工具|函数)|工具(?:调用)?|函数(?:调用)?)\s*[:：]\s*([A-Za-z_][A-Za-z0-9_.-]*)',
+    ):
+        for name in re.findall(pattern, response):
+            _append_unique(tools, name)
+
+    return tools
 
 
 def extract_tool_calls(sample: Dict[str, Any]) -> List[str]:
@@ -78,12 +191,17 @@ def extract_tool_calls(sample: Dict[str, Any]) -> List[str]:
         names: List[str] = []
         for call in tool_calls:
             if isinstance(call, str):
-                names.append(call)
+                _append_unique(names, call)
             elif isinstance(call, dict):
                 fn = call.get("name") or call.get("function", {}).get("name")
                 if fn:
-                    names.append(str(fn))
+                    _append_unique(names, str(fn))
         return names
+    if isinstance(tool_calls, str):
+        return _parse_tool_calls_from_text(tool_calls)
+    response = extract_response(sample)
+    if response:
+        return _parse_tool_calls_from_text(response)
     return []
 
 
@@ -91,10 +209,13 @@ def detect_refusal(response: str) -> bool:
     text = response.strip()
     if not text:
         return False
-    keywords = [
-        "无法", "不能", "不足", "缺少", "需要更多", "超出", "不确定", "资料不足", "无法确定"
-    ]
-    return any(k in text for k in keywords)
+    compact = re.sub(r"\s+", " ", text)
+    sentences = [s.strip() for s in re.split(r"[。！？\n]+", compact) if s.strip()]
+    for sentence in sentences:
+        for pattern in REFUSAL_SENTENCE_PATTERNS:
+            if pattern.search(sentence):
+                return True
+    return len(compact) <= 120 and any(phrase in compact for phrase in SHORT_REFUSAL_PHRASES)
 
 
 def check_format(response: str) -> bool:
@@ -288,4 +409,3 @@ def generate_markdown_report(
 
 if __name__ == "__main__":
     main()
-

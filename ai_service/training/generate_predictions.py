@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -31,6 +32,24 @@ DEFAULT_SYSTEM_PROMPT = (
     "### 推导\n"
     "### 检查（单位/边界条件/适用条件）"
 )
+
+REFUSAL_SENTENCE_PATTERNS = [
+    re.compile(r"^(?:抱歉|对不起)?[,，]?(?:我)?(?:现在)?(?:无法|不能|不便|没法|不能够).{0,24}(?:回答|提供|协助|完成|执行|给出|处理)"),
+    re.compile(r"^(?:无法|不能|不便|没法).{0,24}(?:作业|该题|题目|请求|问题).{0,16}(?:答案|内容|帮助)"),
+    re.compile(r"^(?:我)?(?:无法|不能|不便|没法)(?:确定|判断).{0,16}(?:答案|结果|结论)"),
+    re.compile(r"^(?:请|请先)(?:补充|提供).{0,20}(?:题目|上下文|信息|条件)"),
+    re.compile(r"(?:信息|资料|上下文).{0,10}(?:不足|缺失|不完整).{0,10}(?:无法|不能)"),
+]
+SHORT_REFUSAL_PHRASES = (
+    "无法回答",
+    "不能回答",
+    "无法提供",
+    "不能提供",
+    "无法确定",
+    "无法执行",
+    "拒绝回答",
+)
+TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
 
 
 def parse_args() -> argparse.Namespace:
@@ -140,42 +159,114 @@ def format_prompt(tokenizer, messages: List[Dict[str, str]]) -> str:
 
 def detect_refusal(response: str) -> bool:
     """Detect if response is a refusal."""
-    keywords = ["无法", "不能", "不足", "缺少", "需要更多", "超出", "不确定", "资料不足"]
-    return any(k in response for k in keywords)
+    text = re.sub(r"\s+", " ", response or "").strip()
+    if not text:
+        return False
+    sentences = [s.strip() for s in re.split(r"[。！？\n]+", text) if s.strip()]
+    for sentence in sentences:
+        for pattern in REFUSAL_SENTENCE_PATTERNS:
+            if pattern.search(sentence):
+                return True
+    return len(text) <= 120 and any(phrase in text for phrase in SHORT_REFUSAL_PHRASES)
+
+
+def _append_unique(values: List[str], candidate: str) -> None:
+    name = candidate.strip().strip("`\"'")
+    if not name or not TOOL_NAME_RE.fullmatch(name):
+        return
+    if name not in values:
+        values.append(name)
+
+
+def _collect_tool_names_from_obj(obj: Any, names: List[str]) -> None:
+    if isinstance(obj, dict):
+        fn = obj.get("function")
+        if isinstance(fn, dict):
+            fn_name = fn.get("name")
+            if isinstance(fn_name, str):
+                _append_unique(names, fn_name)
+        name = obj.get("name")
+        if isinstance(name, str) and (
+            "arguments" in obj or "function" in obj or obj.get("type") in {"function", "tool"}
+        ):
+            _append_unique(names, name)
+        for value in obj.values():
+            _collect_tool_names_from_obj(value, names)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_tool_names_from_obj(item, names)
 
 
 def extract_tool_calls(response: str) -> List[str]:
-    """Extract tool call names from response (basic pattern matching)."""
-    import re
-    patterns = [
-        r"<tool_calls>(.*?)</tool_calls>",
-        r'"function":\s*\{\s*"name":\s*"([^"]+)"',
-        r"调用(?:工具|函数)[:：]\s*(\w+)",
-    ]
+    """Extract tool call names from response."""
     tools: List[str] = []
-    for pattern in patterns:
-        matches = re.findall(pattern, response, re.DOTALL)
-        for m in matches:
-            if isinstance(m, str) and m.strip():
-                if "function" in m or "{" in m:
-                    name_match = re.search(r'"name":\s*"([^"]+)"', m)
-                    if name_match:
-                        tools.append(name_match.group(1))
-                else:
-                    tools.append(m.strip())
+
+    for block in re.findall(r"<tool_calls>(.*?)</tool_calls>", response, re.DOTALL):
+        payload = block.strip()
+        if not payload:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            for name in re.findall(r'"name"\s*:\s*"([^"]+)"', payload):
+                _append_unique(tools, name)
+        else:
+            _collect_tool_names_from_obj(parsed, tools)
+
+    for block in re.findall(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", response, re.DOTALL):
+        try:
+            parsed = json.loads(block)
+        except json.JSONDecodeError:
+            continue
+        _collect_tool_names_from_obj(parsed, tools)
+
+    for pattern in (
+        r'"function"\s*:\s*\{\s*"name"\s*:\s*"([^"]+)"',
+        r'"tool_name"\s*:\s*"([^"]+)"',
+        r'(?:调用(?:工具|函数)|工具(?:调用)?|函数(?:调用)?)\s*[:：]\s*([A-Za-z_][A-Za-z0-9_.-]*)',
+    ):
+        for name in re.findall(pattern, response):
+            _append_unique(tools, name)
+
     return tools
+
+
+def _looks_like_math_interval(content: str) -> bool:
+    compact = content.strip()
+    if any(op in compact for op in ("∈", "≤", "≥", "<=", ">=")):
+        return True
+    if re.fullmatch(r"-?\d+(?:\.\d+)?\s*,\s*[A-Za-z]", compact):
+        return True
+    if re.fullmatch(r"[A-Za-z]\s*,\s*[A-Za-z]", compact):
+        return True
+    return False
+
+
+def _normalize_citation_token(token: str) -> str:
+    return token.strip().strip("[](){}<>.,;:!?\"'")
+
+
+def _is_valid_citation_token(token: str) -> bool:
+    if not token or token.startswith("#"):
+        return False
+    if re.fullmatch(r"\d{1,4}", token):
+        return True
+    if re.fullmatch(r"[A-Za-z]", token):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,63}", token))
 
 
 def extract_citations(response: str) -> List[str]:
     """Extract citation markers from response."""
-    import re
     matches = re.findall(r"\[([^\]]+)\]", response)
     results: List[str] = []
     for m in matches:
+        if _looks_like_math_interval(m):
+            continue
         for token in re.split(r"[,\s]+", m):
-            token = token.strip()
-            if token and not token.startswith("#"):
-                results.append(token)
+            normalized = _normalize_citation_token(token)
+            if _is_valid_citation_token(normalized) and normalized not in results:
+                results.append(normalized)
     return results
 
 
