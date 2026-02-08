@@ -15,7 +15,13 @@ from .retrieve import (
     RetrievalContext,
     RetrievedChunk,
 )
-from .embedding import get_embedding_provider, EmbeddingProvider, APIEmbedding, LocalEmbedding
+from .embedding import (
+    get_embedding_provider,
+    EmbeddingProvider,
+    APIEmbedding,
+    LocalEmbedding,
+    HashEmbedding,
+)
 from .vector_store import get_vector_store, VectorStore, FAISSStore, SearchResult
 from .updater import IndexUpdater, Document
 
@@ -35,6 +41,7 @@ __all__ = [
     "EmbeddingProvider",
     "APIEmbedding",
     "LocalEmbedding",
+    "HashEmbedding",
     # Vector Store
     "get_vector_store",
     "VectorStore",

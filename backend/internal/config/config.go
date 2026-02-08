@@ -13,8 +13,9 @@ type Config struct {
 
 	DBDsn string
 
-	AIBaseURL  string
-	SimBaseURL string
+	AIBaseURL            string
+	SimBaseURL           string
+	AIGatewaySharedToken string
 
 	// WeChat Work (企业微信) configuration
 	WecomCorpID  string
@@ -67,6 +68,7 @@ func Load() Config {
 		DBDsn:                dbDsn,
 		AIBaseURL:            aiBaseURL,
 		SimBaseURL:           simBaseURL,
+		AIGatewaySharedToken: getenv("AI_GATEWAY_SHARED_TOKEN", ""),
 		WecomCorpID:          wecomCorpID,
 		WecomAgentID:         wecomAgentID,
 		WecomSecret:          wecomSecret,

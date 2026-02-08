@@ -38,7 +38,7 @@ func main() {
 		logger.Log.Warn("bootstrap demo users created", slog.String("note", "admin/admin123, teacher/teacher123, student/student123 (please change in production)"))
 	}
 
-	aiClient := clients.NewAIClient(cfg.AIBaseURL)
+	aiClient := clients.NewAIClient(cfg.AIBaseURL, cfg.AIGatewaySharedToken)
 	simClient := clients.NewSimClient(cfg.SimBaseURL)
 
 	// Initialize MinIO client

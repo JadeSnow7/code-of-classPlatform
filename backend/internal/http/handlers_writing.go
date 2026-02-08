@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
+	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
 )
@@ -38,6 +39,8 @@ type submitWritingRequest struct {
 	Content      string `json:"content" binding:"required"`
 	WritingType  string `json:"writing_type" binding:"required"`
 	AssignmentID *uint  `json:"assignment_id"`
+	Privacy      string `json:"privacy,omitempty"`
+	Route        string `json:"route,omitempty"`
 }
 
 func (h *writingHandlers) SubmitWriting(c *gin.Context) {
@@ -88,21 +91,25 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	})
 
 	// Trigger async AI analysis
-	go h.triggerAIAnalysis(submission)
+	requestID := middleware.GetRequestID(c)
+	go h.triggerAIAnalysis(submission, requestID, req.Privacy, req.Route)
 
 	respondCreated(c, submission)
 }
 
-func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission) {
+func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission, requestID string, privacy string, route string) {
 	// Create context with timeout for analysis
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	ctx = clients.WithRequestID(ctx, requestID)
 
 	// Prepare request
 	req := clients.WritingAnalysisRequest{
 		Content:     submission.Content,
 		WritingType: submission.WritingType,
 		Title:       submission.Title,
+		Privacy:     privacy,
+		Route:       route,
 	}
 
 	// Call AI service

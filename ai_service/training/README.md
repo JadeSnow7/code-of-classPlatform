@@ -13,9 +13,11 @@ pip install -r code/ai_service/training/requirements.txt
 # 2. Create data directories and sample data
 python3 code/ai_service/training/prepare_training_data.py --create-dirs --create-samples
 
-# 3. Run a stage (style/tool/rag/all/sample)
-bash code/ai_service/training/run_train.sh sample  # Use sample data for testing
-bash code/ai_service/training/run_train.sh style   # Full training
+# 3. Run a stage (style/writing/tool/rag/all/sample)
+bash code/ai_service/training/run_train.sh sample   # Quick test (3 samples)
+bash code/ai_service/training/run_train.sh style    # Electromagnetic course (28 samples)
+bash code/ai_service/training/run_train.sh writing  # Academic writing (12 samples)
+bash code/ai_service/training/run_train.sh all      # Multitask (40 samples)
 ```
 
 ## Scripts
@@ -28,6 +30,38 @@ bash code/ai_service/training/run_train.sh style   # Full training
 | `generate_synthetic_data.py` | Generate synthetic JSONL data (tutor/rag/tool) |
 | `eval_metrics.py` | Evaluate predictions against benchmark |
 | `run_train.sh` | Convenient training runner with pre-flight checks |
+
+## Training Stages
+
+### Style Training (Electromagnetic Course)
+Trains the model to act as an electromagnetic course teaching assistant.
+
+- **Data**: 28 training samples + 11 evaluation samples
+- **Topics**: Maxwell equations, electromagnetic waves, boundary conditions, energy/momentum
+- **Output**: `outputs/adapter/adapter_style/`
+- **Command**: `bash code/ai_service/training/run_train.sh style`
+
+### Writing Training (Academic Writing Guidance)
+Trains the model to provide academic writing guidance and feedback.
+
+- **Data**: 12 training samples + 6 evaluation samples
+- **Topics**: Paper structure, formatting standards, language expression, academic integrity
+- **Output**: `outputs/adapter/adapter_writing/`
+- **Command**: `bash code/ai_service/training/run_train.sh writing`
+
+### Multitask Training (All)
+Trains the model on both electromagnetic course and academic writing tasks.
+
+- **Data**: 40 training samples (28 style + 12 writing) + 11 evaluation samples
+- **Output**: `outputs/adapter/adapter_multitask/`
+- **Command**: `bash code/ai_service/training/run_train.sh all`
+
+### Sample Training (Quick Test)
+Quick smoke test with minimal data to validate the training pipeline.
+
+- **Data**: 3 training samples
+- **Output**: `outputs/adapter/adapter_sample/`
+- **Command**: `bash code/ai_service/training/run_train.sh sample`
 
 ## Inputs
 - Training JSONL: `data/training/processed/*.jsonl`

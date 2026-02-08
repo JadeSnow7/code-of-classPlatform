@@ -6,6 +6,7 @@ Supports both API-based and local embeddings with async execution.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -167,16 +168,76 @@ class LocalEmbedding(EmbeddingProvider):
         return embeddings.tolist()
 
 
-def get_embedding_provider() -> EmbeddingProvider:
+class HashEmbedding(EmbeddingProvider):
+    """
+    Deterministic local embeddings (no external model/API).
+
+    Uses hashed character bigrams into a fixed-size vector, then L2-normalizes.
+    Useful for smoke tests when no embedding API is available.
+    """
+
+    def __init__(self, dimension: int = 512):
+        self._dimension = max(8, int(dimension))
+
+    @property
+    def dimension(self) -> int:
+        return self._dimension
+
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed_one(t) for t in texts]
+
+    async def embed_query(self, query: str) -> list[float]:
+        return self._embed_one(query)
+
+    def _embed_one(self, text: str) -> list[float]:
+        s = "".join((text or "").split()).lower()
+        vec = [0.0] * self._dimension
+        if len(s) < 2:
+            return vec
+        for i in range(len(s) - 1):
+            bg = s[i : i + 2].encode("utf-8", errors="ignore")
+            digest = hashlib.blake2b(bg, digest_size=8).digest()
+            idx = int.from_bytes(digest, "big") % self._dimension
+            vec[idx] += 1.0
+        # Normalize
+        norm = sum(v * v for v in vec) ** 0.5
+        if norm > 0:
+            vec = [v / norm for v in vec]
+        return vec
+
+
+def _route_upstream_value(name: str, route: str) -> str:
+    route = route.lower()
+    if route == "cloud":
+        return os.getenv(f"{name}_CLOUD", "")
+    return os.getenv(f"{name}_LOCAL", "") or os.getenv(name, "")
+
+
+def get_embedding_provider(route: str = "local") -> EmbeddingProvider:
     """
     Return the configured embedding provider.
 
-    Reads EMBEDDING_PROVIDER env var: 'api' (default) or 'local'.
+    Reads EMBEDDING_PROVIDER env var: 'api' (default) | 'local' | 'hash'.
     """
-    provider = os.getenv("EMBEDDING_PROVIDER", "api").lower()
+    route = route.lower()
+    provider = (os.getenv(f"EMBEDDING_PROVIDER_{route.upper()}") or os.getenv("EMBEDDING_PROVIDER", "api")).lower()
     
     if provider == "local":
         model = os.getenv("EMBEDDING_MODEL", "shibing624/text2vec-base-chinese")
         return LocalEmbedding(model_name=model)
-    else:
-        return APIEmbedding()
+    if provider == "hash":
+        dim_raw = os.getenv("EMBEDDING_HASH_DIM", "512").strip()
+        try:
+            dim = int(dim_raw)
+        except ValueError:
+            dim = 512
+        return HashEmbedding(dimension=dim)
+
+    base_url = _route_upstream_value("LLM_BASE_URL", route)
+    api_key = _route_upstream_value("LLM_API_KEY", route)
+    model = (
+        os.getenv(f"EMBEDDING_MODEL_{route.upper()}")
+        or os.getenv("EMBEDDING_MODEL")
+        or "text-embedding-v3"
+    )
+    return APIEmbedding(base_url=base_url, api_key=api_key, model=model)

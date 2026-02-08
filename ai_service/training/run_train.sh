@@ -3,10 +3,12 @@ set -euo pipefail
 
 # LoRA/QLoRA training runner with pre-flight checks and logging.
 # Usage:
-#   bash code/ai_service/training/run_train.sh style
-#   bash code/ai_service/training/run_train.sh tool
-#   bash code/ai_service/training/run_train.sh rag
-#   bash code/ai_service/training/run_train.sh all
+#   bash code/ai_service/training/run_train.sh style    # Electromagnetic course (28 samples)
+#   bash code/ai_service/training/run_train.sh writing  # Academic writing (12 samples)
+#   bash code/ai_service/training/run_train.sh tool     # Tool calling
+#   bash code/ai_service/training/run_train.sh rag      # RAG
+#   bash code/ai_service/training/run_train.sh all      # Multitask (40 samples)
+#   bash code/ai_service/training/run_train.sh sample   # Quick test (3 samples)
 #
 # Environment variables:
 #   MODEL_NAME_OR_PATH  - Base model (default: Qwen/Qwen3-8B-Instruct)
@@ -106,7 +108,15 @@ echo "[CHECK] Python dependencies OK"
 case "$STAGE" in
   style)
     TRAIN_FILES="$DATA_BASE/style_sft.jsonl"
+    EVAL_FILE="data/training/eval/style_benchmark.jsonl"
     OUT_DIR="$OUT_BASE/adapter_style"
+    echo "Training electromagnetic course teaching model..."
+    ;;
+  writing)
+    TRAIN_FILES="$DATA_BASE/writing_sft.jsonl"
+    EVAL_FILE="data/training/eval/writing_benchmark.jsonl"
+    OUT_DIR="$OUT_BASE/adapter_writing"
+    echo "Training academic writing guidance model..."
     ;;
   tool)
     TRAIN_FILES="$DATA_BASE/tool_sft.jsonl"
@@ -117,8 +127,10 @@ case "$STAGE" in
     OUT_DIR="$OUT_BASE/adapter_rag"
     ;;
   all)
-    TRAIN_FILES="$DATA_BASE/style_sft.jsonl,$DATA_BASE/tool_sft.jsonl,$DATA_BASE/rag_sft.jsonl"
+    TRAIN_FILES="$DATA_BASE/style_sft.jsonl,$DATA_BASE/writing_sft.jsonl"
+    EVAL_FILE="data/training/eval/style_benchmark.jsonl"
     OUT_DIR="$OUT_BASE/adapter_multitask"
+    echo "Training multitask model (style + writing)..."
     ;;
   sample)
     # Use sample data for testing the pipeline
@@ -132,7 +144,7 @@ case "$STAGE" in
     ;;
   *)
     echo "Unknown stage: $STAGE"
-    echo "Usage: $0 {style|tool|rag|all|sample}"
+    echo "Usage: $0 {style|writing|tool|rag|all|sample}"
     exit 1
     ;;
 esac

@@ -149,6 +149,19 @@ docs: ## Generate documentation
 	cd backend && godoc -http=:6060 &
 	@echo "Documentation server started at http://localhost:6060"
 
+# Knowledge Base (GraphRAG)
+kb-test-pdfs: ## Build GraphRAG index + vectors from sample SCI PDFs (local)
+	cd ai_service && python3 -m app.graphrag.ingest \
+		--inputs \
+			"/Users/huaodong/Downloads/10、SCI写作技巧大礼包.pdf" \
+			"/Users/huaodong/Downloads/8、文献检索与论文写作.pdf" \
+			"/Users/huaodong/Downloads/5、如何撰写和发表SCI期刊论文.pdf" \
+			"/Users/huaodong/Downloads/1、SCI 论文写作和发表：YOU CAN DO IT  第2版.pdf" \
+		--root "/Users/huaodong/Downloads" \
+		--output-index "app/data/graphrag_index.json" \
+		--output-vector "app/data/vector_index" \
+		--embeddings "hash"
+
 # Security
 security: ## Run security checks
 	@echo "Running security checks..."

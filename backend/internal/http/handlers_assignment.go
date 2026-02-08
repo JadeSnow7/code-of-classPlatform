@@ -336,7 +336,8 @@ func (h *assignmentHandlers) AIGradeSubmission(c *gin.Context) {
 		},
 		Stream: false,
 	}
-	aiResponse, err := h.aiClient.Chat(c.Request.Context(), aiRequest)
+	aiCtx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	aiResponse, err := h.aiClient.Chat(aiCtx, aiRequest)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "AI service unavailable", nil)
 		return

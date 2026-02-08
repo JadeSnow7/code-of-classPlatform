@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+type requestIDContextKey struct{}
+
+// WithRequestID attaches request_id to context for outbound AI requests.
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	if requestID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, requestIDContextKey{}, requestID)
+}
+
+// RequestIDFromContext extracts request_id from context.
+func RequestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v := ctx.Value(requestIDContextKey{})
+	requestID, _ := v.(string)
+	return requestID
+}
+
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -20,6 +40,8 @@ type ChatRequest struct {
 	Mode     string        `json:"mode"`
 	Messages []ChatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
+	Privacy  string        `json:"privacy,omitempty"`
+	Route    string        `json:"route,omitempty"`
 }
 
 type ChatResponse struct {
@@ -29,13 +51,15 @@ type ChatResponse struct {
 
 type AIClient struct {
 	baseURL          string
+	gatewayToken     string
 	httpClient       *http.Client
 	streamHTTPClient *http.Client
 }
 
-func NewAIClient(baseURL string) *AIClient {
+func NewAIClient(baseURL string, gatewayToken string) *AIClient {
 	return &AIClient{
-		baseURL: baseURL,
+		baseURL:      baseURL,
+		gatewayToken: gatewayToken,
 		httpClient: &http.Client{
 			Timeout: 300 * time.Second, // 5 min for complex LLM reasoning
 		},
@@ -46,6 +70,16 @@ func NewAIClient(baseURL string) *AIClient {
 				ResponseHeaderTimeout: 30 * time.Second, // Wait up to 30s for first byte
 			},
 		},
+	}
+}
+
+func (c *AIClient) setCommonHeaders(httpReq *http.Request) {
+	httpReq.Header.Set("Content-Type", "application/json")
+	if requestID := RequestIDFromContext(httpReq.Context()); requestID != "" {
+		httpReq.Header.Set("X-Request-ID", requestID)
+	}
+	if c.gatewayToken != "" {
+		httpReq.Header.Set("X-AI-Gateway-Token", c.gatewayToken)
 	}
 }
 
@@ -62,7 +96,7 @@ func (c *AIClient) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 	if err != nil {
 		return ChatResponse{}, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	c.setCommonHeaders(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -102,7 +136,7 @@ func (c *AIClient) StreamChat(ctx context.Context, req ChatRequest) (io.ReadClos
 	if err != nil {
 		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	c.setCommonHeaders(httpReq)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	resp, err := c.streamHTTPClient.Do(httpReq)
@@ -137,6 +171,8 @@ type ChatWithToolsRequest struct {
 	EnableTools  bool                   `json:"enable_tools"`
 	MaxToolCalls int                    `json:"max_tool_calls"`
 	Context      map[string]interface{} `json:"context,omitempty"`
+	Privacy      string                 `json:"privacy,omitempty"`
+	Route        string                 `json:"route,omitempty"`
 }
 
 type ChatWithToolsResponse struct {
@@ -159,7 +195,7 @@ func (c *AIClient) ChatWithTools(ctx context.Context, req ChatWithToolsRequest) 
 	if err != nil {
 		return ChatWithToolsResponse{}, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	c.setCommonHeaders(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -189,6 +225,8 @@ type GuidedChatRequest struct {
 	Messages  []ChatMessage `json:"messages"`
 	UserID    string        `json:"user_id"`
 	CourseID  string        `json:"course_id,omitempty"`
+	Privacy   string        `json:"privacy,omitempty"`
+	Route     string        `json:"route,omitempty"`
 }
 
 // GuidedChatResponse represents a response from the guided learning endpoint.
@@ -219,7 +257,7 @@ func (c *AIClient) ChatGuided(ctx context.Context, req GuidedChatRequest) (Guide
 	if err != nil {
 		return GuidedChatResponse{}, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	c.setCommonHeaders(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -248,6 +286,8 @@ type WritingAnalysisRequest struct {
 	WritingType    string                 `json:"writing_type"` // literature_review, course_paper, thesis, abstract
 	Title          string                 `json:"title,omitempty"`
 	StudentProfile map[string]interface{} `json:"student_profile,omitempty"`
+	Privacy        string                 `json:"privacy,omitempty"`
+	Route          string                 `json:"route,omitempty"`
 }
 
 // DimensionScore represents a score for a single evaluation dimension.
@@ -285,7 +325,7 @@ func (c *AIClient) AnalyzeWriting(ctx context.Context, req WritingAnalysisReques
 	if err != nil {
 		return WritingAnalysisResponse{}, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	c.setCommonHeaders(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

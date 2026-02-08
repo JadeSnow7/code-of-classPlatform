@@ -22,6 +22,8 @@ type chatRequest struct {
 	Mode     string                `json:"mode"`
 	Messages []clients.ChatMessage `json:"messages" binding:"required"`
 	Stream   bool                  `json:"stream"`
+	Privacy  string                `json:"privacy,omitempty"`
+	Route    string                `json:"route,omitempty"`
 }
 
 func (h *aiHandlers) Chat(c *gin.Context) {
@@ -37,10 +39,14 @@ func (h *aiHandlers) Chat(c *gin.Context) {
 		return
 	}
 
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+
 	// Non-streaming mode
-	resp, err := h.ai.Chat(c.Request.Context(), clients.ChatRequest{
+	resp, err := h.ai.Chat(ctx, clients.ChatRequest{
 		Mode:     req.Mode,
 		Messages: req.Messages,
+		Privacy:  req.Privacy,
+		Route:    req.Route,
 	})
 	if err != nil {
 		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
@@ -56,10 +62,13 @@ func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Disable Nginx buffering
 
-	body, err := h.ai.StreamChat(c.Request.Context(), clients.ChatRequest{
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	body, err := h.ai.StreamChat(ctx, clients.ChatRequest{
 		Mode:     req.Mode,
 		Messages: req.Messages,
 		Stream:   true,
+		Privacy:  req.Privacy,
+		Route:    req.Route,
 	})
 	if err != nil {
 		// Write error as SSE event
@@ -94,7 +103,8 @@ func (h *aiHandlers) ChatWithTools(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.ai.ChatWithTools(c.Request.Context(), req)
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	resp, err := h.ai.ChatWithTools(ctx, req)
 	if err != nil {
 		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
@@ -108,6 +118,8 @@ type guidedChatRequest struct {
 	Topic     string                `json:"topic,omitempty"`
 	Messages  []clients.ChatMessage `json:"messages" binding:"required,min=1"`
 	CourseID  string                `json:"course_id,omitempty"`
+	Privacy   string                `json:"privacy,omitempty"`
+	Route     string                `json:"route,omitempty"`
 }
 
 // ChatGuided handles guided learning chat requests.
@@ -133,9 +145,12 @@ func (h *aiHandlers) ChatGuided(c *gin.Context) {
 		Messages:  req.Messages,
 		UserID:    fmt.Sprintf("%d", user.ID),
 		CourseID:  req.CourseID,
+		Privacy:   req.Privacy,
+		Route:     req.Route,
 	}
 
-	resp, err := h.ai.ChatGuided(c.Request.Context(), aiReq)
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	resp, err := h.ai.ChatGuided(ctx, aiReq)
 	if err != nil {
 		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
 		return
