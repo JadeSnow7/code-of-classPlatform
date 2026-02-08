@@ -50,6 +50,17 @@ SHORT_REFUSAL_PHRASES = (
     "拒绝回答",
 )
 TOOL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+MATH_SYMBOL_RE = re.compile(r"^[A-Za-zΑ-Ωα-ω](?:_[A-Za-z0-9]+)?$")
+NON_REFUSAL_CONTEXT_HINTS = (
+    "例如",
+    "比如",
+    "示例",
+    "若",
+    "如果",
+    "可能有",
+    "无穷多解",
+    "无法求解",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,6 +177,8 @@ def detect_refusal(response: str) -> bool:
     for sentence in sentences:
         for pattern in REFUSAL_SENTENCE_PATTERNS:
             if pattern.search(sentence):
+                if any(hint in sentence for hint in NON_REFUSAL_CONTEXT_HINTS) and "答案" not in sentence:
+                    continue
                 return True
     return len(text) <= 120 and any(phrase in text for phrase in SHORT_REFUSAL_PHRASES)
 
@@ -235,9 +248,21 @@ def _looks_like_math_interval(content: str) -> bool:
     compact = content.strip()
     if any(op in compact for op in ("∈", "≤", "≥", "<=", ">=")):
         return True
-    if re.fullmatch(r"-?\d+(?:\.\d+)?\s*,\s*[A-Za-z]", compact):
+    if "," not in compact:
+        return False
+    parts = [p.strip() for p in compact.split(",")]
+    if len(parts) != 2:
+        return False
+    left, right = parts
+    if not left or not right:
+        return False
+    if _is_numeric_token(left) and _is_numeric_token(right):
         return True
-    if re.fullmatch(r"[A-Za-z]\s*,\s*[A-Za-z]", compact):
+    if (_is_numeric_token(left) and _is_math_symbol_token(right)) or (
+        _is_math_symbol_token(left) and _is_numeric_token(right)
+    ):
+        return True
+    if _is_math_symbol_token(left) and _is_math_symbol_token(right):
         return True
     return False
 
@@ -249,11 +274,19 @@ def _normalize_citation_token(token: str) -> str:
 def _is_valid_citation_token(token: str) -> bool:
     if not token or token.startswith("#"):
         return False
-    if re.fullmatch(r"\d{1,4}", token):
+    if re.fullmatch(r"[1-9]\d{0,3}", token):
         return True
     if re.fullmatch(r"[A-Za-z]", token):
         return False
-    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{1,63}", token))
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{1,63}", token))
+
+
+def _is_numeric_token(token: str) -> bool:
+    return bool(re.fullmatch(r"-?\d+(?:\.\d+)?", token))
+
+
+def _is_math_symbol_token(token: str) -> bool:
+    return bool(MATH_SYMBOL_RE.fullmatch(token))
 
 
 def extract_citations(response: str) -> List[str]:

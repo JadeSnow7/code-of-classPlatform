@@ -20,6 +20,19 @@ bash code/ai_service/training/run_train.sh writing  # Academic writing (12 sampl
 bash code/ai_service/training/run_train.sh all      # Multitask (40 samples)
 ```
 
+## Formal Sprint Assets (2026-02-15)
+
+```bash
+# Generate formal benchmark/tool-rag datasets and golden cases
+bash scripts/ai/prepare_formal_assets.sh
+
+# Validate formal benchmark contract directly
+python3 code/ai_service/training/validate_benchmark.py \
+  --input data/training/eval/benchmark_formal_v1.jsonl \
+  --min-count 60 \
+  --strict-meta
+```
+
 ## Scripts
 
 | Script | Description |
@@ -30,6 +43,10 @@ bash code/ai_service/training/run_train.sh all      # Multitask (40 samples)
 | `generate_synthetic_data.py` | Generate synthetic JSONL data (tutor/rag/tool) |
 | `eval_metrics.py` | Evaluate predictions against benchmark |
 | `run_train.sh` | Convenient training runner with pre-flight checks |
+| `validate_benchmark.py` | Validate benchmark JSONL schema (formal contract checks) |
+| `run_formal_stage.py` | Run one stage (train + predict + eval) and append run manifest |
+| `summarize_formal_batch.py` | Compute mean/std gates and docs-sync decision from run manifest |
+| `build_formal_assets.py` | Build formal benchmark/tool-rag datasets and golden cases |
 
 ## Training Stages
 
@@ -66,6 +83,8 @@ Quick smoke test with minimal data to validate the training pipeline.
 ## Inputs
 - Training JSONL: `data/training/processed/*.jsonl`
 - Eval JSONL: `data/training/eval/benchmark.jsonl`
+- Formal benchmark: `data/training/eval/benchmark_formal_v1.jsonl`
+- Pilot benchmarks: `data/training/eval/tool_benchmark_pilot_v1.jsonl`, `data/training/eval/rag_benchmark_pilot_v1.jsonl`
 
 ## Outputs
 - LoRA adapters: `outputs/adapter/*`
@@ -129,8 +148,29 @@ python3 code/ai_service/training/generate_synthetic_data.py \
 
 ### run_train.sh Environment Variables
 - `MODEL_NAME_OR_PATH` - Base model (default: Qwen/Qwen3-8B-Instruct)
+- `EVAL_FILE_OVERRIDE` - Force benchmark file and bypass stage default eval file
+- `SEED` - Random seed passed into training
+- `TRAIN_DRY_RUN=1` - Print resolved command only (no training execution)
+- `SKIP_DEP_CHECK=1` - Skip python dependency checks (for CI/testing only)
 - `TRAIN_NOTIFY=1` - Enable completion notification
 - `TRAIN_NOTIFY_URL` - Webhook URL for notification
+
+## Formal Stage Runner
+
+```bash
+# Example: style stage, profile A, seed 42
+bash scripts/ai/run_formal_stage.sh \
+  --batch 2026-02-15-formal-exp \
+  --stage style \
+  --benchmark-file data/training/eval/benchmark_formal_v1.jsonl \
+  --preset A \
+  --seed 42
+
+# Summarize batch and evaluate acceptance gate
+python3 code/ai_service/training/summarize_formal_batch.py \
+  --batch 2026-02-15-formal-exp \
+  --stage all
+```
 
 ## Notes
 - For QLoRA, ensure `bitsandbytes` and CUDA are correctly installed.

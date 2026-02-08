@@ -15,6 +15,10 @@ set -euo pipefail
 #   OUT_BASE            - Output base directory (default: outputs/adapter)
 #   DATA_BASE           - Training data directory (default: data/training/processed)
 #   EVAL_FILE           - Evaluation JSONL (default: data/training/eval/benchmark.jsonl)
+#   EVAL_FILE_OVERRIDE  - Force eval file and bypass stage default eval file
+#   SEED                - Random seed passed to train_lora.py (default: 42)
+#   TRAIN_DRY_RUN       - Set to 1 to print resolved command without running training
+#   SKIP_DEP_CHECK      - Set to 1 to skip python dependency checks
 #   TRAIN_NOTIFY        - Set to 1 to enable completion notification
 #   TRAIN_NOTIFY_URL    - Webhook URL for notification
 
@@ -30,6 +34,7 @@ MODEL=${MODEL_NAME_OR_PATH:-Qwen/Qwen3-8B-Instruct}
 OUT_BASE=${OUT_BASE:-outputs/adapter}
 DATA_BASE=${DATA_BASE:-data/training/processed}
 EVAL_FILE=${EVAL_FILE:-data/training/eval/benchmark.jsonl}
+EVAL_FILE_OVERRIDE=${EVAL_FILE_OVERRIDE:-}
 LOG_DIR=${LOG_DIR:-outputs/logs}
 USE_QLORA=${USE_QLORA:-1}
 TARGET_MODULES=${TARGET_MODULES:-}
@@ -42,6 +47,9 @@ LEARNING_RATE=${LEARNING_RATE:-1e-4}
 LOGGING_STEPS=${LOGGING_STEPS:-10}
 SAVE_STEPS=${SAVE_STEPS:-200}
 EVAL_STEPS=${EVAL_STEPS:-200}
+SEED=${SEED:-42}
+TRAIN_DRY_RUN=${TRAIN_DRY_RUN:-0}
+SKIP_DEP_CHECK=${SKIP_DEP_CHECK:-0}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # ========================================
@@ -81,40 +89,45 @@ fi
 # ========================================
 echo "[CHECK] Running pre-flight checks..."
 
-# Check Python dependencies
-check_dependency() {
-    python3 -c "import $1" 2>/dev/null || {
-        echo "[ERROR] Missing Python dependency: $1"
-        echo "Install with: pip install $1"
-        exit 1
+if [ "$SKIP_DEP_CHECK" = "1" ]; then
+    echo "[CHECK] Skipping python dependency checks (SKIP_DEP_CHECK=1)"
+else
+    # Check Python dependencies
+    check_dependency() {
+        python3 -c "import $1" 2>/dev/null || {
+            echo "[ERROR] Missing Python dependency: $1"
+            echo "Install with: pip install $1"
+            exit 1
+        }
     }
-}
 
-check_dependency torch
-check_dependency transformers
-check_dependency datasets
-check_dependency peft
+    check_dependency torch
+    check_dependency transformers
+    check_dependency datasets
+    check_dependency peft
 
-# Check for bitsandbytes (optional but recommended for QLoRA)
-python3 -c "import bitsandbytes" 2>/dev/null || {
-    echo "[WARN] bitsandbytes not found. QLoRA may not work properly."
-}
+    # Check for bitsandbytes (optional but recommended for QLoRA)
+    python3 -c "import bitsandbytes" 2>/dev/null || {
+        echo "[WARN] bitsandbytes not found. QLoRA may not work properly."
+    }
 
-echo "[CHECK] Python dependencies OK"
+    echo "[CHECK] Python dependencies OK"
+fi
 
 # ========================================
 # Stage configuration
 # ========================================
+STAGE_EVAL_FILE="$EVAL_FILE"
 case "$STAGE" in
   style)
     TRAIN_FILES="$DATA_BASE/style_sft.jsonl"
-    EVAL_FILE="data/training/eval/style_benchmark.jsonl"
+    STAGE_EVAL_FILE="data/training/eval/style_benchmark.jsonl"
     OUT_DIR="$OUT_BASE/adapter_style"
     echo "Training electromagnetic course teaching model..."
     ;;
   writing)
     TRAIN_FILES="$DATA_BASE/writing_sft.jsonl"
-    EVAL_FILE="data/training/eval/writing_benchmark.jsonl"
+    STAGE_EVAL_FILE="data/training/eval/writing_benchmark.jsonl"
     OUT_DIR="$OUT_BASE/adapter_writing"
     echo "Training academic writing guidance model..."
     ;;
@@ -128,14 +141,14 @@ case "$STAGE" in
     ;;
   all)
     TRAIN_FILES="$DATA_BASE/style_sft.jsonl,$DATA_BASE/writing_sft.jsonl"
-    EVAL_FILE="data/training/eval/style_benchmark.jsonl"
+    STAGE_EVAL_FILE="data/training/eval/style_benchmark.jsonl"
     OUT_DIR="$OUT_BASE/adapter_multitask"
     echo "Training multitask model (style + writing)..."
     ;;
   sample)
     # Use sample data for testing the pipeline
     TRAIN_FILES="$DATA_BASE/style_sft_sample.jsonl"
-    EVAL_FILE="$DATA_BASE/style_sft_sample.jsonl"
+    STAGE_EVAL_FILE="$DATA_BASE/style_sft_sample.jsonl"
     OUT_DIR="$OUT_BASE/adapter_sample"
     USE_QLORA=0
     if [ -z "$TARGET_MODULES" ]; then
@@ -148,6 +161,12 @@ case "$STAGE" in
     exit 1
     ;;
 esac
+
+if [ -n "$EVAL_FILE_OVERRIDE" ]; then
+    EVAL_FILE="$EVAL_FILE_OVERRIDE"
+else
+    EVAL_FILE="$STAGE_EVAL_FILE"
+fi
 
 # Check training files exist
 for FILE in $(echo "$TRAIN_FILES" | tr ',' ' '); do
@@ -254,6 +273,10 @@ echo "[INFO] Log file: $LOG_FILE"
 echo "[INFO] Train samples: $TRAIN_SAMPLE_COUNT"
 echo "[INFO] Estimated total steps: $EST_TOTAL_STEPS"
 echo "[INFO] logging_steps/save_steps/eval_steps: $LOGGING_STEPS/$SAVE_STEPS/$EVAL_STEPS"
+echo "[INFO] Seed: $SEED"
+if [ -n "$EVAL_FILE_OVERRIDE" ]; then
+    echo "[INFO] Eval file override enabled: $EVAL_FILE_OVERRIDE"
+fi
 
 # ========================================
 # Build training command
@@ -268,6 +291,7 @@ TRAIN_CMD=(
     --gradient_accumulation_steps "$GRADIENT_ACCUMULATION_STEPS"
     --num_train_epochs "$NUM_TRAIN_EPOCHS"
     --learning_rate "$LEARNING_RATE"
+    --seed "$SEED"
     --logging_steps "$LOGGING_STEPS"
     --save_steps "$SAVE_STEPS"
     --eval_steps "$EVAL_STEPS"
@@ -293,6 +317,11 @@ fi
 # ========================================
 echo "[INFO] Starting training at $(date)"
 echo "[INFO] Command: ${TRAIN_CMD[*]}"
+
+if [ "$TRAIN_DRY_RUN" = "1" ]; then
+    echo "[INFO] Dry run enabled (TRAIN_DRY_RUN=1), skipping training execution."
+    exit 0
+fi
 
 # Run with tee for logging
 if "${TRAIN_CMD[@]}" 2>&1 | tee "$LOG_FILE"; then
