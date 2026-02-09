@@ -170,28 +170,59 @@ def normalize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return normalized
 
 
+def _normalize_token_ids(tokenized: Any) -> List[int]:
+    # Chat templates may return list[int], list[list[int]], BatchEncoding-like objects, or tensors.
+    if isinstance(tokenized, dict):
+        tokenized = tokenized.get("input_ids", tokenized)
+    elif hasattr(tokenized, "input_ids"):
+        tokenized = tokenized.input_ids
+    elif hasattr(tokenized, "data") and isinstance(tokenized.data, dict):
+        tokenized = tokenized.data.get("input_ids", tokenized)
+
+    if torch.is_tensor(tokenized):
+        tokenized = tokenized.tolist()
+
+    if isinstance(tokenized, tuple):
+        tokenized = list(tokenized)
+
+    if isinstance(tokenized, list):
+        if tokenized and isinstance(tokenized[0], list):
+            tokenized = tokenized[0]
+        if tokenized and torch.is_tensor(tokenized[0]):
+            return [int(x.item()) for x in tokenized]
+        return [int(x) for x in tokenized]
+
+    raise TypeError(f"Unsupported tokenized output type: {type(tokenized)}")
+
+
 def build_input_and_labels(tokenizer, messages: List[Dict[str, str]], max_length: int, truncate_from: str):
     use_chat_template = hasattr(tokenizer, "apply_chat_template") and getattr(tokenizer, "chat_template", None)
     if use_chat_template:
-        input_ids = tokenizer.apply_chat_template(
-            messages,
-            tokenize=True,
-            add_generation_prompt=False,
+        input_ids = _normalize_token_ids(
+            tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=False,
+            )
         )
         labels = [-100] * len(input_ids)
 
         for idx, msg in enumerate(messages):
             if msg["role"] != "assistant":
                 continue
-            prefix_ids = tokenizer.apply_chat_template(
-                messages[:idx],
-                tokenize=True,
-                add_generation_prompt=False,
+            prefix_ids = _normalize_token_ids(
+                tokenizer.apply_chat_template(
+                    messages[:idx],
+                    tokenize=True,
+                    add_generation_prompt=False,
+                )
             )
-            full_ids = tokenizer.apply_chat_template(
-                messages[: idx + 1],
-                tokenize=True,
-                add_generation_prompt=False,
+            full_ids = _normalize_token_ids(
+                tokenizer.apply_chat_template(
+                    messages[: idx + 1],
+                    tokenize=True,
+                    add_generation_prompt=False,
+                )
             )
             start = len(prefix_ids)
             end = len(full_ids)
