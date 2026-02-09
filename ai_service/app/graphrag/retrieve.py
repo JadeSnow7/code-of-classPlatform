@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable
 
 from .index import Chunk, GraphRAGIndex
+from .reranker import get_reranker
 
 if TYPE_CHECKING:
     from .embedding import EmbeddingProvider
@@ -263,6 +264,9 @@ async def build_rag_context_hybrid(
     if not query:
         return ""
 
+    # Reserved reranker extension point. Default remains disabled/no-op.
+    _ = get_reranker()
+
     # Get ACL filters
     filters = ctx.get_filters()
 
@@ -358,6 +362,9 @@ async def build_rag_context_with_citations(
     query = ctx.query.strip()
     if not query:
         return "", []
+
+    # Reserved reranker extension point. Default remains disabled/no-op.
+    _ = get_reranker()
 
     # Get ACL filters
     filters = ctx.get_filters()

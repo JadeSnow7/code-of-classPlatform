@@ -26,6 +26,15 @@ type chatRequest struct {
 	Route    string                `json:"route,omitempty"`
 }
 
+type multimodalChatRequest struct {
+	Mode        string                          `json:"mode"`
+	Messages    []clients.MultimodalChatMessage `json:"messages" binding:"required,min=1"`
+	Stream      bool                            `json:"stream"`
+	Privacy     string                          `json:"privacy,omitempty"`
+	Route       string                          `json:"route,omitempty"`
+	ModelFamily string                          `json:"model_family,omitempty"`
+}
+
 func (h *aiHandlers) Chat(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -94,6 +103,33 @@ func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
 			break
 		}
 	}
+}
+
+func (h *aiHandlers) ChatMultimodal(c *gin.Context) {
+	var req multimodalChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		return
+	}
+	if req.Stream {
+		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "streaming is not supported for /ai/chat/multimodal", nil)
+		return
+	}
+
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	resp, err := h.ai.ChatMultimodal(ctx, clients.ChatMultimodalRequest{
+		Mode:        req.Mode,
+		Messages:    req.Messages,
+		Stream:      false,
+		Privacy:     req.Privacy,
+		Route:       req.Route,
+		ModelFamily: req.ModelFamily,
+	})
+	if err != nil {
+		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
+		return
+	}
+	respondOK(c, resp)
 }
 
 func (h *aiHandlers) ChatWithTools(c *gin.Context) {

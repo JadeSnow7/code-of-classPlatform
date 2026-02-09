@@ -271,6 +271,13 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, s
 			hAI.Chat,
 		)
 		api.POST(
+			"/ai/chat/multimodal",
+			middleware.AuthRequired(cfg.JWTSecret),
+			middleware.RequirePermission(authz.PermAIUse),
+			middleware.RateLimitByUserOrIP(aiLimiter),
+			hAI.ChatMultimodal,
+		)
+		api.POST(
 			"/ai/chat_with_tools",
 			middleware.AuthRequired(cfg.JWTSecret),
 			middleware.RequirePermission(authz.PermAIUse),
