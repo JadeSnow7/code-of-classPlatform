@@ -26,6 +26,7 @@ from datasets import Dataset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
+    BitsAndBytesConfig,
     EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
@@ -250,6 +251,8 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model_kwargs: Dict[str, Any] = {"trust_remote_code": True}
+    use_qlora_effective = args.use_qlora
+    compute_dtype = torch.bfloat16 if args.bf16 else torch.float16
     if args.use_qlora:
         try:
             import bitsandbytes as _  # noqa: F401
@@ -258,18 +261,43 @@ def main() -> None:
                 "Missing dependency: bitsandbytes. Install with: pip install bitsandbytes"
             ) from exc
 
-        compute_dtype = torch.bfloat16 if args.bf16 else torch.float16
-        model_kwargs.update({
-            "load_in_4bit": True,
-            "bnb_4bit_quant_type": "nf4",
-            "bnb_4bit_use_double_quant": True,
-            "bnb_4bit_compute_dtype": compute_dtype,
-            "torch_dtype": compute_dtype,
-        })
+        model_kwargs.update(
+            {
+                "quantization_config": BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=compute_dtype,
+                ),
+                "torch_dtype": compute_dtype,
+            }
+        )
 
-    model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **model_kwargs)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **model_kwargs)
+    except Exception as exc:
+        error_text = str(exc).lower()
+        qlora_markers = (
+            "quantization_config",
+            "load_in_4bit",
+            "bnb_4bit",
+            "bitsandbytes",
+            "not supported",
+            "unexpected keyword",
+        )
+        if not args.use_qlora or not any(marker in error_text for marker in qlora_markers):
+            raise
 
-    if args.use_qlora:
+        # Keep training usable when remote-code model implementations reject 4-bit kwargs.
+        use_qlora_effective = False
+        print(f"[WARN] QLoRA load failed: {exc}")
+        print("[WARN] Falling back to non-QLoRA LoRA.")
+        fallback_kwargs: Dict[str, Any] = {"trust_remote_code": True}
+        if args.bf16 or args.fp16:
+            fallback_kwargs["torch_dtype"] = compute_dtype
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, **fallback_kwargs)
+
+    if use_qlora_effective:
         model = prepare_model_for_kbit_training(model)
 
     lora_config = LoraConfig(
@@ -370,7 +398,10 @@ def main() -> None:
             "lora_alpha": args.lora_alpha,
             "lora_dropout": args.lora_dropout,
             "target_modules": args.target_modules,
-            "use_qlora": args.use_qlora,
+            "use_qlora_requested": args.use_qlora,
+            "use_qlora_effective": use_qlora_effective,
+            # Keep backward-compat key as effective runtime value.
+            "use_qlora": use_qlora_effective,
             "bf16": args.bf16,
             "fp16": args.fp16,
             "per_device_train_batch_size": args.per_device_train_batch_size,
