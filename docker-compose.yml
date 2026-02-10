@@ -61,13 +61,6 @@ services:
     ports:
       - "8001:8001"
 
-  sim:
-    build:
-      context: ./simulation
-
-    ports:
-      - "8002:8002"
-
   backend:
     build:
       context: ./backend
@@ -78,7 +71,6 @@ services:
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
       DB_DSN: ${BACKEND_DB_DSN}
       AI_BASE_URL: ${BACKEND_AI_BASE_URL}
-      SIM_BASE_URL: ${BACKEND_SIM_BASE_URL}
       AI_GATEWAY_SHARED_TOKEN: ${AI_GATEWAY_SHARED_TOKEN}
       WECOM_CORPID: ${WECOM_CORPID}
       WECOM_AGENTID: ${WECOM_AGENTID}
@@ -98,8 +90,6 @@ services:
       mysql:
         condition: service_healthy
       ai:
-        condition: service_started
-      sim:
         condition: service_started
       minio:
         condition: service_started

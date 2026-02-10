@@ -29,7 +29,7 @@ export async function clearAuthSession(): Promise<void> {
 
 // Chat Messages Storage
 export async function loadMessages(): Promise<ChatMessage[]> {
-    return messageStore.load();
+    return (await messageStore.load()) ?? [];
 }
 
 export async function saveMessages(messages: ChatMessage[]): Promise<void> {

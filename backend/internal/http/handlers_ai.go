@@ -6,8 +6,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 )
 
 type aiHandlers struct {

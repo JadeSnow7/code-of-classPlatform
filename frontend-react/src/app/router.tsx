@@ -8,7 +8,6 @@ import { CoursesPage } from '@/pages/CoursesPage';
 import { CourseLayout } from '@/pages/CourseLayout';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { ChatPage } from '@/pages/ChatPage';
-import { SimPage } from '@/pages/SimPage';
 import { AssignmentsPage } from '@/pages/AssignmentsPage';
 import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
@@ -41,7 +40,6 @@ export function AppRouter() {
                             <Route index element={<Navigate to="overview" replace />} />
                             <Route path="overview" element={<OverviewPage />} />
                             <Route path="chat" element={<ChatPage />} />
-                            <Route path="simulation" element={<SimPage />} />
                             <Route path="assignments" element={<AssignmentsPage />} />
                             <Route path="assignments/:assignmentId" element={<AssignmentDetailPage />} />
                             <Route path="resources" element={<ResourcesPage />} />

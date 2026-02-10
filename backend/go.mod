@@ -1,4 +1,4 @@
-module github.com/huaodong/emfield-teaching-platform/backend
+module github.com/huaodong/llm-teaching-platform/backend
 
 go 1.24.0
 

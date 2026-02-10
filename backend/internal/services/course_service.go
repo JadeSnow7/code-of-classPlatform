@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )

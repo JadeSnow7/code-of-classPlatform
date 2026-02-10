@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 import hmac
@@ -50,6 +51,18 @@ RequestIDSource = Literal["upstream", "generated"]
 
 ALLOWED_PRIVACY_LEVELS = {"private", "public"}
 ALLOWED_ROUTE_LEVELS = {"local", "cloud", "auto"}
+
+EDGE_TUTOR_SYSTEM_PROMPT = (
+    "你是端侧学习助手，优先本地处理请求。回答要简洁、结构化、可执行。"
+    "对于课程资源检索、学习追踪、简单问答，直接给出本地可执行建议。"
+    "当问题属于复杂推理、证明、深入理论分析时，不要编造长推导，"
+    "请明确说明该问题将转发云端 AI 处理。"
+)
+
+EDGE_COMPLEX_CLOUD_HINT = (
+    "这是一个数学证明问题，需要严密的逻辑推理。"
+    "我已将问题转发给云端 AI，它会提供完整的证明过程。"
+)
 
 
 class ChatMessage(BaseModel):
@@ -103,7 +116,13 @@ class MultimodalChatRequest(BaseModel):
     model_family: str | None = None
 
 
-@dataclass(slots=True)
+if sys.version_info >= (3, 10):
+    _routing_decision_dataclass = dataclass(slots=True)
+else:
+    _routing_decision_dataclass = dataclass
+
+
+@_routing_decision_dataclass
 class RoutingDecision:
     request_id: str
     request_id_source: RequestIDSource
@@ -563,7 +582,7 @@ async def _post_chat_completions_once(
     url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
     timeout = _http_timeout(upstream, stream=False)
-    async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         response = await client.post(url, json=request_payload, headers=headers)
     return response, model
 
@@ -687,6 +706,33 @@ def _latest_user_query_from_multimodal(messages: list[MultimodalChatMessage]) ->
     return ""
 
 
+def _latest_user_query(messages: list[ChatMessage]) -> str:
+    for message in reversed(messages):
+        if message.role == "user" and message.content:
+            return message.content.strip()
+    return ""
+
+
+def _edge_complex_requires_cloud_hint(mode: str | None, query: str) -> bool:
+    if not _get_bool_env("EDGE_TUTOR_PROMPT_ENABLED", default=False):
+        return False
+    base_mode, _ = _parse_mode(mode)
+    if base_mode != "tutor":
+        return False
+    q = query.strip().lower()
+    if not q:
+        return False
+    keywords = (
+        "证明",
+        "推导",
+        "严格证明",
+        "复杂推理",
+        "格林定理",
+        "波动方程",
+    )
+    return any(k in q for k in keywords)
+
+
 def _to_openai_multimodal_message(message: MultimodalChatMessage) -> dict[str, Any]:
     """Convert multimodal message into OpenAI-compatible format."""
     message_dict = message.model_dump(exclude_none=True)
@@ -722,6 +768,8 @@ def _system_prompt(mode: str | None, context: dict | None = None) -> str | None:
     
     # Legacy prompts for backward compatibility
     if base_mode == "tutor":
+        if _get_bool_env("EDGE_TUTOR_PROMPT_ENABLED", default=False):
+            return EDGE_TUTOR_SYSTEM_PROMPT
         return (
             "你是研究生专业英文写作课程助教（也可适配其他课程）。"
             "回答要循序渐进，先给结论/要点，再解释原因与例子，最后给可执行的修改/练习建议。"
@@ -913,6 +961,17 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         messages.append({"role": "system", "content": system})
     messages.extend([m.model_dump() for m in req.messages])
 
+    latest_user_query = _latest_user_query(req.messages)
+    if _edge_complex_requires_cloud_hint(req.mode, latest_user_query):
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream="local",
+            fallback_reason="edge_complex_cloud_hint",
+            started_at=started_at,
+        )
+        return ChatResponse(reply=EDGE_COMPLEX_CLOUD_HINT, model="edge-local-router")
+
     _, rag_requested = _parse_mode(req.mode)
     if rag_requested and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
         index_path = _get_env("GRAPH_RAG_INDEX_PATH") or "app/data/graphrag_index.json"
@@ -964,7 +1023,7 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
 
-                async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
                         if upstream_resp.status_code >= 300:
                             raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
@@ -1244,7 +1303,7 @@ async def chat_multimodal(
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
 
-                async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
                         if upstream_resp.status_code >= 300:
                             raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
@@ -1855,7 +1914,7 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
                 headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
-                async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
                         if upstream_resp.status_code >= 300:
                             raise RuntimeError(f"upstream error: {upstream_resp.status_code}")

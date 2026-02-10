@@ -3,8 +3,8 @@ package db
 import (
 	"errors"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/auth"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
 )
 

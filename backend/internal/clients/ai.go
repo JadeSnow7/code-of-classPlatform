@@ -70,12 +70,25 @@ type ChatMultimodalRequest struct {
 	ModelFamily string                  `json:"model_family,omitempty"`
 }
 
+// AIClientInterface defines the AI client interface for dependency injection
+type AIClientInterface interface {
+	Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
+	ChatMultimodal(ctx context.Context, req ChatMultimodalRequest) (ChatResponse, error)
+	StreamChat(ctx context.Context, req ChatRequest) (io.ReadCloser, error)
+	ChatWithTools(ctx context.Context, req ChatWithToolsRequest) (ChatWithToolsResponse, error)
+	ChatGuided(ctx context.Context, req GuidedChatRequest) (GuidedChatResponse, error)
+	AnalyzeWriting(ctx context.Context, req WritingAnalysisRequest) (WritingAnalysisResponse, error)
+}
+
 type AIClient struct {
 	baseURL          string
 	gatewayToken     string
 	httpClient       *http.Client
 	streamHTTPClient *http.Client
 }
+
+// Ensure *AIClient implements AIClientInterface
+var _ AIClientInterface = (*AIClient)(nil)
 
 func NewAIClient(baseURL string, gatewayToken string) *AIClient {
 	return &AIClient{

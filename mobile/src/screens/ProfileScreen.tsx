@@ -11,6 +11,7 @@ import {
 
 import { getUserStats } from '../api';
 import type { AuthSession, UserStats } from '../types';
+import { appStyles, palette, radius, spacing } from '../theme';
 
 type ProfileScreenProps = {
     session: AuthSession;
@@ -34,23 +35,23 @@ export default function ProfileScreen({
                 const data = await getUserStats(session.token, session.tokenType);
                 setStats(data);
             } catch {
-                // Stats not available, ignore
+                // Ignore stats failures.
             } finally {
                 setLoadingStats(false);
             }
         };
-        fetchStats();
-    }, []);
+        void fetchStats();
+    }, [session.token, session.tokenType]);
 
     const handleClearMessages = () => {
-        Alert.alert('清除聊天记录', '确定要清除所有本地消息吗？此操作不可撤销。', [
+        Alert.alert('清除聊天记录', '确定清除所有本地聊天消息吗？', [
             { text: '取消', style: 'cancel' },
             { text: '清除', style: 'destructive', onPress: onClearMessages },
         ]);
     };
 
     const handleSignOut = () => {
-        Alert.alert('退出登录', '确定要退出当前账号吗？', [
+        Alert.alert('退出登录', '确定退出当前账号吗？', [
             { text: '取消', style: 'cancel' },
             { text: '退出', style: 'destructive', onPress: onSignOut },
         ]);
@@ -65,62 +66,45 @@ export default function ProfileScreen({
     };
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-            {/* User Info Card */}
-            <View style={styles.card}>
+        <ScrollView style={appStyles.page} contentContainerStyle={styles.content}>
+            <View style={styles.profileCard}>
                 <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                        {(session.user.username || 'U').charAt(0).toUpperCase()}
-                    </Text>
+                    <Text style={styles.avatarText}>{(session.user.username || 'U').charAt(0).toUpperCase()}</Text>
                 </View>
                 <View style={styles.userInfo}>
                     <Text style={styles.username}>{session.user.username || '用户'}</Text>
                     <View style={styles.roleBadge}>
                         <Text style={styles.roleText}>
-                            {session.user.role === 'teacher' ? '教师' : session.user.role === 'admin' ? '管理员' : '学生'}
+                            {session.user.role === 'teacher'
+                                ? '教师'
+                                : session.user.role === 'admin'
+                                    ? '管理员'
+                                    : session.user.role === 'assistant'
+                                        ? '助教'
+                                        : '学生'}
                         </Text>
                     </View>
                 </View>
             </View>
 
-            {/* Stats Section */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>学习统计</Text>
                 {loadingStats ? (
                     <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="small" color="#60a5fa" />
+                        <ActivityIndicator size="small" color={palette.primary} />
                     </View>
                 ) : stats ? (
                     <View style={styles.statsGrid}>
-                        <View style={styles.statCard}>
-                            <Text style={styles.statValue}>{formatStudyTime(stats.total_study_time_seconds)}</Text>
-                            <Text style={styles.statLabel}>学习时长</Text>
-                        </View>
-                        <View style={styles.statCard}>
-                            <Text style={styles.statValue}>
-                                {stats.completed_chapters}/{stats.total_chapters}
-                            </Text>
-                            <Text style={styles.statLabel}>章节完成</Text>
-                        </View>
-                        <View style={styles.statCard}>
-                            <Text style={styles.statValue}>
-                                {stats.submitted_assignments}/{stats.total_assignments}
-                            </Text>
-                            <Text style={styles.statLabel}>作业提交</Text>
-                        </View>
-                        <View style={styles.statCard}>
-                            <Text style={styles.statValue}>
-                                {stats.completed_quizzes}/{stats.total_quizzes}
-                            </Text>
-                            <Text style={styles.statLabel}>测验完成</Text>
-                        </View>
+                        <StatCard label="学习时长" value={formatStudyTime(stats.total_study_time_seconds)} />
+                        <StatCard label="章节完成" value={`${stats.completed_chapters}/${stats.total_chapters}`} />
+                        <StatCard label="作业提交" value={`${stats.submitted_assignments}/${stats.total_assignments}`} />
+                        <StatCard label="测验完成" value={`${stats.completed_quizzes}/${stats.total_quizzes}`} />
                     </View>
                 ) : (
                     <Text style={styles.noDataText}>暂无学习数据</Text>
                 )}
             </View>
 
-            {/* Cache Section */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>本地缓存</Text>
                 <View style={styles.cacheRow}>
@@ -135,7 +119,6 @@ export default function ProfileScreen({
                 </Pressable>
             </View>
 
-            {/* Account Section */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>账户</Text>
                 <Pressable
@@ -146,166 +129,167 @@ export default function ProfileScreen({
                 </Pressable>
             </View>
 
-            {/* Version Info */}
             <View style={styles.footer}>
-                <Text style={styles.versionText}>classPlatform Mobile v1.0.0</Text>
+                <Text style={styles.versionText}>classPlatform Mobile v2.0</Text>
             </View>
         </ScrollView>
     );
 }
 
+function StatCard({ label, value }: { label: string; value: string }) {
+    return (
+        <View style={styles.statCard}>
+            <Text style={styles.statValue}>{value}</Text>
+            <Text style={styles.statLabel}>{label}</Text>
+        </View>
+    );
+}
+
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0b1220',
-    },
     content: {
-        padding: 16,
-        paddingBottom: 40,
+        padding: spacing.md,
+        paddingBottom: spacing.xxl,
+        gap: spacing.sm,
     },
-    card: {
+    profileCard: {
+        ...appStyles.card,
+        backgroundColor: palette.backgroundElevated,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1e293b',
-        borderRadius: 16,
-        padding: 20,
-        marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#334155',
+        gap: spacing.md,
     },
     avatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: '#2563eb',
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: palette.primary,
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: 16,
     },
     avatarText: {
-        color: '#fff',
-        fontSize: 24,
-        fontWeight: '700',
+        color: palette.textPrimary,
+        fontSize: 26,
+        fontWeight: '800',
     },
     userInfo: {
         flex: 1,
     },
     username: {
-        color: '#f8fafc',
+        color: palette.textPrimary,
         fontSize: 20,
-        fontWeight: '600',
+        fontWeight: '700',
         marginBottom: 6,
     },
     roleBadge: {
         alignSelf: 'flex-start',
-        backgroundColor: '#374151',
-        paddingHorizontal: 10,
+        backgroundColor: '#1f3b72',
+        paddingHorizontal: spacing.sm,
         paddingVertical: 4,
-        borderRadius: 8,
+        borderRadius: radius.full,
     },
     roleText: {
-        color: '#9ca3af',
-        fontSize: 12,
-        fontWeight: '500',
+        color: '#dbeafe',
+        fontSize: 11,
+        fontWeight: '700',
     },
     section: {
-        marginBottom: 24,
+        ...appStyles.card,
+        gap: spacing.sm,
     },
     sectionTitle: {
-        color: '#94a3b8',
-        fontSize: 13,
-        fontWeight: '600',
+        color: palette.textSecondary,
+        fontSize: 12,
+        fontWeight: '700',
+        letterSpacing: 0.4,
         textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 12,
-        marginLeft: 4,
     },
     loadingContainer: {
-        paddingVertical: 24,
+        paddingVertical: spacing.lg,
         alignItems: 'center',
     },
     statsGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 10,
+        gap: spacing.xs,
     },
     statCard: {
         width: '48%',
-        backgroundColor: '#1e293b',
-        borderRadius: 12,
-        padding: 16,
+        borderRadius: radius.md,
         borderWidth: 1,
-        borderColor: '#334155',
+        borderColor: palette.border,
+        backgroundColor: palette.background,
+        padding: spacing.sm,
+        minHeight: 88,
+        justifyContent: 'space-between',
     },
     statValue: {
-        color: '#60a5fa',
-        fontSize: 20,
-        fontWeight: '700',
-        marginBottom: 4,
+        color: palette.accentCyan,
+        fontSize: 19,
+        fontWeight: '800',
     },
     statLabel: {
-        color: '#94a3b8',
-        fontSize: 12,
+        color: palette.textMuted,
+        fontSize: 11,
     },
     noDataText: {
-        color: '#64748b',
-        fontSize: 14,
+        color: palette.textMuted,
+        fontSize: 13,
         textAlign: 'center',
-        paddingVertical: 20,
+        paddingVertical: spacing.md,
     },
     cacheRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        backgroundColor: '#1e293b',
-        borderRadius: 12,
-        padding: 14,
-        marginBottom: 12,
+        borderRadius: radius.md,
         borderWidth: 1,
-        borderColor: '#334155',
+        borderColor: palette.border,
+        backgroundColor: palette.background,
+        padding: spacing.sm,
     },
     cacheLabel: {
-        color: '#cbd5e1',
+        color: palette.textSecondary,
         fontSize: 14,
     },
     cacheValue: {
-        color: '#94a3b8',
-        fontSize: 14,
+        color: palette.textMuted,
+        fontSize: 13,
     },
     actionButton: {
-        paddingVertical: 14,
-        borderRadius: 12,
+        minHeight: 42,
+        borderRadius: radius.md,
         alignItems: 'center',
+        justifyContent: 'center',
     },
     dangerButton: {
-        backgroundColor: '#450a0a',
         borderWidth: 1,
         borderColor: '#7f1d1d',
+        backgroundColor: '#450a0a',
     },
     dangerButtonText: {
         color: '#fca5a5',
-        fontSize: 15,
-        fontWeight: '600',
+        fontSize: 14,
+        fontWeight: '700',
     },
     outlineButton: {
-        backgroundColor: 'transparent',
         borderWidth: 1,
-        borderColor: '#475569',
+        borderColor: palette.border,
+        backgroundColor: palette.background,
     },
     outlineButtonText: {
-        color: '#94a3b8',
-        fontSize: 15,
-        fontWeight: '600',
+        color: palette.textSecondary,
+        fontSize: 14,
+        fontWeight: '700',
     },
     buttonPressed: {
-        opacity: 0.7,
+        opacity: 0.8,
     },
     footer: {
-        marginTop: 20,
+        marginTop: spacing.sm,
         alignItems: 'center',
     },
     versionText: {
-        color: '#475569',
-        fontSize: 12,
+        color: palette.textMuted,
+        fontSize: 11,
     },
 });

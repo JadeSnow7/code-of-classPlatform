@@ -20,12 +20,22 @@ type MinioConfig struct {
 	SignedURLExpiry time.Duration
 }
 
+// MinIOClientInterface defines the MinIO client interface for dependency injection
+type MinIOClientInterface interface {
+	UploadFile(ctx context.Context, objectKey string, reader interface{}, size int64, contentType string) error
+	GetSignedURL(ctx context.Context, objectKey string) (string, error)
+	DeleteFile(ctx context.Context, objectKey string) error
+}
+
 // MinioClient wraps minio.Client with helper methods
 type MinioClient struct {
 	client          *minio.Client
 	bucketName      string
 	signedURLExpiry time.Duration
 }
+
+// Ensure *MinioClient implements MinIOClientInterface
+var _ MinIOClientInterface = (*MinioClient)(nil)
 
 // NewMinioClient creates a new MinIO client and ensures bucket exists
 func NewMinioClient(cfg MinioConfig) (*MinioClient, error) {
