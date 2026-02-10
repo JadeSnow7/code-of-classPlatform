@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/huaodong/llm-teaching-platform/backend/internal/app"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/db"
-	httpapi "github.com/huaodong/llm-teaching-platform/backend/internal/http"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/logger"
 )
 
@@ -58,11 +58,12 @@ func main() {
 		minioClient = nil
 	}
 
-	router := httpapi.NewRouter(cfg, gormDB, aiClient, minioClient)
+	// Initialize application with centralized DI
+	application := app.New(cfg, gormDB, aiClient, minioClient)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           router,
+		Handler:           application.Router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
