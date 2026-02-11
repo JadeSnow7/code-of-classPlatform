@@ -87,14 +87,6 @@ pub fn router_decide(input: &RouteInput) -> RouteDecision {
         return choose_with_fallback(RouteTarget::Cloud, "thermal_throttle", input);
     }
 
-    if !input.local_model_ready {
-        return choose_with_fallback(RouteTarget::Cloud, "local_unavailable", input);
-    }
-
-    if !input.cloud_model_ready {
-        return choose_with_fallback(RouteTarget::Local, "cloud_unavailable", input);
-    }
-
     if input.network_rtt_ms >= WEAK_NETWORK_RTT_MS {
         return choose_with_fallback(RouteTarget::Local, "weak_network", input);
     }
@@ -116,7 +108,19 @@ pub fn router_decide(input: &RouteInput) -> RouteDecision {
         return choose_with_fallback(RouteTarget::Cloud, "high_device_load", input);
     }
 
-    choose_with_fallback(RouteTarget::Local, "balanced_default", input)
+    if !input.local_model_ready && input.cloud_model_ready {
+        return decision(RouteTarget::Cloud, "local_unavailable");
+    }
+
+    if !input.cloud_model_ready && input.local_model_ready {
+        return decision(RouteTarget::Local, "cloud_unavailable");
+    }
+
+    if !input.local_model_ready && !input.cloud_model_ready {
+        return decision(RouteTarget::Local, "no_engine_available");
+    }
+
+    decision(RouteTarget::Local, "balanced_default")
 }
 
 fn choose_with_fallback(target: RouteTarget, reason: &str, input: &RouteInput) -> RouteDecision {
@@ -171,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn private_mode_forces_local() {
+    fn t01_private_mode_forces_local() {
         let mut input = base_input();
         input.privacy_level = PrivacyLevel::Private;
 
@@ -182,29 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn critical_thermal_forces_cloud() {
-        let mut input = base_input();
-        input.device_context.thermal_state = Some(ThermalState::Critical);
-
-        let decision = router_decide(&input);
-
-        assert_eq!(decision.route, RouteTarget::Cloud);
-        assert_eq!(decision.reason, "thermal_throttle");
-    }
-
-    #[test]
-    fn weak_network_prefers_local() {
-        let mut input = base_input();
-        input.network_rtt_ms = WEAK_NETWORK_RTT_MS + 20;
-
-        let decision = router_decide(&input);
-
-        assert_eq!(decision.route, RouteTarget::Local);
-        assert_eq!(decision.reason, "weak_network");
-    }
-
-    #[test]
-    fn fallback_to_cloud_when_local_not_ready() {
+    fn t02_private_local_unavailable_fallback_cloud() {
         let mut input = base_input();
         input.privacy_level = PrivacyLevel::Private;
         input.local_model_ready = false;
@@ -216,7 +198,236 @@ mod tests {
     }
 
     #[test]
-    fn fallback_to_local_when_cloud_not_ready() {
+    fn t03_private_both_unavailable_reason_contains_no_engine() {
+        let mut input = base_input();
+        input.privacy_level = PrivacyLevel::Private;
+        input.local_model_ready = false;
+        input.cloud_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert!(decision.reason.contains("no_engine_available"));
+    }
+
+    #[test]
+    fn t04_serious_thermal_forces_cloud() {
+        let mut input = base_input();
+        input.device_context.thermal_state = Some(ThermalState::Serious);
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "thermal_throttle");
+    }
+
+    #[test]
+    fn t05_critical_thermal_forces_cloud() {
+        let mut input = base_input();
+        input.device_context.thermal_state = Some(ThermalState::Critical);
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "thermal_throttle");
+    }
+
+    #[test]
+    fn t06_critical_thermal_cloud_unavailable_fallback_local() {
+        let mut input = base_input();
+        input.device_context.thermal_state = Some(ThermalState::Critical);
+        input.cloud_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "thermal_throttle_fallback_local");
+    }
+
+    #[test]
+    fn t07_rtt_181_prefers_local() {
+        let mut input = base_input();
+        input.network_rtt_ms = 181;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "weak_network");
+    }
+
+    #[test]
+    fn t08_weak_network_local_unavailable_fallback_cloud() {
+        let mut input = base_input();
+        input.network_rtt_ms = 181;
+        input.local_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "weak_network_fallback_cloud");
+    }
+
+    #[test]
+    fn t09_local_unavailable_cloud_available() {
+        let mut input = base_input();
+        input.local_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "local_unavailable");
+    }
+
+    #[test]
+    fn t10_cloud_unavailable_local_available() {
+        let mut input = base_input();
+        input.cloud_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "cloud_unavailable");
+    }
+
+    #[test]
+    fn t11_preference_privacy_prefers_local() {
+        let mut input = base_input();
+        input.user_preference = UserPreference::Privacy;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "user_prefer_privacy");
+    }
+
+    #[test]
+    fn t12_preference_privacy_local_unavailable_fallback_cloud() {
+        let mut input = base_input();
+        input.user_preference = UserPreference::Privacy;
+        input.local_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "user_prefer_privacy_fallback_cloud");
+    }
+
+    #[test]
+    fn t13_preference_latency_rtt_60_prefers_cloud() {
+        let mut input = base_input();
+        input.user_preference = UserPreference::Latency;
+        input.network_rtt_ms = 60;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "user_prefer_latency");
+    }
+
+    #[test]
+    fn t14_preference_latency_rtt_120_falls_back_local() {
+        let mut input = base_input();
+        input.user_preference = UserPreference::Latency;
+        input.network_rtt_ms = 120;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "latency_but_rtt_high");
+    }
+
+    #[test]
+    fn t15_device_load_085_prefers_cloud() {
+        let mut input = base_input();
+        input.device_load = 0.85;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "high_device_load");
+    }
+
+    #[test]
+    fn t16_high_load_cloud_unavailable_fallback_local() {
+        let mut input = base_input();
+        input.device_load = 0.85;
+        input.cloud_model_ready = false;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "high_device_load_fallback_local");
+    }
+
+    #[test]
+    fn t17_balanced_default_path() {
+        let input = base_input();
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "balanced_default");
+    }
+
+    #[test]
+    fn t18_balanced_rtt_180_is_weak_network_boundary() {
+        let mut input = base_input();
+        input.network_rtt_ms = 180;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Local);
+        assert_eq!(decision.reason, "weak_network");
+    }
+
+    #[test]
+    fn t19_latency_rtt_80_is_cloud_boundary() {
+        let mut input = base_input();
+        input.user_preference = UserPreference::Latency;
+        input.network_rtt_ms = 80;
+
+        let decision = router_decide(&input);
+
+        assert_eq!(decision.route, RouteTarget::Cloud);
+        assert_eq!(decision.reason, "user_prefer_latency");
+    }
+
+    #[test]
+    fn t20_ttl_is_30_for_key_branches() {
+        let mut cases = Vec::new();
+
+        let mut private_case = base_input();
+        private_case.privacy_level = PrivacyLevel::Private;
+        cases.push(private_case);
+
+        let mut thermal_case = base_input();
+        thermal_case.device_context.thermal_state = Some(ThermalState::Critical);
+        cases.push(thermal_case);
+
+        let mut weak_net_case = base_input();
+        weak_net_case.network_rtt_ms = 181;
+        cases.push(weak_net_case);
+
+        let mut latency_case = base_input();
+        latency_case.user_preference = UserPreference::Latency;
+        latency_case.network_rtt_ms = 60;
+        cases.push(latency_case);
+
+        let mut high_load_case = base_input();
+        high_load_case.device_load = 0.85;
+        cases.push(high_load_case);
+
+        let balanced_case = base_input();
+        cases.push(balanced_case);
+
+        for input in cases {
+            let decision = router_decide(&input);
+            assert_eq!(decision.ttl_seconds, 30);
+        }
+    }
+
+    #[test]
+    fn t21_serious_thermal_cloud_unavailable_fallback_local() {
         let mut input = base_input();
         input.device_context.thermal_state = Some(ThermalState::Serious);
         input.cloud_model_ready = false;
@@ -228,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn default_local_when_no_engine_available() {
+    fn t22_default_local_when_no_engine_available() {
         let mut input = base_input();
         input.local_model_ready = false;
         input.cloud_model_ready = false;
@@ -236,6 +447,6 @@ mod tests {
         let decision = router_decide(&input);
 
         assert_eq!(decision.route, RouteTarget::Local);
-        assert_eq!(decision.reason, "local_unavailable_no_engine_available");
+        assert_eq!(decision.reason, "no_engine_available");
     }
 }
