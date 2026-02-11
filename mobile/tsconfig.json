@@ -2,5 +2,24 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  "include": [
+    "App.tsx",
+    "index.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios",
+    "electron/**",
+    "dist-*/**",
+    "dist-dev/**",
+    "dist-web/**",
+    "dist-wecom/**",
+    "dist-wecom2/**",
+    "outputs/**",
+    ".export_*/**"
+  ]
 }
