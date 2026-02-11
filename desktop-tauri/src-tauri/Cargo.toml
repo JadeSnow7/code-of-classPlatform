@@ -1,0 +1,12 @@
+[package]
+name = "desktop-tauri"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+router_core = { path = "../../rust-core/crates/router_core" }
+tauri = { version = "2", optional = true }
+
+[features]
+default = []
+tauri-command = ["dep:tauri"]

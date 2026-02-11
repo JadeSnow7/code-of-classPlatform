@@ -2,19 +2,90 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional
+import os
+from typing import Annotated, Any, Literal, Optional
+
+import numpy as np
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.solvers.wave import (
-    simulate_wave_1d,
+    Wave1DResult,
+    simulate_wave_1d as simulate_wave_1d_python,
     plot_wave_snapshot,
     plot_wave_spacetime,
     calculate_reflection_coefficient,
 )
 
 router = APIRouter(prefix="/v1/sim", tags=["wave"])
+
+SIM_ENGINE_ENV = "SIM_ENGINE"
+SIM_ENGINE_DEFAULT = "python"
+_RUST_SIMULATE_WAVE: Any | None = None
+_RUST_IMPORT_ERROR: Exception | None = None
+
+
+def _resolve_sim_engine() -> Literal["python", "rust"]:
+    raw_value = os.getenv(SIM_ENGINE_ENV, SIM_ENGINE_DEFAULT).strip().lower()
+    if raw_value in {"python", "rust"}:
+        return raw_value  # type: ignore[return-value]
+    return "python"
+
+
+def _load_rust_wave_kernel() -> Any | None:
+    global _RUST_SIMULATE_WAVE, _RUST_IMPORT_ERROR
+    if _RUST_SIMULATE_WAVE is not None:
+        return _RUST_SIMULATE_WAVE
+    if _RUST_IMPORT_ERROR is not None:
+        return None
+
+    try:
+        from simulation_rs import simulate_wave_1d as simulate_wave_1d_rust
+
+        _RUST_SIMULATE_WAVE = simulate_wave_1d_rust
+    except Exception as exc:  # noqa: BLE001
+        _RUST_IMPORT_ERROR = exc
+        return None
+
+    return _RUST_SIMULATE_WAVE
+
+
+def _simulate_wave(req: "Wave1DRequest") -> Wave1DResult:
+    engine = _resolve_sim_engine()
+    if engine == "rust":
+        rust_kernel = _load_rust_wave_kernel()
+        if rust_kernel is not None:
+            rust_result = rust_kernel(
+                length=req.length,
+                nx=req.nx,
+                c=req.c,
+                total_time=req.total_time,
+                source_type=req.source_type,
+                source_position=req.source_position,
+                source_frequency=req.source_frequency,
+                boundary_condition=req.boundary_condition,
+                save_every=10,
+            )
+            return Wave1DResult(
+                x=np.asarray(rust_result.x, dtype=np.float64),
+                time_steps=np.asarray(rust_result.time_steps, dtype=np.float64),
+                field_history=np.asarray(rust_result.field_history, dtype=np.float64),
+                dx=float(rust_result.dx),
+                dt=float(rust_result.dt),
+                c=float(rust_result.c),
+            )
+
+    return simulate_wave_1d_python(
+        length=req.length,
+        nx=req.nx,
+        c=req.c,
+        total_time=req.total_time,
+        source_type=req.source_type,
+        source_position=req.source_position,
+        source_frequency=req.source_frequency,
+        boundary_condition=req.boundary_condition,
+    )
 
 
 class Wave1DRequest(BaseModel):
@@ -72,16 +143,7 @@ def wave_1d_simulation(req: Wave1DRequest) -> Wave1DResponse:
     - Supports absorbing, reflecting, and periodic boundaries
     """
     try:
-        result = simulate_wave_1d(
-            length=req.length,
-            nx=req.nx,
-            c=req.c,
-            total_time=req.total_time,
-            source_type=req.source_type,
-            source_position=req.source_position,
-            source_frequency=req.source_frequency,
-            boundary_condition=req.boundary_condition,
-        )
+        result = _simulate_wave(req)
 
         if req.output_type == "snapshot":
             png_b64 = plot_wave_snapshot(result, time_index=req.snapshot_index)

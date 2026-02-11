@@ -55,6 +55,12 @@ app/
 - 有限差分/数值迭代（示例为主）
 - 数值积分与差分工具
 
+## Rust 数值核开关（POC）
+
+- `SIM_ENGINE=python`：默认，使用 Python 求解器。
+- `SIM_ENGINE=rust`：优先尝试 `simulation-rs`（PyO3 模块），失败自动回退 Python。
+- `wave_1d` 接口响应 schema 不变：`png_base64/n_time_steps/dx/dt`。
+
 ## 相关文档
 
 - [API 文档](../../docs/api/simulation-services.md)

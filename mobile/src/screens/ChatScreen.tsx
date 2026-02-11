@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 
 import { chat } from '../api';
-import { DEFAULT_CHAT_MODE, MAX_CONTEXT_MESSAGES } from '../config';
+import { DEFAULT_CHAT_MODE, EDGE_ROUTER_ENGINE, MAX_CONTEXT_MESSAGES } from '../config';
+import { decideRouteWithRust } from '../rustBridge';
 import type { AuthSession, ChatMessage } from '../types';
 import MessageBubble from '../components/MessageBubble';
 import { appStyles, palette, radius, spacing } from '../theme';
@@ -97,12 +98,34 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
         requestIdRef.current = requestId;
 
         try {
+            let route: 'local' | 'cloud' | 'auto' = 'local';
+            if (EDGE_ROUTER_ENGINE === 'rust') {
+                const decision = await decideRouteWithRust({
+                    privacy_level: 'private',
+                    user_preference: 'balanced',
+                    device_load: 0.5,
+                    device_context: {
+                        memory_available_mb: 1024,
+                    },
+                    network_rtt_ms: 120,
+                    local_model_ready: true,
+                    cloud_model_ready: true,
+                });
+                if (decision?.route) {
+                    route = decision.route;
+                }
+            }
+
             const responseText = await chat(
                 session.token,
                 session.tokenType,
                 nextMessages.slice(-MAX_CONTEXT_MESSAGES),
                 mode,
-                controller.signal
+                controller.signal,
+                {
+                    privacy: 'private',
+                    route,
+                }
             );
 
             if (!mountedRef.current || requestId !== requestIdRef.current) {

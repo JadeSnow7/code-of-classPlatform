@@ -101,16 +101,34 @@ export async function chat(
   tokenType: string,
   messages: ChatMessage[],
   mode: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  routing?: {
+    privacy?: 'private' | 'public';
+    route?: 'local' | 'cloud' | 'auto';
+  }
 ): Promise<string> {
   const api = authedApi(token, tokenType);
-  const data = await api.ai.chat(
+  const headers: Record<string, string> = {};
+  if (routing?.privacy) {
+    headers['X-Privacy-Level'] = routing.privacy;
+  }
+  if (routing?.route) {
+    headers['X-LLM-Route'] = routing.route;
+  }
+
+  const data = await api.client.post<{ reply: string }>(
+    '/ai/chat',
     {
       mode,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       stream: false,
+      privacy: routing?.privacy,
+      route: routing?.route,
     },
-    signal
+    {
+      signal,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+    }
   );
   return data.reply;
 }

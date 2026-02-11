@@ -9,6 +9,8 @@ export const NETWORK_TIMEOUT_MS = 60000;
 // Chat Configuration
 export const DEFAULT_CHAT_MODE = 'tutor';
 export const MAX_CONTEXT_MESSAGES = 10;
+const edgeRouterEngineRaw = (process.env.EXPO_PUBLIC_EDGE_ROUTER_ENGINE || 'js').trim().toLowerCase();
+export const EDGE_ROUTER_ENGINE: 'js' | 'rust' = edgeRouterEngineRaw === 'rust' ? 'rust' : 'js';
 
 // Storage Configuration
 export const STORAGE_KEYS = {
