@@ -16,10 +16,14 @@ type quizHandlers struct {
 	service *services.QuizService
 }
 
-func newQuizHandlers(db *gorm.DB) *quizHandlers {
+func NewQuizHandlers(db *gorm.DB) *quizHandlers {
 	return &quizHandlers{
 		service: services.NewQuizService(db),
 	}
+}
+
+func newQuizHandlers(db *gorm.DB) *quizHandlers {
+	return NewQuizHandlers(db)
 }
 
 // --- Quiz CRUD ---

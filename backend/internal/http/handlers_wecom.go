@@ -21,12 +21,16 @@ type wecomHandlers struct {
 	jwtSecret string
 }
 
-func newWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, jwtSecret string) *wecomHandlers {
+func NewWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, jwtSecret string) *wecomHandlers {
 	return &wecomHandlers{
 		wecom:     wecom,
 		db:        db,
 		jwtSecret: jwtSecret,
 	}
+}
+
+func newWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, jwtSecret string) *wecomHandlers {
+	return NewWecomHandlers(wecom, db, jwtSecret)
 }
 
 // WecomLoginRequest is the request body for WeChat Work login

@@ -16,11 +16,15 @@ type chapterHandlers struct {
 	service *services.ChapterService
 }
 
-func newChapterHandlers(db *gorm.DB) *chapterHandlers {
+func NewChapterHandlers(db *gorm.DB) *chapterHandlers {
 	return &chapterHandlers{
 		db:      db,
 		service: services.NewChapterService(db),
 	}
+}
+
+func newChapterHandlers(db *gorm.DB) *chapterHandlers {
+	return NewChapterHandlers(db)
 }
 
 // ============ Request/Response Types ============

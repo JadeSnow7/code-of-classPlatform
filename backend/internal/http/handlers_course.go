@@ -15,8 +15,12 @@ type courseHandlers struct {
 	service *services.CourseService
 }
 
-func newCourseHandlers(db *gorm.DB) *courseHandlers {
+func NewCourseHandlers(db *gorm.DB) *courseHandlers {
 	return &courseHandlers{service: services.NewCourseService(db)}
+}
+
+func newCourseHandlers(db *gorm.DB) *courseHandlers {
+	return NewCourseHandlers(db)
 }
 
 type createCourseRequest struct {

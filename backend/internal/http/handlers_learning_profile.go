@@ -15,8 +15,12 @@ type learningProfileHandlers struct {
 	service services.LearningProfileService
 }
 
-func newLearningProfileHandlers(service services.LearningProfileService) *learningProfileHandlers {
+func NewLearningProfileHandlers(service services.LearningProfileService) *learningProfileHandlers {
 	return &learningProfileHandlers{service: service}
+}
+
+func newLearningProfileHandlers(service services.LearningProfileService) *learningProfileHandlers {
+	return NewLearningProfileHandlers(service)
 }
 
 // GetProfile returns a student's learning profile for a course.

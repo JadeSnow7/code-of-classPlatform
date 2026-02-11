@@ -14,8 +14,12 @@ type aiHandlers struct {
 	ai *clients.AIClient
 }
 
-func newAIHandlers(ai *clients.AIClient) *aiHandlers {
+func NewAIHandlers(ai *clients.AIClient) *aiHandlers {
 	return &aiHandlers{ai: ai}
+}
+
+func newAIHandlers(ai *clients.AIClient) *aiHandlers {
+	return NewAIHandlers(ai)
 }
 
 type chatRequest struct {

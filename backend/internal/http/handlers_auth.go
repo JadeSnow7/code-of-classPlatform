@@ -15,8 +15,12 @@ type authHandlers struct {
 	jwtSecret string
 }
 
-func newAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
+func NewAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
 	return &authHandlers{service: service, jwtSecret: jwtSecret}
+}
+
+func newAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
+	return NewAuthHandlers(service, jwtSecret)
 }
 
 type loginRequest struct {

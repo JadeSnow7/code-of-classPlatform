@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/authz"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
-	"gorm.io/gorm"
 )
 
 // WritingHandlers interface for writing handler methods
@@ -17,10 +16,7 @@ type WritingHandlers interface {
 }
 
 // RegisterWritingRoutes registers writing routes
-func RegisterWritingRoutes(api *gin.RouterGroup, jwtSecret string, db *gorm.DB, h WritingHandlers) {
-	// Note: RequireCourseModule is a custom middleware requiring DB access
-	requireWritingModule := RequireCourseModule(db, "course.writing")
-
+func RegisterWritingRoutes(api *gin.RouterGroup, jwtSecret string, requireWritingModule gin.HandlerFunc, h WritingHandlers) {
 	api.POST("/courses/:courseId/writing", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAssignmentSubmit), requireWritingModule, h.SubmitWriting)
 	api.GET("/courses/:courseId/writing", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAssignmentRead), requireWritingModule, h.GetWritingSubmissions)
 	api.GET("/courses/:courseId/writing/stats", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAssignmentGrade), requireWritingModule, h.GetWritingStats)

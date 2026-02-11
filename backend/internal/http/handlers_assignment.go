@@ -18,12 +18,16 @@ type assignmentHandlers struct {
 	service  *services.AssignmentService
 }
 
-func newAssignmentHandlers(db *gorm.DB, aiClient *clients.AIClient) *assignmentHandlers {
+func NewAssignmentHandlers(db *gorm.DB, aiClient *clients.AIClient) *assignmentHandlers {
 	return &assignmentHandlers{
 		db:       db,
 		aiClient: aiClient,
 		service:  services.NewAssignmentService(db),
 	}
+}
+
+func newAssignmentHandlers(db *gorm.DB, aiClient *clients.AIClient) *assignmentHandlers {
+	return NewAssignmentHandlers(db, aiClient)
 }
 
 // --- Assignment CRUD ---

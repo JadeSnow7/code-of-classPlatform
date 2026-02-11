@@ -22,6 +22,9 @@ type App struct {
 
 	// Repositories
 	UserRepo            repositories.UserRepository
+	CourseRepo          repositories.CourseRepository
+	AssignmentRepo      repositories.AssignmentRepository
+	QuizRepo            repositories.QuizRepository
 	AnnouncementRepo    repositories.AnnouncementRepository
 	AttendanceRepo      repositories.AttendanceRepository
 	ResourceRepo        repositories.ResourceRepository
@@ -58,8 +61,11 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		app.MinIOClient = minioClient
 	}
 
-	// Initialize repositories
+	// Repositories
 	app.UserRepo = repositories.NewUserRepository(db)
+	app.CourseRepo = repositories.NewCourseRepository(db)
+	app.AssignmentRepo = repositories.NewAssignmentRepository(db)
+	app.QuizRepo = repositories.NewQuizRepository(db)
 	app.AnnouncementRepo = repositories.NewAnnouncementRepository(db)
 	app.AttendanceRepo = repositories.NewAttendanceRepository(db)
 	app.ResourceRepo = repositories.NewResourceRepository(db)
@@ -67,25 +73,52 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	app.LearningProfileRepo = repositories.NewLearningProfileRepository(db)
 	app.GlobalProfileRepo = repositories.NewGlobalProfileRepository(db)
 
-	// Initialize services
+	// Services
 	app.AuthService = services.NewAuthService(app.UserRepo, cfg.JWTSecret)
-	app.UserService = services.NewUserService(db)             // actual signature: (db *gorm.DB)
-	app.AdminService = services.NewAdminService(app.UserRepo) // actual signature: (userRepo)
+	app.UserService = services.NewUserService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo)
+	app.AdminService = services.NewAdminService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo, app.ResourceRepo)
 	app.AnnouncementService = services.NewAnnouncementService(app.AnnouncementRepo)
-	app.AttendanceService = services.NewAttendanceService(app.AttendanceRepo)
+	app.AttendanceService = services.NewAttendanceService(app.AttendanceRepo, app.UserRepo)
 	app.ResourceService = services.NewResourceService(app.ResourceRepo)
-	app.WritingService = services.NewWritingService(app.WritingRepo)
+	app.WritingService = services.NewWritingService(app.WritingRepo, app.AIClient)
 	app.LearningProfileService = services.NewLearningProfileService(app.LearningProfileRepo)
 	app.GlobalProfileService = services.NewGlobalProfileService(app.GlobalProfileRepo)
+	app.UploadService = services.NewUploadService(app.MinIOClient, app.AssignmentRepo, app.CourseRepo)
 
-	if app.MinIOClient != nil {
-		app.UploadService = services.NewUploadService(app.MinIOClient)
+	// Additional service-backed handlers still using existing service constructors.
+	courseHandlers := httpapi.NewCourseHandlers(db)
+	assignmentHandlers := httpapi.NewAssignmentHandlers(db, aiClient)
+	quizHandlers := httpapi.NewQuizHandlers(db)
+	chapterHandlers := httpapi.NewChapterHandlers(db)
+	aiHandlers := httpapi.NewAIHandlers(aiClient)
+
+	// Optional WeCom client
+	wecomClient := clients.NewWecomClient(clients.WecomConfig{
+		CorpID:  cfg.WecomCorpID,
+		AgentID: cfg.WecomAgentID,
+		Secret:  cfg.WecomSecret,
+	})
+
+	routerDeps := httpapi.RouterDeps{
+		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret),
+		UserHandlers:            httpapi.NewUserHandlers(app.UserService),
+		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, cfg.JWTSecret),
+		CourseHandlers:          courseHandlers,
+		ChapterHandlers:         chapterHandlers,
+		AssignmentHandlers:      assignmentHandlers,
+		QuizHandlers:            quizHandlers,
+		ResourceHandlers:        httpapi.NewResourceHandlers(app.ResourceService),
+		UploadHandlers:          httpapi.NewUploadHandlers(app.UploadService),
+		AIHandlers:              aiHandlers,
+		AnnouncementHandlers:    httpapi.NewAnnouncementHandlers(app.AnnouncementService),
+		AttendanceHandlers:      httpapi.NewAttendanceHandlers(app.AttendanceService),
+		WritingHandlers:         httpapi.NewWritingHandlers(app.WritingService),
+		LearningProfileHandlers: httpapi.NewLearningProfileHandlers(app.LearningProfileService),
+		GlobalProfileHandlers:   httpapi.NewGlobalProfileHandlers(app.GlobalProfileService),
+		AdminHandlers:           httpapi.NewAdminHandlers(app.AdminService),
+		RequireWritingModule:    httpapi.RequireCourseModule(db, "course.writing"),
 	}
 
-	// Initialize router with all dependencies
-	// For now, router.go still creates handlers internally
-	// Future: move handler construction here and pass handlers to router
-	app.Router = httpapi.NewRouter(cfg, db, aiClient, minioClient)
-
+	app.Router = httpapi.NewRouter(cfg, routerDeps)
 	return app
 }
