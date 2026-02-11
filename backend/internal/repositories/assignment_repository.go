@@ -11,7 +11,7 @@ type assignmentRepository struct {
 	db *gorm.DB
 }
 
-func NewAssignmentRepository(db *gorm.DB) *AssignmentRepository {
+func NewAssignmentRepository(db *gorm.DB) AssignmentRepository {
 	return &assignmentRepository{db: db}
 }
 

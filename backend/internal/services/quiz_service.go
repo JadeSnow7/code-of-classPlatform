@@ -48,7 +48,7 @@ var (
 
 // QuizService handles quiz management and attempts.
 type QuizService struct {
-	repo *repositories.QuizRepository
+	repo repositories.QuizRepository
 }
 
 // NewQuizService builds a QuizService with its repository.

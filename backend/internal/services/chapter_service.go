@@ -23,7 +23,7 @@ var (
 
 // ChapterService handles chapter CRUD and study tracking.
 type ChapterService struct {
-	repo *repositories.ChapterRepository
+	repo repositories.ChapterRepository
 	db   *gorm.DB
 }
 

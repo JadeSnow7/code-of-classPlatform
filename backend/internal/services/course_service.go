@@ -15,7 +15,7 @@ var (
 	// ErrCourseNotFoundService indicates the course is missing.
 	ErrCourseNotFoundService = errors.New("course not found")
 	// ErrAccessDeniedService indicates the user is not authorized for the action.
-	ErrAccessDeniedService   = errors.New("access denied")
+	ErrAccessDeniedService = errors.New("access denied")
 )
 
 // UserInfo represents user context for authorization decisions.
@@ -31,7 +31,7 @@ func (u UserInfo) IsTeacher() bool {
 
 // CourseService handles course management and module configuration.
 type CourseService struct {
-	repo *repositories.CourseRepository
+	repo repositories.CourseRepository
 	db   *gorm.DB
 }
 

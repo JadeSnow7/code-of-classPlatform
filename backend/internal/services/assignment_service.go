@@ -18,12 +18,12 @@ var (
 
 // AssignmentService handles assignment CRUD and grading workflows.
 type AssignmentService struct {
-	repo *repositories.AssignmentRepository
+	repo repositories.AssignmentRepository
+	db   *gorm.DB
 }
 
-// NewAssignmentService builds an AssignmentService with its repository.
 func NewAssignmentService(db *gorm.DB) *AssignmentService {
-	return &AssignmentService{repo: repositories.NewAssignmentRepository(db)}
+	return &AssignmentService{repo: repositories.NewAssignmentRepository(db), db: db}
 }
 
 // CreateAssignmentRequest contains the fields required to create an assignment.

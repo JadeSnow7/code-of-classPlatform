@@ -11,7 +11,7 @@ type courseRepository struct {
 	db *gorm.DB
 }
 
-func NewCourseRepository(db *gorm.DB) *CourseRepository {
+func NewCourseRepository(db *gorm.DB) CourseRepository {
 	return &courseRepository{db: db}
 }
 

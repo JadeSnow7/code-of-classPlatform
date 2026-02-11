@@ -11,7 +11,7 @@ type quizRepository struct {
 	db *gorm.DB
 }
 
-func NewQuizRepository(db *gorm.DB) *QuizRepository {
+func NewQuizRepository(db *gorm.DB) QuizRepository {
 	return &quizRepository{db: db}
 }
 

@@ -11,7 +11,7 @@ type chapterRepository struct {
 	db *gorm.DB
 }
 
-func NewChapterRepository(db *gorm.DB) *ChapterRepository {
+func NewChapterRepository(db *gorm.DB) ChapterRepository {
 	return &chapterRepository{db: db}
 }
 
