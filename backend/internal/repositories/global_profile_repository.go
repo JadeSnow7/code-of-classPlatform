@@ -34,7 +34,7 @@ func (r *globalProfileRepository) RecordEvent(ctx context.Context, event *models
 
 func (r *globalProfileRepository) GetTimeline(ctx context.Context, studentID uint, limit int) ([]*models.LearningEvent, error) {
 	var events []*models.LearningEvent
-	query := r.db.WithContext(ctx).Where("student_id = ?", studentID).Order("occurred_at DESC")
+	query := r.db.WithContext(ctx).Where("student_id = ?", studentID).Order("created_at DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -42,4 +42,28 @@ func (r *globalProfileRepository) GetTimeline(ctx context.Context, studentID uin
 		return nil, err
 	}
 	return events, nil
+}
+
+func (r *globalProfileRepository) GetTimelinePage(ctx context.Context, studentID uint, page, pageSize int, courseID *uint) ([]*models.LearningEvent, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	query := r.db.WithContext(ctx).Model(&models.LearningEvent{}).Where("student_id = ?", studentID)
+	if courseID != nil {
+		query = query.Where("course_id = ?", *courseID)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var events []*models.LearningEvent
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&events).Error; err != nil {
+		return nil, 0, err
+	}
+	return events, total, nil
 }

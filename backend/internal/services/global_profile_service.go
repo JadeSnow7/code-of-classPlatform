@@ -28,6 +28,10 @@ func (s *globalProfileService) GetLearningTimeline(ctx context.Context, studentI
 	return s.repo.GetTimeline(ctx, studentID, limit)
 }
 
+func (s *globalProfileService) GetLearningTimelinePage(ctx context.Context, studentID uint, page, pageSize int, courseID *uint) ([]*models.LearningEvent, int64, error) {
+	return s.repo.GetTimelinePage(ctx, studentID, page, pageSize, courseID)
+}
+
 func (s *globalProfileService) RecordLearningEvent(ctx context.Context, event *models.LearningEvent) error {
 	return s.repo.RecordEvent(ctx, event)
 }

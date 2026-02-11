@@ -24,6 +24,28 @@ func (s *resourceService) Create(ctx context.Context, resource *models.Resource)
 	return s.repo.Create(ctx, resource)
 }
 
+func (s *resourceService) CreateWithPermission(ctx context.Context, resource *models.Resource, userID uint, userRole string) error {
+	course, err := s.repo.FindCourseByID(ctx, resource.CourseID)
+	if err != nil {
+		return err
+	}
+	if course.TeacherID != userID && userRole != "admin" {
+		return ErrAccessDeniedService
+	}
+	return s.repo.Create(ctx, resource)
+}
+
 func (s *resourceService) Delete(ctx context.Context, id uint) error {
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *resourceService) DeleteWithPermission(ctx context.Context, id uint, userID uint, userRole string) error {
+	resource, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if resource.CreatedByID != userID && userRole != "admin" {
+		return ErrAccessDeniedService
+	}
 	return s.repo.Delete(ctx, id)
 }

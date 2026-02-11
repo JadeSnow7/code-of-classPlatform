@@ -24,12 +24,31 @@ func (r *userRepository) FindByID(ctx context.Context, id uint) (*models.User, e
 	return &user, nil
 }
 
+func (r *userRepository) FindByIDs(ctx context.Context, ids []uint) ([]*models.User, error) {
+	if len(ids) == 0 {
+		return []*models.User{}, nil
+	}
+	var users []*models.User
+	if err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 func (r *userRepository) FindByUsername(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
 	if err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *userRepository) ExistsByUsername(ctx context.Context, username string) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.User{}).Where("username = ?", username).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func (r *userRepository) FindAll(ctx context.Context, roleFilter string) ([]*models.User, error) {

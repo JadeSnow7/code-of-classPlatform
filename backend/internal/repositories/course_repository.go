@@ -31,6 +31,14 @@ func (r *courseRepository) FindAll(ctx context.Context) ([]models.Course, error)
 	return courses, nil
 }
 
+func (r *courseRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Course{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *courseRepository) FindByTeacherID(ctx context.Context, teacherID uint) ([]models.Course, error) {
 	var courses []models.Course
 	if err := r.db.WithContext(ctx).

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
@@ -31,6 +32,22 @@ func (r *assignmentRepository) FindAssignment(ctx context.Context, assignmentID 
 	return &assignment, nil
 }
 
+func (r *assignmentRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Assignment{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *assignmentRepository) CountSubmissions(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Submission{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *assignmentRepository) CreateAssignment(ctx context.Context, assignment *models.Assignment) error {
 	return r.db.WithContext(ctx).Create(assignment).Error
 }
@@ -41,6 +58,24 @@ func (r *assignmentRepository) ListByCourse(ctx context.Context, courseID uint) 
 		return nil, err
 	}
 	return assignments, nil
+}
+
+func (r *assignmentRepository) FindUpcoming(ctx context.Context, now time.Time) ([]models.Assignment, error) {
+	var assignments []models.Assignment
+	if err := r.db.WithContext(ctx).Where("deadline > ?", now).Find(&assignments).Error; err != nil {
+		return nil, err
+	}
+	return assignments, nil
+}
+
+func (r *assignmentRepository) FindSubmittedAssignmentIDsByStudent(ctx context.Context, studentID uint) ([]uint, error) {
+	var ids []uint
+	if err := r.db.WithContext(ctx).Model(&models.Submission{}).
+		Where("student_id = ?", studentID).
+		Pluck("assignment_id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func (r *assignmentRepository) FindSubmission(ctx context.Context, assignmentID uint, studentID uint) (*models.Submission, error) {
@@ -70,6 +105,36 @@ func (r *assignmentRepository) CreateSubmission(ctx context.Context, submission 
 func (r *assignmentRepository) ListSubmissionsByAssignment(ctx context.Context, assignmentID uint) ([]models.Submission, error) {
 	var submissions []models.Submission
 	if err := r.db.WithContext(ctx).Where("assignment_id = ?", assignmentID).Order("created_at DESC").Find(&submissions).Error; err != nil {
+		return nil, err
+	}
+	return submissions, nil
+}
+
+func (r *assignmentRepository) FindRecentSubmissionsByStudent(ctx context.Context, studentID uint, limit int) ([]models.Submission, error) {
+	var submissions []models.Submission
+	db := r.db.WithContext(ctx).Where("student_id = ?", studentID).Order("created_at DESC")
+	if limit > 0 {
+		db = db.Limit(limit)
+	}
+	if err := db.Find(&submissions).Error; err != nil {
+		return nil, err
+	}
+	return submissions, nil
+}
+
+func (r *assignmentRepository) FindRecentSubmissionsByCourseIDs(ctx context.Context, courseIDs []uint, limit int) ([]models.Submission, error) {
+	if len(courseIDs) == 0 {
+		return []models.Submission{}, nil
+	}
+	var submissions []models.Submission
+	db := r.db.WithContext(ctx).
+		Joins("JOIN assignments ON assignments.id = submissions.assignment_id").
+		Where("assignments.course_id IN ?", courseIDs).
+		Order("submissions.created_at DESC")
+	if limit > 0 {
+		db = db.Limit(limit)
+	}
+	if err := db.Find(&submissions).Error; err != nil {
 		return nil, err
 	}
 	return submissions, nil

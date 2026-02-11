@@ -32,6 +32,22 @@ func (r *resourceRepository) FindByID(ctx context.Context, id uint) (*models.Res
 	return &resource, nil
 }
 
+func (r *resourceRepository) FindCourseByID(ctx context.Context, courseID uint) (*models.Course, error) {
+	var course models.Course
+	if err := r.db.WithContext(ctx).First(&course, courseID).Error; err != nil {
+		return nil, err
+	}
+	return &course, nil
+}
+
+func (r *resourceRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Resource{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *resourceRepository) Create(ctx context.Context, resource *models.Resource) error {
 	return r.db.WithContext(ctx).Create(resource).Error
 }

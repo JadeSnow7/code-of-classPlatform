@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 )
@@ -9,7 +10,9 @@ import (
 // UserRepository 用户数据访问接口
 type UserRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.User, error)
+	FindByIDs(ctx context.Context, ids []uint) ([]*models.User, error)
 	FindByUsername(ctx context.Context, username string) (*models.User, error)
+	ExistsByUsername(ctx context.Context, username string) (bool, error)
 	FindAll(ctx context.Context, roleFilter string) ([]*models.User, error)
 	Create(ctx context.Context, user *models.User) error
 	Update(ctx context.Context, user *models.User) error
@@ -22,6 +25,7 @@ type UserRepository interface {
 type CourseRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Course, error)
 	FindAll(ctx context.Context) ([]models.Course, error)
+	Count(ctx context.Context) (int64, error)
 	FindByTeacherID(ctx context.Context, teacherID uint) ([]models.Course, error)
 	FindByStudentID(ctx context.Context, studentID uint) ([]models.Course, error)
 	Create(ctx context.Context, course *models.Course) error
@@ -34,13 +38,19 @@ type CourseRepository interface {
 type AssignmentRepository interface {
 	FindCourse(ctx context.Context, courseID uint) (*models.Course, error)
 	FindAssignment(ctx context.Context, assignmentID uint) (*models.Assignment, error)
+	Count(ctx context.Context) (int64, error)
+	CountSubmissions(ctx context.Context) (int64, error)
 	CreateAssignment(ctx context.Context, assignment *models.Assignment) error
 	ListByCourse(ctx context.Context, courseID uint) ([]models.Assignment, error)
+	FindUpcoming(ctx context.Context, now time.Time) ([]models.Assignment, error)
+	FindSubmittedAssignmentIDsByStudent(ctx context.Context, studentID uint) ([]uint, error)
 	FindSubmission(ctx context.Context, assignmentID uint, studentID uint) (*models.Submission, error)
 	FindSubmissionByID(ctx context.Context, submissionID uint) (*models.Submission, error)
 	SaveSubmission(ctx context.Context, submission *models.Submission) error
 	CreateSubmission(ctx context.Context, submission *models.Submission) error
 	ListSubmissionsByAssignment(ctx context.Context, assignmentID uint) ([]models.Submission, error)
+	FindRecentSubmissionsByStudent(ctx context.Context, studentID uint, limit int) ([]models.Submission, error)
+	FindRecentSubmissionsByCourseIDs(ctx context.Context, courseIDs []uint, limit int) ([]models.Submission, error)
 	CountAssignmentsByCourse(ctx context.Context, courseID uint) (int64, error)
 	CountSubmissionsByCourseAndStudent(ctx context.Context, courseID uint, studentID uint) (int64, error)
 	CountPendingGradingByCourse(ctx context.Context, courseID uint) (int64, error)
@@ -54,6 +64,10 @@ type AssignmentRepository interface {
 type QuizRepository interface {
 	ListByCourse(ctx context.Context, courseID uint, publishedOnly bool) ([]models.Quiz, error)
 	FindByID(ctx context.Context, quizID uint) (*models.Quiz, error)
+	Count(ctx context.Context) (int64, error)
+	FindPublishedActive(ctx context.Context, now time.Time) ([]models.Quiz, error)
+	FindSubmittedAttemptsByStudent(ctx context.Context, studentID uint) ([]models.QuizAttempt, error)
+	CountSubmittedAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error)
 	Create(ctx context.Context, quiz *models.Quiz) error
 	Update(ctx context.Context, quiz *models.Quiz, updates map[string]interface{}) error
 	Save(ctx context.Context, quiz *models.Quiz) error
@@ -93,9 +107,13 @@ type ChapterRepository interface {
 type AnnouncementRepository interface {
 	FindByCourseID(ctx context.Context, courseID uint) ([]*models.Announcement, error)
 	FindByID(ctx context.Context, id uint) (*models.Announcement, error)
+	CountByCourseID(ctx context.Context, courseID uint) (int64, error)
+	FindLatestByCourseID(ctx context.Context, courseID uint) (*models.Announcement, error)
+	FindReadByAnnouncementIDsAndUser(ctx context.Context, announcementIDs []uint, userID uint) ([]models.AnnouncementRead, error)
 	Create(ctx context.Context, announcement *models.Announcement) error
 	Update(ctx context.Context, announcement *models.Announcement) error
 	Delete(ctx context.Context, id uint) error
+	DeleteReadsByAnnouncementID(ctx context.Context, id uint) error
 	MarkRead(ctx context.Context, announcementID, userID uint) error
 	GetUnreadCount(ctx context.Context, courseID, userID uint) (int64, error)
 }
@@ -103,10 +121,18 @@ type AnnouncementRepository interface {
 // AttendanceRepository 考勤数据访问接口
 type AttendanceRepository interface {
 	FindSessionsByCourseID(ctx context.Context, courseID uint) ([]*models.AttendanceSession, error)
+	CountSessionsByCourseID(ctx context.Context, courseID uint) (int64, error)
+	FindLatestSessionByCourseID(ctx context.Context, courseID uint) (*models.AttendanceSession, error)
 	FindSessionByID(ctx context.Context, id uint) (*models.AttendanceSession, error)
+	FindActiveSessionByCourseID(ctx context.Context, courseID uint) (*models.AttendanceSession, error)
 	CreateSession(ctx context.Context, session *models.AttendanceSession) error
 	UpdateSession(ctx context.Context, session *models.AttendanceSession) error
 	FindActiveSessionByCode(ctx context.Context, code string) (*models.AttendanceSession, error)
+	FindRecordBySessionAndStudent(ctx context.Context, sessionID, studentID uint) (*models.AttendanceRecord, error)
+	CountRecordsBySessionID(ctx context.Context, sessionID uint) (int64, error)
+	CountRecordsByCourseAndStudent(ctx context.Context, courseID, studentID uint) (int64, error)
+	CountRecordsByCourseID(ctx context.Context, courseID uint) (int64, error)
+	CountEnrollmentsByCourseAndRole(ctx context.Context, courseID uint, role string) (int64, error)
 	Checkin(ctx context.Context, record *models.AttendanceRecord) error
 	GetRecords(ctx context.Context, sessionID uint) ([]*models.AttendanceRecord, error)
 	GetAttendanceRate(ctx context.Context, courseID, studentID uint) (float64, error)
@@ -116,6 +142,8 @@ type AttendanceRepository interface {
 type ResourceRepository interface {
 	FindByCourseID(ctx context.Context, courseID uint) ([]*models.Resource, error)
 	FindByID(ctx context.Context, id uint) (*models.Resource, error)
+	FindCourseByID(ctx context.Context, courseID uint) (*models.Course, error)
+	Count(ctx context.Context) (int64, error)
 	Create(ctx context.Context, resource *models.Resource) error
 	Delete(ctx context.Context, id uint) error
 }
@@ -127,6 +155,8 @@ type WritingRepository interface {
 	Create(ctx context.Context, submission *models.WritingSubmission) error
 	UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error
 	GetStats(ctx context.Context, courseID uint) (map[string]interface{}, error)
+	CreateLearningEvent(ctx context.Context, event *models.LearningEvent) error
+	FindLearningProfilesByCourseID(ctx context.Context, courseID uint) ([]models.StudentLearningProfile, error)
 }
 
 // LearningProfileRepository 学习档案数据访问接口
@@ -142,4 +172,5 @@ type GlobalProfileRepository interface {
 	Save(ctx context.Context, profile *models.StudentGlobalProfile) error
 	RecordEvent(ctx context.Context, event *models.LearningEvent) error
 	GetTimeline(ctx context.Context, studentID uint, limit int) ([]*models.LearningEvent, error)
+	GetTimelinePage(ctx context.Context, studentID uint, page, pageSize int, courseID *uint) ([]*models.LearningEvent, int64, error)
 }

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
@@ -33,6 +34,45 @@ func (r *quizRepository) FindByID(ctx context.Context, quizID uint) (*models.Qui
 		return nil, err
 	}
 	return &quiz, nil
+}
+
+func (r *quizRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Quiz{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *quizRepository) FindPublishedActive(ctx context.Context, now time.Time) ([]models.Quiz, error) {
+	var quizzes []models.Quiz
+	if err := r.db.WithContext(ctx).
+		Where("is_published = ? AND end_time > ?", true, now).
+		Find(&quizzes).Error; err != nil {
+		return nil, err
+	}
+	return quizzes, nil
+}
+
+func (r *quizRepository) FindSubmittedAttemptsByStudent(ctx context.Context, studentID uint) ([]models.QuizAttempt, error) {
+	var attempts []models.QuizAttempt
+	if err := r.db.WithContext(ctx).
+		Where("student_id = ? AND submitted_at IS NOT NULL", studentID).
+		Find(&attempts).Error; err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+func (r *quizRepository) CountSubmittedAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&models.QuizAttempt{}).
+		Where("quiz_id = ? AND student_id = ? AND submitted_at IS NOT NULL", quizID, studentID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *quizRepository) Create(ctx context.Context, quiz *models.Quiz) error {

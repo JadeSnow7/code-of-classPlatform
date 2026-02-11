@@ -42,30 +42,33 @@ func (r *writingRepository) Create(ctx context.Context, submission *models.Writi
 
 func (r *writingRepository) UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error {
 	return r.db.WithContext(ctx).Model(&models.WritingSubmission{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"feedback_json":    feedbackJSON,
-		"dimension_scores": dimensionJSON,
+		"feedback_json":  feedbackJSON,
+		"dimension_json": dimensionJSON,
 	}).Error
 }
 
 func (r *writingRepository) GetStats(ctx context.Context, courseID uint) (map[string]interface{}, error) {
 	var totalSubmissions int64
-	var avgScore float64
 
 	// Count total submissions
 	if err := r.db.WithContext(ctx).Model(&models.WritingSubmission{}).Where("course_id = ?", courseID).Count(&totalSubmissions).Error; err != nil {
 		return nil, err
 	}
 
-	// Calculate average score
-	if err := r.db.WithContext(ctx).Model(&models.WritingSubmission{}).
-		Where("course_id = ? AND overall_score IS NOT NULL", courseID).
-		Select("AVG(overall_score)").
-		Row().Scan(&avgScore); err != nil && err != gorm.ErrRecordNotFound {
-		return nil, err
-	}
-
 	return map[string]interface{}{
 		"total_submissions": totalSubmissions,
-		"average_score":     avgScore,
+		"average_score":     0,
 	}, nil
+}
+
+func (r *writingRepository) CreateLearningEvent(ctx context.Context, event *models.LearningEvent) error {
+	return r.db.WithContext(ctx).Create(event).Error
+}
+
+func (r *writingRepository) FindLearningProfilesByCourseID(ctx context.Context, courseID uint) ([]models.StudentLearningProfile, error) {
+	var profiles []models.StudentLearningProfile
+	if err := r.db.WithContext(ctx).Where("course_id = ?", courseID).Find(&profiles).Error; err != nil {
+		return nil, err
+	}
+	return profiles, nil
 }

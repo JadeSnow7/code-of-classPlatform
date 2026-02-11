@@ -24,9 +24,33 @@ func (r *attendanceRepository) FindSessionsByCourseID(ctx context.Context, cours
 	return sessions, nil
 }
 
+func (r *attendanceRepository) CountSessionsByCourseID(ctx context.Context, courseID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.AttendanceSession{}).Where("course_id = ?", courseID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *attendanceRepository) FindLatestSessionByCourseID(ctx context.Context, courseID uint) (*models.AttendanceSession, error) {
+	var session models.AttendanceSession
+	if err := r.db.WithContext(ctx).Where("course_id = ?", courseID).Order("start_at DESC").First(&session).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
 func (r *attendanceRepository) FindSessionByID(ctx context.Context, id uint) (*models.AttendanceSession, error) {
 	var session models.AttendanceSession
 	if err := r.db.WithContext(ctx).First(&session, id).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *attendanceRepository) FindActiveSessionByCourseID(ctx context.Context, courseID uint) (*models.AttendanceSession, error) {
+	var session models.AttendanceSession
+	if err := r.db.WithContext(ctx).Where("course_id = ? AND is_active = ?", courseID, true).First(&session).Error; err != nil {
 		return nil, err
 	}
 	return &session, nil
@@ -46,6 +70,52 @@ func (r *attendanceRepository) FindActiveSessionByCode(ctx context.Context, code
 		return nil, err
 	}
 	return &session, nil
+}
+
+func (r *attendanceRepository) FindRecordBySessionAndStudent(ctx context.Context, sessionID, studentID uint) (*models.AttendanceRecord, error) {
+	var record models.AttendanceRecord
+	if err := r.db.WithContext(ctx).Where("session_id = ? AND student_id = ?", sessionID, studentID).First(&record).Error; err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (r *attendanceRepository) CountRecordsBySessionID(ctx context.Context, sessionID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.AttendanceRecord{}).Where("session_id = ?", sessionID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *attendanceRepository) CountRecordsByCourseAndStudent(ctx context.Context, courseID, studentID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.AttendanceRecord{}).
+		Joins("JOIN attendance_sessions ON attendance_sessions.id = attendance_records.session_id").
+		Where("attendance_sessions.course_id = ? AND attendance_records.student_id = ?", courseID, studentID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *attendanceRepository) CountRecordsByCourseID(ctx context.Context, courseID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.AttendanceRecord{}).
+		Joins("JOIN attendance_sessions ON attendance_sessions.id = attendance_records.session_id").
+		Where("attendance_sessions.course_id = ?", courseID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *attendanceRepository) CountEnrollmentsByCourseAndRole(ctx context.Context, courseID uint, role string) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.CourseEnrollment{}).Where("course_id = ? AND role = ?", courseID, role).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *attendanceRepository) Checkin(ctx context.Context, record *models.AttendanceRecord) error {
