@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +35,9 @@ func setupAssignmentTestDB(t *testing.T) *gorm.DB {
 
 func setupAssignmentRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	hAssignment := newAssignmentHandlers(db, nil)
-	hAuth := newAuthHandlers(db, jwtSecret)
+	userRepo := repositories.NewUserRepository(db)
+	authService := services.NewAuthService(userRepo, jwtSecret)
+	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()
 	r.POST("/auth/login", hAuth.Login)

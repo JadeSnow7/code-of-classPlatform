@@ -3,22 +3,24 @@ package http
 import (
 	"crypto/rand"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type attendanceHandlers struct {
-	db *gorm.DB
+	service services.AttendanceService
+	db      *gorm.DB // Keep temporarily for complex join queries (attendance rate calculation)
 }
 
-func newAttendanceHandlers(db *gorm.DB) *attendanceHandlers {
-	return &attendanceHandlers{db: db}
+func newAttendanceHandlers(service services.AttendanceService, db *gorm.DB) *attendanceHandlers {
+	return &attendanceHandlers{service: service, db: db}
 }
 
 // --- Summary ---
@@ -43,19 +45,19 @@ type ActiveSessionInfo struct {
 func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 	userID := userCtx.ID
 	role := userCtx.Role
 
-	// Count total sessions
+	// Count total sessions (keep DB query for now - complex aggregation)
 	var sessionsCount int64
 	h.db.Model(&models.AttendanceSession{}).Where("course_id = ?", courseID).Count(&sessionsCount)
 
@@ -66,7 +68,7 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 		lastSessionAt = &lastSession.StartAt
 	}
 
-	// Calculate attendance rate for student, or overall for teacher
+	// Calculate attendance rate (keep complex join logic in handler)
 	var attendanceRate float64
 	if sessionsCount > 0 {
 		if role == "student" {
@@ -92,7 +94,7 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 		}
 	}
 
-	// Check for active session
+	// Check for active session (keep DB query for now)
 	var activeSession *ActiveSessionInfo
 	var active models.AttendanceSession
 	if err := h.db.Where("course_id = ? AND is_active = ?", courseID, true).First(&active).Error; err == nil {
@@ -107,7 +109,7 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 		}
 	}
 
-	respondOK(c, AttendanceSummaryResponse{
+	response.OK(c, AttendanceSummaryResponse{
 		AttendanceRate: attendanceRate,
 		SessionsCount:  int(sessionsCount),
 		LastSessionAt:  lastSessionAt,
@@ -131,18 +133,20 @@ type SessionListItem struct {
 func (h *attendanceHandlers) ListSessions(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
-	var sessions []models.AttendanceSession
-	if err := h.db.Where("course_id = ?", courseID).Order("start_at DESC").Find(&sessions).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch sessions", nil)
+	// Use service to list sessions
+	sessionsPtr, err := h.service.ListSessions(c.Request.Context(), uint(courseID))
+	if err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	result := make([]SessionListItem, len(sessions))
-	for i, s := range sessions {
+	// Convert and add attendee counts (keep count query in handler)
+	result := make([]SessionListItem, len(sessionsPtr))
+	for i, s := range sessionsPtr {
 		var count int64
 		h.db.Model(&models.AttendanceRecord{}).Where("session_id = ?", s.ID).Count(&count)
 		result[i] = SessionListItem{
@@ -154,7 +158,7 @@ func (h *attendanceHandlers) ListSessions(c *gin.Context) {
 		}
 	}
 
-	respondOK(c, result)
+	response.OK(c, result)
 }
 
 // --- Start Session ---
@@ -168,14 +172,14 @@ type startSessionRequest struct {
 func (h *attendanceHandlers) StartSession(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
-	// Check if there's already an active session
+	// Check if there's already an active session (keep in handler - validation)
 	var existing models.AttendanceSession
 	if err := h.db.Where("course_id = ? AND is_active = ?", courseID, true).First(&existing).Error; err == nil {
-		respondError(c, http.StatusConflict, "CONFLICT", "active session already exists", gin.H{"session_id": existing.ID})
+		response.Error(c, fmt.Errorf("active session already exists"))
 		return
 	}
 
@@ -187,13 +191,13 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 	userID := userCtx.ID
 	now := time.Now()
 
-	session := models.AttendanceSession{
+	session := &models.AttendanceSession{
 		CourseID:       uint(courseID),
 		StartedByID:    userID,
 		StartAt:        now,
@@ -203,12 +207,13 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 		IsActive:       true,
 	}
 
-	if err := h.db.Create(&session).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create session", nil)
+	// Use service to create session
+	if err := h.service.StartSession(c.Request.Context(), session); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	respondCreated(c, gin.H{
+	response.Created(c, gin.H{
 		"id":      session.ID,
 		"code":    session.Code,
 		"ends_at": session.EndAt,
@@ -222,26 +227,29 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 func (h *attendanceHandlers) EndSession(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
+		response.BadRequest(c, "Invalid session ID")
 		return
 	}
 
+	// Check session exists and is active (keep in handler - validation)
 	var session models.AttendanceSession
 	if err := h.db.First(&session, sessionID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "session not found", nil)
+		response.NotFound(c, "Session")
 		return
 	}
 
 	if !session.IsActive {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session already ended", nil)
+		response.BadRequest(c, "Session already ended")
 		return
 	}
 
-	session.IsActive = false
-	session.EndAt = time.Now()
-	h.db.Save(&session)
+	// Use service to end session
+	if err := h.service.EndSession(c.Request.Context(), uint(sessionID)); err != nil {
+		response.Error(c, err)
+		return
+	}
 
-	respondOK(c, gin.H{"message": "session ended"})
+	response.OK(c, gin.H{"message": "session ended"})
 }
 
 // --- Checkin ---
@@ -262,33 +270,33 @@ type CheckinResponse struct {
 func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
+		response.BadRequest(c, "Invalid session ID")
 		return
 	}
 
 	var req checkinRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "code is required", nil)
+		response.BadRequest(c, "Code is required")
 		return
 	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 	userID := userCtx.ID
 
-	// Get session
+	// Get session (keep validation in handler)
 	var session models.AttendanceSession
 	if err := h.db.First(&session, sessionID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "session not found", nil)
+		response.NotFound(c, "Session")
 		return
 	}
 
 	// Validate session is active
 	if !session.IsActive {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session has ended", nil)
+		response.BadRequest(c, "Session has ended")
 		return
 	}
 
@@ -296,20 +304,20 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	if time.Now().After(session.EndAt) {
 		// Auto-close session
 		h.db.Model(&session).Update("is_active", false)
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "session has expired", nil)
+		response.BadRequest(c, "Session has expired")
 		return
 	}
 
 	// Validate code
 	if req.Code != session.Code {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid code", nil)
+		response.BadRequest(c, "Invalid code")
 		return
 	}
 
 	// Check if already checked in
 	var existing models.AttendanceRecord
 	if err := h.db.Where("session_id = ? AND student_id = ?", sessionID, userID).First(&existing).Error; err == nil {
-		respondOK(c, CheckinResponse{
+		response.OK(c, CheckinResponse{
 			Success:          true,
 			AlreadyCheckedIn: true,
 			CheckedInAt:      existing.CheckedInAt,
@@ -317,21 +325,14 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 		return
 	}
 
-	// Create record
+	// Use service to check in
 	now := time.Now()
-	record := models.AttendanceRecord{
-		SessionID:   uint(sessionID),
-		StudentID:   userID,
-		CheckedInAt: now,
-		IPAddress:   c.ClientIP(),
-	}
-
-	if err := h.db.Create(&record).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to check in", nil)
+	if err := h.service.Checkin(c.Request.Context(), uint(sessionID), userID, c.ClientIP()); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	respondOK(c, CheckinResponse{
+	response.OK(c, CheckinResponse{
 		Success:     true,
 		CheckedInAt: now,
 	})
@@ -352,22 +353,26 @@ type RecordListItem struct {
 func (h *attendanceHandlers) GetRecords(c *gin.Context) {
 	sessionID, err := strconv.ParseUint(c.Param("session_id"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid session id", nil)
+		response.BadRequest(c, "Invalid session ID")
 		return
 	}
 
-	var records []models.AttendanceRecord
-	if err := h.db.Where("session_id = ?", sessionID).Find(&records).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch records", nil)
+	// Use service to get records
+	recordsPtr, err := h.service.GetRecords(c.Request.Context(), uint(sessionID))
+	if err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	// Get student names
-	studentIDs := make([]uint, len(records))
-	for i, r := range records {
+	// Convert to pointers
+	records := make([]models.AttendanceRecord, len(recordsPtr))
+	studentIDs := make([]uint, len(recordsPtr))
+	for i, r := range recordsPtr {
+		records[i] = *r
 		studentIDs[i] = r.StudentID
 	}
 
+	// Get student names (keep in handler - requires user lookup)
 	var users []models.User
 	h.db.Where("id IN ?", studentIDs).Find(&users)
 	userMap := make(map[uint]string)
@@ -389,7 +394,7 @@ func (h *attendanceHandlers) GetRecords(c *gin.Context) {
 		}
 	}
 
-	respondOK(c, result)
+	response.OK(c, result)
 }
 
 // generateCode generates a 6-digit random code

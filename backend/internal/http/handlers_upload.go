@@ -14,6 +14,7 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
@@ -46,42 +47,40 @@ func newUploadHandlers(db *gorm.DB, minioClient *clients.MinioClient) *uploadHan
 
 // UploadAssignmentFile handles file upload for assignment submissions
 // Route: POST /upload/assignment/:assignmentId
-// Requires: authenticated student who belongs to the assignment's course
 func (h *uploadHandlers) UploadAssignmentFile(c *gin.Context) {
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	assignmentID := c.Param("assignmentId")
 	if assignmentID == "" {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "assignment ID is required", nil)
+		response.BadRequest(c, "Assignment ID is required")
 		return
 	}
 
 	// Verify assignment exists and user can submit
 	var assignment models.Assignment
 	if err := h.db.First(&assignment, assignmentID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "assignment not found", nil)
+		response.NotFound(c, "Assignment")
 		return
 	}
 
 	// Check if user is a student (for now, any authenticated user can submit)
-	// In production, you'd check course enrollment
 	if user.Role != "student" && user.Role != "admin" {
-		respondError(c, http.StatusForbidden, "FORBIDDEN", "only students can submit assignments", nil)
+		response.Forbidden(c, "Only students can submit assignments")
 		return
 	}
 
 	// Process file upload
 	signedURL, filename, err := h.processUpload(c, "assignments", assignmentAllowedExts, assignmentMaxSize)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"signed_url": signedURL,
 		"filename":   filename,
 	})
@@ -89,47 +88,46 @@ func (h *uploadHandlers) UploadAssignmentFile(c *gin.Context) {
 
 // UploadResourceFile handles file upload for course resources
 // Route: POST /upload/resource/:courseId
-// Requires: authenticated teacher or admin of the course
 func (h *uploadHandlers) UploadResourceFile(c *gin.Context) {
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not authenticated", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	courseID := c.Param("courseId")
 	if courseID == "" {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "course ID is required", nil)
+		response.BadRequest(c, "Course ID is required")
 		return
 	}
 
 	// Verify course exists
 	var course models.Course
 	if err := h.db.First(&course, courseID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "course not found", nil)
+		response.NotFound(c, "Course")
 		return
 	}
 
 	// Only course teacher or admin can upload resources
 	if course.TeacherID != user.ID && user.Role != "admin" {
-		respondError(c, http.StatusForbidden, "FORBIDDEN", "only the course teacher or admin can upload resources", nil)
+		response.Forbidden(c, "Only the course teacher or admin can upload resources")
 		return
 	}
 
 	// Process file upload
 	signedURL, filename, err := h.processUpload(c, "resources", resourceAllowedExts, resourceMaxSize)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"signed_url": signedURL,
 		"filename":   filename,
 	})
 }
 
-// processUpload handles the common upload logic
+// processUpload handles the common upload logic (keep in handler - file processing complex)
 func (h *uploadHandlers) processUpload(c *gin.Context, prefix string, allowedExts map[string]bool, maxSize int64) (string, string, error) {
 	// Check if MinIO is available
 	if h.minioClient == nil {

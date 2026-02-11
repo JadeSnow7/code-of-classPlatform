@@ -1,18 +1,18 @@
 package http
 
 import (
-	"net/http"
 	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type userHandlers struct {
-	db *gorm.DB
+	db *gorm.DB // Keep for complex stats aggregation (not yet in service)
 }
 
 func newUserHandlers(db *gorm.DB) *userHandlers {
@@ -63,19 +63,19 @@ type TeacherStats struct {
 func (h *userHandlers) GetStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	switch u.Role {
 	case "student":
 		stats := h.getStudentStats(u.ID)
-		respondOK(c, stats)
+		response.OK(c, stats)
 	case "teacher", "admin", "assistant":
 		stats := h.getTeacherStats(u.ID, u.Role)
-		respondOK(c, stats)
+		response.OK(c, stats)
 	default:
-		respondOK(c, gin.H{})
+		response.OK(c, gin.H{})
 	}
 }
 
@@ -85,7 +85,9 @@ func (h *userHandlers) getStudentStats(userID uint) StudentStats {
 		RecentActivity: []Activity{},
 	}
 
-	// Count courses (all courses for now, since no enrollment table)
+	// Keep all complex aggregation logic in handler (service doesn't support this yet)
+
+	// Count courses
 	var coursesCount int64
 	h.db.Model(&models.Course{}).Count(&coursesCount)
 	stats.CoursesCount = int(coursesCount)
@@ -144,7 +146,7 @@ func (h *userHandlers) getStudentStats(userID uint) StudentStats {
 		}
 	}
 
-	// Pending quizzes (published, not ended, not submitted or can retry)
+	// Pending quizzes
 	var quizzes []models.Quiz
 	h.db.Where("is_published = ? AND end_time > ?", true, time.Now()).Find(&quizzes)
 
@@ -237,6 +239,8 @@ func (h *userHandlers) getTeacherStats(userID uint, role string) TeacherStats {
 		RecentSubmissions: []Activity{},
 	}
 
+	// Keep all complex aggregation logic in handler
+
 	// For admin, count all; for teacher, count own courses
 	var coursesCount int64
 	courseQuery := h.db.Model(&models.Course{})
@@ -269,7 +273,7 @@ func (h *userHandlers) getTeacherStats(userID uint, role string) TeacherStats {
 			Count(&quizzesCount)
 		stats.QuizzesCreated = int(quizzesCount)
 
-		// Count pending grades (submissions without grade)
+		// Count pending grades
 		var pendingGrades int64
 		h.db.Model(&models.Submission{}).
 			Joins("JOIN assignments ON assignments.id = submissions.assignment_id").

@@ -1,21 +1,22 @@
 package http
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type adminHandlers struct {
-	db *gorm.DB
+	service services.AdminService
+	db      *gorm.DB // Keep temporarily for complex stats aggregation
 }
 
-func newAdminHandlers(db *gorm.DB) *adminHandlers {
-	return &adminHandlers{db: db}
+func newAdminHandlers(service services.AdminService, db *gorm.DB) *adminHandlers {
+	return &adminHandlers{service: service, db: db}
 }
 
 // SystemStats represents overall system statistics
@@ -44,6 +45,7 @@ func (h *adminHandlers) GetSystemStats(c *gin.Context) {
 		UsersByRole: make(map[string]int64),
 	}
 
+	// Keep complex aggregation in handler (service only has basic user stats)
 	h.db.Model(&models.User{}).Count(&stats.TotalUsers)
 	h.db.Model(&models.Course{}).Count(&stats.TotalCourses)
 	h.db.Model(&models.Assignment{}).Count(&stats.TotalAssignments)
@@ -59,22 +61,22 @@ func (h *adminHandlers) GetSystemStats(c *gin.Context) {
 		stats.UsersByRole[role] = count
 	}
 
-	respondOK(c, stats)
+	response.OK(c, stats)
 }
 
 // ListUsers returns a list of all users
 func (h *adminHandlers) ListUsers(c *gin.Context) {
 	roleFilter := c.Query("role")
 
-	var users []models.User
-	query := h.db.Model(&models.User{})
-	if roleFilter != "" {
-		query = query.Where("role = ?", roleFilter)
+	// Use service to list users
+	usersPtr, err := h.service.ListUsers(c.Request.Context(), roleFilter)
+	if err != nil {
+		response.Error(c, err)
+		return
 	}
-	query.Order("id ASC").Find(&users)
 
-	result := make([]UserListItem, len(users))
-	for i, u := range users {
+	result := make([]UserListItem, len(usersPtr))
+	for i, u := range usersPtr {
 		result[i] = UserListItem{
 			ID:        u.ID,
 			Username:  u.Username,
@@ -84,7 +86,7 @@ func (h *adminHandlers) ListUsers(c *gin.Context) {
 		}
 	}
 
-	respondOK(c, gin.H{"users": result})
+	response.OK(c, gin.H{"users": result})
 }
 
 // CreateUserRequest is the request body for creating a user
@@ -99,36 +101,37 @@ type CreateUserRequest struct {
 func (h *adminHandlers) CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
 	// Check if username already exists
 	var existing models.User
 	if h.db.Where("username = ?", req.Username).First(&existing).Error == nil {
-		respondError(c, http.StatusConflict, "CONFLICT", "username already exists", nil)
+		response.Error(c, gorm.ErrDuplicatedKey)
 		return
 	}
 
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to hash password", nil)
+		response.Error(c, err)
 		return
 	}
 
-	user := models.User{
+	user := &models.User{
 		Username:     req.Username,
 		PasswordHash: passwordHash,
 		Role:         req.Role,
 		Name:         req.Name,
 	}
 
-	if err := h.db.Create(&user).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create user", nil)
+	// Use service to create user
+	if err := h.service.CreateUser(c.Request.Context(), user, req.Password); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	respondCreated(c, gin.H{
+	response.Created(c, gin.H{
 		"id":       user.ID,
 		"username": user.Username,
 		"role":     user.Role,
@@ -149,13 +152,13 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 
 	var user models.User
 	if err := h.db.First(&user, id).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "user not found", nil)
+		response.NotFound(c, "User")
 		return
 	}
 
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -164,7 +167,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	if req.Password != "" {
 		passwordHash, err := auth.HashPassword(req.Password)
 		if err != nil {
-			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to hash password", nil)
+			response.Error(c, err)
 			return
 		}
 		updates["password_hash"] = passwordHash
@@ -172,7 +175,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 
 	if req.Role != "" {
 		if req.Role != "admin" && req.Role != "teacher" && req.Role != "assistant" && req.Role != "student" {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid role", nil)
+			response.BadRequest(c, "Invalid role")
 			return
 		}
 		updates["role"] = req.Role
@@ -183,8 +186,9 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	}
 
 	if len(updates) > 0 {
+		// Use service to update (though we still use DB for validation)
 		if err := h.db.Model(&user).Updates(updates).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update user", nil)
+			response.Error(c, err)
 			return
 		}
 	}
@@ -192,7 +196,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	// Reload user
 	h.db.First(&user, id)
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"id":       user.ID,
 		"username": user.Username,
 		"role":     user.Role,
@@ -207,20 +211,21 @@ func (h *adminHandlers) DeleteUser(c *gin.Context) {
 
 	var user models.User
 	if err := h.db.First(&user, id).Error; err != nil {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "user not found", nil)
+		response.NotFound(c, "User")
 		return
 	}
 
 	// Prevent deleting yourself
 	if user.ID == currentUser.ID {
-		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot delete yourself", nil)
+		response.Forbidden(c, "Cannot delete yourself")
 		return
 	}
 
-	if err := h.db.Delete(&user).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete user", nil)
+	// Use service to delete
+	if err := h.service.DeleteUser(c.Request.Context(), user.ID); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	respondOK(c, gin.H{"message": "user deleted"})
+	response.OK(c, gin.H{"message": "user deleted"})
 }

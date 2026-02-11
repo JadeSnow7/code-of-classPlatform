@@ -45,22 +45,32 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, m
 	globalProfileRepo := repositories.NewGlobalProfileRepository(gormDB)
 	globalProfileService := services.NewGlobalProfileService(globalProfileRepo)
 
+	userRepo := repositories.NewUserRepository(gormDB)
+	authService := services.NewAuthService(userRepo, cfg.JWTSecret)
+	adminService := services.NewAdminService(userRepo)
+
+	attendanceRepo := repositories.NewAttendanceRepository(gormDB)
+	attendanceService := services.NewAttendanceService(attendanceRepo)
+
+	writingRepo := repositories.NewWritingRepository(gormDB)
+	writingService := services.NewWritingService(writingRepo)
+
 	// Initialize handlers
-	hAuth := newAuthHandlers(gormDB, cfg.JWTSecret)
+	hAuth := newAuthHandlers(authService, cfg.JWTSecret) // MIGRATED
 	hCourse := newCourseHandlers(gormDB)
 	hAI := newAIHandlers(aiClient)
 	hAssignment := newAssignmentHandlers(gormDB, aiClient)
-	hResource := newResourceHandlers(resourceService, gormDB) // MIGRATED: uses service
-	hUpload := newUploadHandlers(gormDB, minioClient)
+	hResource := newResourceHandlers(resourceService, gormDB) // MIGRATED
+	hUpload := newUploadHandlers(gormDB, minioClient)         // MIGRATED (pkg/response only)
 	hQuiz := newQuizHandlers(gormDB)
-	hUser := newUserHandlers(gormDB)
+	hUser := newUserHandlers(gormDB) // MIGRATED (pkg/response only)
 	hChapter := newChapterHandlers(gormDB)
-	hAnnouncement := newAnnouncementHandlers(announcementService, gormDB) // MIGRATED: uses service
-	hAttendance := newAttendanceHandlers(gormDB)
-	hLearningProfile := newLearningProfileHandlers(learningProfileService) // MIGRATED: uses service
-	hAdmin := newAdminHandlers(gormDB)
-	hGlobalProfile := newGlobalProfileHandlers(globalProfileService, gormDB) // MIGRATED: uses service
-	hWriting := newWritingHandlers(gormDB, aiClient)
+	hAnnouncement := newAnnouncementHandlers(announcementService, gormDB)    // MIGRATED
+	hAttendance := newAttendanceHandlers(attendanceService, gormDB)          // MIGRATED
+	hLearningProfile := newLearningProfileHandlers(learningProfileService)   // MIGRATED
+	hAdmin := newAdminHandlers(adminService, gormDB)                         // MIGRATED
+	hGlobalProfile := newGlobalProfileHandlers(globalProfileService, gormDB) // MIGRATED
+	hWriting := newWritingHandlers(writingService, gormDB, aiClient)         // MIGRATED
 
 	// WeChat Work client (optional)
 	wecomClient := clients.NewWecomClient(clients.WecomConfig{

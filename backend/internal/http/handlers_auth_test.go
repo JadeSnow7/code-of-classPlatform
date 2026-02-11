@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -36,7 +38,9 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 }
 
 func setupAuthRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
-	hAuth := newAuthHandlers(db, jwtSecret)
+	userRepo := repositories.NewUserRepository(db)
+	authService := services.NewAuthService(userRepo, jwtSecret)
+	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()
 	r.POST("/auth/login", hAuth.Login)
@@ -101,7 +105,7 @@ func TestLogin_InvalidPassword(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.False(t, resp.Success)
 	assert.NotNil(t, resp.Error)
-	assert.Equal(t, "INVALID_CREDENTIALS", resp.Error.Code)
+	assert.Equal(t, "UNAUTHORIZED", resp.Error.Code)
 }
 
 func TestLogin_InvalidRequest(t *testing.T) {
@@ -123,7 +127,7 @@ func TestLogin_InvalidRequest(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.False(t, resp.Success)
 	assert.NotNil(t, resp.Error)
-	assert.Equal(t, "INVALID_REQUEST", resp.Error.Code)
+	assert.Equal(t, "INVALID_INPUT", resp.Error.Code)
 }
 
 func TestMe_Success(t *testing.T) {

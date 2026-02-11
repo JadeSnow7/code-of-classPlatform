@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -12,16 +11,19 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type writingHandlers struct {
-	db       *gorm.DB
+	service  services.WritingService
+	db       *gorm.DB // Keep temporarily for complex queries
 	aiClient *clients.AIClient
 }
 
-func newWritingHandlers(db *gorm.DB, aiClient *clients.AIClient) *writingHandlers {
-	return &writingHandlers{db: db, aiClient: aiClient}
+func newWritingHandlers(service services.WritingService, db *gorm.DB, aiClient *clients.AIClient) *writingHandlers {
+	return &writingHandlers{service: service, db: db, aiClient: aiClient}
 }
 
 // WritingType validation
@@ -46,19 +48,19 @@ type submitWritingRequest struct {
 func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
 	var req submitWritingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request: "+err.Error(), nil)
+		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// Validate writing type
 	if !validWritingTypes[req.WritingType] {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid writing_type, must be one of: literature_review, course_paper, thesis, abstract", nil)
+		response.BadRequest(c, "Invalid writing_type, must be one of: literature_review, course_paper, thesis, abstract")
 		return
 	}
 
@@ -67,7 +69,7 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 	// Count words (simple split by whitespace)
 	wordCount := len(strings.Fields(req.Content))
 
-	submission := models.WritingSubmission{
+	submission := &models.WritingSubmission{
 		StudentID:    studentID.(uint),
 		CourseID:     uint(courseID),
 		AssignmentID: req.AssignmentID,
@@ -77,8 +79,9 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 		WordCount:    wordCount,
 	}
 
+	// Use service to submit (though we use DB for learning events)
 	if err := h.db.Create(&submission).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+		response.Error(c, err)
 		return
 	}
 
@@ -92,9 +95,9 @@ func (h *writingHandlers) SubmitWriting(c *gin.Context) {
 
 	// Trigger async AI analysis
 	requestID := middleware.GetRequestID(c)
-	go h.triggerAIAnalysis(submission, requestID, req.Privacy, req.Route)
+	go h.triggerAIAnalysis(*submission, requestID, req.Privacy, req.Route)
 
-	respondCreated(c, submission)
+	response.Created(c, submission)
 }
 
 func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission, requestID string, privacy string, route string) {
@@ -115,8 +118,7 @@ func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission,
 	// Call AI service
 	resp, err := h.aiClient.AnalyzeWriting(ctx, req)
 	if err != nil {
-		// Log error (in a real app, use a logger)
-		// fmt.Printf("AI analysis failed for submission %d: %v\n", submission.ID, err)
+		// Silently fail (in production, log this)
 		return
 	}
 
@@ -144,7 +146,7 @@ func (h *writingHandlers) triggerAIAnalysis(submission models.WritingSubmission,
 func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
@@ -166,7 +168,7 @@ func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 
 	query.Order("created_at DESC").Find(&submissions)
 
-	respondOK(c, submissions)
+	response.OK(c, submissions)
 }
 
 // GetWritingSubmission returns a single writing submission with feedback
@@ -174,17 +176,17 @@ func (h *writingHandlers) GetWritingSubmissions(c *gin.Context) {
 func (h *writingHandlers) GetWritingSubmission(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
 	var submission models.WritingSubmission
 	if err := h.db.First(&submission, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
+			response.NotFound(c, "Submission")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+		response.Error(c, err)
 		return
 	}
 
@@ -196,14 +198,14 @@ func (h *writingHandlers) GetWritingSubmission(c *gin.Context) {
 	studentID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && submission.StudentID != studentID.(uint) {
-		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's submission", nil)
+		response.Forbidden(c, "Cannot view other student's submission")
 		return
 	}
 
-	respondOK(c, submission)
+	response.OK(c, submission)
 }
 
-// UpdateWritingFeedback updates AI-generated feedback for a submission (internal/AI service use)
+// UpdateWritingFeedback updates AI-generated feedback for a submission
 // PUT /api/v1/writing/:id/feedback
 type updateFeedbackRequest struct {
 	FeedbackJSON  string `json:"feedback_json"`
@@ -213,17 +215,17 @@ type updateFeedbackRequest struct {
 func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
 	var submission models.WritingSubmission
 	if err := h.db.First(&submission, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
+			response.NotFound(c, "Submission")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+		response.Error(c, err)
 		return
 	}
 
@@ -233,26 +235,17 @@ func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 
 	var req updateFeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
-	result := h.db.Model(&models.WritingSubmission{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"feedback_json":  req.FeedbackJSON,
-		"dimension_json": req.DimensionJSON,
-	})
-
-	if result.Error != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
+	// Use service to update feedback
+	if err := h.service.UpdateFeedback(c.Request.Context(), uint(id), req.FeedbackJSON, req.DimensionJSON); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	if result.RowsAffected == 0 {
-		respondError(c, http.StatusNotFound, "NOT_FOUND", "submission not found", nil)
-		return
-	}
-
-	respondOK(c, gin.H{"message": "feedback updated"})
+	response.OK(c, gin.H{"message": "feedback updated"})
 }
 
 // GetWritingStats returns aggregated writing statistics for a course (teacher only)
@@ -260,13 +253,14 @@ func (h *writingHandlers) UpdateWritingFeedback(c *gin.Context) {
 func (h *writingHandlers) GetWritingStats(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
+	// Keep complex aggregation in handler for now
 	var profiles []models.StudentLearningProfile
 	if err := h.db.Where("course_id = ?", courseID).Find(&profiles).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to fetch profiles", nil)
+		response.Error(c, err)
 		return
 	}
 
@@ -294,7 +288,7 @@ func (h *writingHandlers) GetWritingStats(c *gin.Context) {
 		stats = append(stats, WeaknessStat{Name: k, Count: v})
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"weakness_stats": stats,
 		"student_count":  len(profiles),
 	})

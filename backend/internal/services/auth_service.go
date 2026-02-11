@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"golang.org/x/crypto/bcrypt"
@@ -34,14 +34,8 @@ func (s *authService) Login(ctx context.Context, username, password string) (*mo
 		return nil, "", errors.New("invalid credentials")
 	}
 
-	// Generate JWT token
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID,
-		"role":    user.Role,
-		"exp":     time.Now().Add(7 * 24 * time.Hour).Unix(), // 7 days
-	})
-
-	tokenString, err := token.SignedString([]byte(s.jwtSecret))
+	// Generate JWT token using auth.SignToken to ensure consistent claim structure
+	tokenString, err := auth.SignToken(s.jwtSecret, user.ID, user.Username, user.Role, 7*24*time.Hour)
 	if err != nil {
 		return nil, "", err
 	}
