@@ -2,20 +2,25 @@ package http
 
 import (
 	"fmt"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type learningProfileHandlers struct {
-	db *gorm.DB
+	service services.LearningProfileService
 }
 
-func newLearningProfileHandlers(db *gorm.DB) *learningProfileHandlers {
-	return &learningProfileHandlers{db: db}
+func NewLearningProfileHandlers(service services.LearningProfileService) *learningProfileHandlers {
+	return &learningProfileHandlers{service: service}
+}
+
+func newLearningProfileHandlers(service services.LearningProfileService) *learningProfileHandlers {
+	return NewLearningProfileHandlers(service)
 }
 
 // GetProfile returns a student's learning profile for a course.
@@ -23,13 +28,13 @@ func newLearningProfileHandlers(db *gorm.DB) *learningProfileHandlers {
 func (h *learningProfileHandlers) GetProfile(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
 	studentID, err := strconv.ParseUint(c.Param("studentId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid student_id", nil)
+		response.BadRequest(c, "Invalid student ID")
 		return
 	}
 
@@ -37,22 +42,22 @@ func (h *learningProfileHandlers) GetProfile(c *gin.Context) {
 	currentUserID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
 	if role == "student" && fmt.Sprintf("%v", currentUserID) != fmt.Sprintf("%d", studentID) {
-		respondError(c, http.StatusForbidden, "FORBIDDEN", "cannot view other student's profile", nil)
+		response.Forbidden(c, "Cannot view other student's profile")
 		return
 	}
 
-	var profile models.StudentLearningProfile
-	result := h.db.Where("course_id = ? AND student_id = ?", courseID, studentID).First(&profile)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "profile not found", nil)
-			return
+	// Use service to get profile
+	profile, err := h.service.GetProfile(c.Request.Context(), uint(courseID), uint(studentID))
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFound(c, "Profile")
+		} else {
+			response.Error(c, err)
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
 		return
 	}
 
-	respondOK(c, profile)
+	response.OK(c, profile)
 }
 
 // SaveProfile creates or updates a student's learning profile.
@@ -71,50 +76,30 @@ type saveProfileRequest struct {
 func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 	var req saveProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
-	// Upsert profile
-	var profile models.StudentLearningProfile
-	result := h.db.Where("course_id = ? AND student_id = ?", req.CourseID, req.StudentID).First(&profile)
+	// Build profile model
+	profile := &models.StudentLearningProfile{
+		StudentID:         req.StudentID,
+		CourseID:          req.CourseID,
+		WeakPoints:        req.WeakPoints,
+		CompletedTopics:   req.CompletedTopics,
+		TotalSessions:     req.TotalSessions,
+		TotalStudyMinutes: req.TotalStudyMinutes,
+		RecommendedTopics: req.RecommendedTopics,
+	}
 
-	if result.Error == gorm.ErrRecordNotFound {
-		// Create new profile
-		profile = models.StudentLearningProfile{
-			StudentID:         req.StudentID,
-			CourseID:          req.CourseID,
-			WeakPoints:        req.WeakPoints,
-			CompletedTopics:   req.CompletedTopics,
-			TotalSessions:     req.TotalSessions,
-			TotalStudyMinutes: req.TotalStudyMinutes,
-			RecommendedTopics: req.RecommendedTopics,
-		}
-		if err := h.db.Create(&profile).Error; err != nil {
-			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
-			return
-		}
-		respondCreated(c, profile)
+	// Use service to save (upsert)
+	if err := h.service.SaveProfile(c.Request.Context(), profile); err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	if result.Error != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
-		return
-	}
-
-	// Update existing profile
-	profile.WeakPoints = req.WeakPoints
-	profile.CompletedTopics = req.CompletedTopics
-	profile.TotalSessions = req.TotalSessions
-	profile.TotalStudyMinutes = req.TotalStudyMinutes
-	profile.RecommendedTopics = req.RecommendedTopics
-
-	if err := h.db.Save(&profile).Error; err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
-		return
-	}
-	respondOK(c, profile)
+	// Return appropriate status based on whether it was created or updated
+	// For simplicity, return 200 OK (service handles upsert internally)
+	response.OK(c, profile)
 }
 
 // ListCourseProfiles returns all profiles for a course (teacher only).
@@ -122,16 +107,16 @@ func (h *learningProfileHandlers) SaveProfile(c *gin.Context) {
 func (h *learningProfileHandlers) ListCourseProfiles(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
-	var profiles []models.StudentLearningProfile
-	result := h.db.Where("course_id = ?", courseID).Find(&profiles)
-	if result.Error != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", result.Error.Error(), nil)
+	// Use service to list profiles
+	profiles, err := h.service.ListCourseProfiles(c.Request.Context(), uint(courseID))
+	if err != nil {
+		response.Error(c, err)
 		return
 	}
 
-	respondOK(c, gin.H{"items": profiles, "count": len(profiles)})
+	response.OK(c, gin.H{"items": profiles, "count": len(profiles)})
 }

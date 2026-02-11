@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/config"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/db"
-	httpapi "github.com/huaodong/emfield-teaching-platform/backend/internal/http"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/logger"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/app"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/db"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/logger"
 )
 
 func main() {
@@ -39,7 +39,6 @@ func main() {
 	}
 
 	aiClient := clients.NewAIClient(cfg.AIBaseURL, cfg.AIGatewaySharedToken)
-	simClient := clients.NewSimClient(cfg.SimBaseURL)
 
 	// Initialize MinIO client
 	signedURLExpiry, err := time.ParseDuration(cfg.MinioSignedURLExpiry)
@@ -59,11 +58,12 @@ func main() {
 		minioClient = nil
 	}
 
-	router := httpapi.NewRouter(cfg, gormDB, aiClient, simClient, minioClient)
+	// Initialize application with centralized DI
+	application := app.New(cfg, gormDB, aiClient, minioClient)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           router,
+		Handler:           application.Router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

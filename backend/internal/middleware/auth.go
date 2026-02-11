@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/auth"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 )
 
 // UserContext stores authenticated user info in the request context.

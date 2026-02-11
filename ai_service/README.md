@@ -41,6 +41,7 @@ app/
 ## 主要功能
 
 - 智能问答（支持流式输出）
+- 多模态问答（`/v1/chat/multimodal`，默认关闭）
 - GraphRAG（可选）：知识库检索增强
 - 多种对话模式与系统提示模板
 
@@ -50,6 +51,10 @@ app/
 - `LLM_BASE_URL`: OpenAI-compatible Base URL（如 OpenAI/DashScope/Ollama 等）
 - `LLM_API_KEY`: API Key（本地模型可填占位值）
 - `LLM_MODEL`: 模型名（如 `qwen-plus`）
+- `AI_MULTIMODAL_ENABLED`: 是否启用多模态端点（`true/false`）
+- `RERANKER_ENABLED`: 是否启用 reranker（本阶段默认 `false`）
+- `LLM_*_TEXT_*`: 文本模型上游配置（local/cloud）
+- `LLM_*_VL_*`: 视觉模型上游配置（local/cloud）
 - `GRAPH_RAG_ENABLED`: 是否启用 GraphRAG（`true/false`）
 - `GRAPH_RAG_INDEX_PATH`: GraphRAG 索引文件路径
 

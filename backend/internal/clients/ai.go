@@ -36,6 +36,18 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+type MultimodalPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+type MultimodalChatMessage struct {
+	Role    string           `json:"role"`
+	Content string           `json:"content,omitempty"`
+	Parts   []MultimodalPart `json:"parts,omitempty"`
+}
+
 type ChatRequest struct {
 	Mode     string        `json:"mode"`
 	Messages []ChatMessage `json:"messages"`
@@ -49,12 +61,34 @@ type ChatResponse struct {
 	Model string `json:"model,omitempty"`
 }
 
+type ChatMultimodalRequest struct {
+	Mode        string                  `json:"mode"`
+	Messages    []MultimodalChatMessage `json:"messages"`
+	Stream      bool                    `json:"stream"`
+	Privacy     string                  `json:"privacy,omitempty"`
+	Route       string                  `json:"route,omitempty"`
+	ModelFamily string                  `json:"model_family,omitempty"`
+}
+
+// AIClientInterface defines the AI client interface for dependency injection
+type AIClientInterface interface {
+	Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
+	ChatMultimodal(ctx context.Context, req ChatMultimodalRequest) (ChatResponse, error)
+	StreamChat(ctx context.Context, req ChatRequest) (io.ReadCloser, error)
+	ChatWithTools(ctx context.Context, req ChatWithToolsRequest) (ChatWithToolsResponse, error)
+	ChatGuided(ctx context.Context, req GuidedChatRequest) (GuidedChatResponse, error)
+	AnalyzeWriting(ctx context.Context, req WritingAnalysisRequest) (WritingAnalysisResponse, error)
+}
+
 type AIClient struct {
 	baseURL          string
 	gatewayToken     string
 	httpClient       *http.Client
 	streamHTTPClient *http.Client
 }
+
+// Ensure *AIClient implements AIClientInterface
+var _ AIClientInterface = (*AIClient)(nil)
 
 func NewAIClient(baseURL string, gatewayToken string) *AIClient {
 	return &AIClient{
@@ -93,6 +127,42 @@ func (c *AIClient) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		return ChatResponse{}, err
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/v1/chat", c.baseURL), bytes.NewReader(body))
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	c.setCommonHeaders(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	if resp.StatusCode >= 300 {
+		return ChatResponse{}, fmt.Errorf("ai service error: status=%d body=%s", resp.StatusCode, string(b))
+	}
+
+	var out ChatResponse
+	if err := json.Unmarshal(b, &out); err != nil {
+		return ChatResponse{}, err
+	}
+	return out, nil
+}
+
+func (c *AIClient) ChatMultimodal(ctx context.Context, req ChatMultimodalRequest) (ChatResponse, error) {
+	if c.baseURL == "" {
+		return ChatResponse{}, errors.New("AI base url is empty")
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/v1/chat/multimodal", c.baseURL), bytes.NewReader(body))
 	if err != nil {
 		return ChatResponse{}, err
 	}

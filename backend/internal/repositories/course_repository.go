@@ -3,19 +3,19 @@ package repositories
 import (
 	"context"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
 )
 
-type CourseRepository struct {
+type courseRepository struct {
 	db *gorm.DB
 }
 
-func NewCourseRepository(db *gorm.DB) *CourseRepository {
-	return &CourseRepository{db: db}
+func NewCourseRepository(db *gorm.DB) CourseRepository {
+	return &courseRepository{db: db}
 }
 
-func (r *CourseRepository) FindByID(ctx context.Context, id uint) (*models.Course, error) {
+func (r *courseRepository) FindByID(ctx context.Context, id uint) (*models.Course, error) {
 	var course models.Course
 	if err := r.db.WithContext(ctx).First(&course, id).Error; err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (r *CourseRepository) FindByID(ctx context.Context, id uint) (*models.Cours
 	return &course, nil
 }
 
-func (r *CourseRepository) FindAll(ctx context.Context) ([]models.Course, error) {
+func (r *courseRepository) FindAll(ctx context.Context) ([]models.Course, error) {
 	var courses []models.Course
 	if err := r.db.WithContext(ctx).Order("id desc").Find(&courses).Error; err != nil {
 		return nil, err
@@ -31,7 +31,15 @@ func (r *CourseRepository) FindAll(ctx context.Context) ([]models.Course, error)
 	return courses, nil
 }
 
-func (r *CourseRepository) FindByTeacherID(ctx context.Context, teacherID uint) ([]models.Course, error) {
+func (r *courseRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Course{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *courseRepository) FindByTeacherID(ctx context.Context, teacherID uint) ([]models.Course, error) {
 	var courses []models.Course
 	if err := r.db.WithContext(ctx).
 		Where("teacher_id = ?", teacherID).
@@ -42,7 +50,7 @@ func (r *CourseRepository) FindByTeacherID(ctx context.Context, teacherID uint) 
 	return courses, nil
 }
 
-func (r *CourseRepository) FindByStudentID(ctx context.Context, studentID uint) ([]models.Course, error) {
+func (r *courseRepository) FindByStudentID(ctx context.Context, studentID uint) ([]models.Course, error) {
 	var courses []models.Course
 	if err := r.db.WithContext(ctx).
 		Joins("JOIN course_enrollments ON course_enrollments.course_id = courses.id").
@@ -54,19 +62,19 @@ func (r *CourseRepository) FindByStudentID(ctx context.Context, studentID uint) 
 	return courses, nil
 }
 
-func (r *CourseRepository) Create(ctx context.Context, course *models.Course) error {
+func (r *courseRepository) Create(ctx context.Context, course *models.Course) error {
 	return r.db.WithContext(ctx).Create(course).Error
 }
 
-func (r *CourseRepository) Update(ctx context.Context, course *models.Course, updates map[string]interface{}) error {
+func (r *courseRepository) Update(ctx context.Context, course *models.Course, updates map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(course).Updates(updates).Error
 }
 
-func (r *CourseRepository) Delete(ctx context.Context, id uint) error {
+func (r *courseRepository) Delete(ctx context.Context, id uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Course{}, id).Error
 }
 
-func (r *CourseRepository) HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error) {
+func (r *courseRepository) HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error) {
 	var enrollment models.CourseEnrollment
 	err := r.db.WithContext(ctx).
 		Where("course_id = ? AND user_id = ?", courseID, userID).

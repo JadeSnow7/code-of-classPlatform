@@ -37,6 +37,38 @@ generate_predictions = _load_training_module("generate_predictions")
 eval_metrics = _load_training_module("eval_metrics")
 
 
+def _run_eval_metrics(eval_rows, pred_rows, *extra_args):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        eval_file = tmp / "eval.jsonl"
+        pred_file = tmp / "pred.jsonl"
+        out_file = tmp / "report.json"
+
+        eval_file.write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in eval_rows) + "\n",
+            encoding="utf-8",
+        )
+        pred_file.write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in pred_rows) + "\n",
+            encoding="utf-8",
+        )
+
+        cmd = [
+            sys.executable,
+            str(TRAINING_DIR / "eval_metrics.py"),
+            "--eval_file",
+            str(eval_file),
+            "--pred_file",
+            str(pred_file),
+            "--output",
+            str(out_file),
+            *extra_args,
+        ]
+        proc = subprocess.run(cmd, cwd=PROJECT_ROOT, check=False, capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return json.loads(out_file.read_text(encoding="utf-8"))
+
+
 def test_detect_refusal_ignores_non_refusal_context():
     response = (
         "### 结论\n边界条件用于限定解域。\n"
@@ -136,6 +168,52 @@ def test_eval_summary_always_contains_required_metrics():
         }
         assert summary["tool_call_accuracy"] == 0.0
         assert summary["citation_accuracy"] == 0.0
+
+
+def test_eval_metrics_scores_legacy_style_messages():
+    eval_rows = [
+        {
+            "id": "legacy-style-001",
+            "messages": [
+                {"role": "system", "content": "你是高校课程助教。请按以下结构回答：\n### 结论\n### 推导\n### 检查（单位/边界条件/极限情况）"},
+                {"role": "user", "content": "解释高斯定律"},
+                {"role": "assistant", "content": "### 结论\nA\n### 推导\nB\n### 检查（单位/边界条件/极限情况）\nC"},
+            ],
+        }
+    ]
+    pred_rows = [
+        {"id": "legacy-style-001", "response": "### 结论\nA\n### 推导\nB\n### 检查（单位/边界条件/极限情况）\nC"}
+    ]
+    report = _run_eval_metrics(eval_rows, pred_rows, "--dump_details")
+    summary = report["summary"]
+    assert summary["key_point_coverage"] == 1.0
+    assert summary["response_format"] == 1.0
+    assert report["details"][0]["schema_mode"] == "legacy_compat"
+    assert report["details"][0]["type"] == "concept"
+    assert report["details"][0]["lane"] == "style"
+
+
+def test_eval_metrics_scores_legacy_writing_messages_with_writing_format():
+    eval_rows = [
+        {
+            "id": "writing-eval-legacy-001",
+            "messages": [
+                {"role": "system", "content": "你是学术写作课程助教。请按以下结构回答：\n### 问题诊断\n### 改进建议\n### 规范说明"},
+                {"role": "user", "content": "摘要太长怎么办"},
+                {"role": "assistant", "content": "### 问题诊断\nA\n### 改进建议\nB\n### 规范说明\nC"},
+            ],
+        }
+    ]
+    pred_rows = [
+        {"id": "writing-eval-legacy-001", "response": "### 问题诊断\nA\n### 改进建议\nB\n### 规范说明\nC"}
+    ]
+    report = _run_eval_metrics(eval_rows, pred_rows, "--dump_details")
+    summary = report["summary"]
+    assert summary["key_point_coverage"] == 1.0
+    assert summary["response_format"] == 1.0
+    assert report["details"][0]["schema_mode"] == "legacy_compat"
+    assert report["details"][0]["type"] == "writing"
+    assert report["details"][0]["lane"] == "writing"
 
 
 def test_run_train_eval_override_has_priority_over_stage_default():

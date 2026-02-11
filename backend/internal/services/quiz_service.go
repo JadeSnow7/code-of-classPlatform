@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"gorm.io/gorm"
 )
 
@@ -48,7 +48,7 @@ var (
 
 // QuizService handles quiz management and attempts.
 type QuizService struct {
-	repo *repositories.QuizRepository
+	repo repositories.QuizRepository
 }
 
 // NewQuizService builds a QuizService with its repository.

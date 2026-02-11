@@ -2,13 +2,13 @@ package http
 
 import (
 	"errors"
-	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
@@ -16,10 +16,14 @@ type quizHandlers struct {
 	service *services.QuizService
 }
 
-func newQuizHandlers(db *gorm.DB) *quizHandlers {
+func NewQuizHandlers(db *gorm.DB) *quizHandlers {
 	return &quizHandlers{
 		service: services.NewQuizService(db),
 	}
+}
+
+func newQuizHandlers(db *gorm.DB) *quizHandlers {
+	return NewQuizHandlers(db)
 }
 
 // --- Quiz CRUD ---
@@ -29,7 +33,7 @@ func newQuizHandlers(db *gorm.DB) *quizHandlers {
 func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
@@ -39,10 +43,10 @@ func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 		Role: user.Role,
 	})
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load quizzes", nil)
+		response.BadRequest(c, "Failed to load quizzes")
 		return
 	}
-	respondOK(c, data)
+	response.OK(c, data)
 }
 
 // CreateQuiz creates a new quiz
@@ -61,7 +65,7 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 		ShowAnswerAfterEnd bool       `json:"show_answer_after_end"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -77,11 +81,11 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 		CreatedByID:        user.ID,
 	})
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create quiz", nil)
+		response.BadRequest(c, "Failed to create quiz")
 		return
 	}
 
-	respondCreated(c, quiz)
+	response.Created(c, quiz)
 }
 
 // GetQuiz returns quiz details with questions
@@ -89,7 +93,7 @@ func (h *quizHandlers) CreateQuiz(c *gin.Context) {
 func (h *quizHandlers) GetQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -100,18 +104,18 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
 		if errors.Is(err, services.ErrQuizNotAvailable) {
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz not available", nil)
+			response.Forbidden(c, "quiz not available")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load quiz", nil)
+		response.BadRequest(c, "failed to load quiz")
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"quiz":      detail.Quiz,
 		"questions": detail.Questions,
 	})
@@ -122,7 +126,7 @@ func (h *quizHandlers) GetQuiz(c *gin.Context) {
 func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -136,7 +140,7 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 		ShowAnswerAfterEnd *bool      `json:"show_answer_after_end"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -151,14 +155,14 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update quiz", nil)
+		response.BadRequest(c, "failed to update quiz")
 		return
 	}
 
-	respondOK(c, updated)
+	response.OK(c, updated)
 }
 
 // DeleteQuiz deletes a quiz and its questions
@@ -166,20 +170,20 @@ func (h *quizHandlers) UpdateQuiz(c *gin.Context) {
 func (h *quizHandlers) DeleteQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
 	if err := h.service.DeleteQuiz(c.Request.Context(), uint(quizID)); err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete quiz", nil)
+		response.BadRequest(c, "failed to delete quiz")
 		return
 	}
 
-	respondOK(c, gin.H{"message": "quiz deleted"})
+	response.OK(c, gin.H{"message": "quiz deleted"})
 }
 
 // PublishQuiz publishes a quiz (locks questions)
@@ -187,20 +191,20 @@ func (h *quizHandlers) DeleteQuiz(c *gin.Context) {
 func (h *quizHandlers) PublishQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
 	quiz, err := h.service.PublishQuiz(c.Request.Context(), uint(quizID))
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to publish quiz", nil)
+		response.BadRequest(c, "failed to publish quiz")
 		return
 	}
-	respondOK(c, quiz)
+	response.OK(c, quiz)
 }
 
 // UnpublishQuiz unpublishes a quiz (allows editing)
@@ -208,24 +212,24 @@ func (h *quizHandlers) PublishQuiz(c *gin.Context) {
 func (h *quizHandlers) UnpublishQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
 	quiz, err := h.service.UnpublishQuiz(c.Request.Context(), uint(quizID))
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
 		if errors.Is(err, services.ErrUnpublishNotAllowed) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot unpublish: students have already attempted", nil)
+			response.BadRequest(c, "cannot unpublish: students have already attempted")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to unpublish quiz", nil)
+		response.BadRequest(c, "failed to unpublish quiz")
 		return
 	}
-	respondOK(c, quiz)
+	response.OK(c, quiz)
 }
 
 // --- Question CRUD ---
@@ -235,7 +239,7 @@ func (h *quizHandlers) UnpublishQuiz(c *gin.Context) {
 func (h *quizHandlers) AddQuestion(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -249,7 +253,7 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 		OrderNum  int      `json:"order_num"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 	question, err := h.service.AddQuestion(c.Request.Context(), uint(quizID), services.AddQuestionRequest{
@@ -263,30 +267,30 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
 		if errors.Is(err, services.ErrQuizPublished) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot add questions to published quiz", nil)
+			response.BadRequest(c, "cannot add questions to published quiz")
 			return
 		}
 		if errors.Is(err, services.ErrInvalidQuestionType) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question type", nil)
+			response.BadRequest(c, "invalid question type")
 			return
 		}
 		if errors.Is(err, services.ErrTooManyOptions) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "too many options (max 10)", nil)
+			response.BadRequest(c, "too many options (max 10)")
 			return
 		}
 		if errors.Is(err, services.ErrOptionsTooLarge) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "options too large", nil)
+			response.BadRequest(c, "options too large")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create question", nil)
+		response.BadRequest(c, "failed to create question")
 		return
 	}
 
-	respondCreated(c, question)
+	response.Created(c, question)
 }
 
 // UpdateQuestion updates a question
@@ -294,7 +298,7 @@ func (h *quizHandlers) AddQuestion(c *gin.Context) {
 func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 	questionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question id", nil)
+		response.BadRequest(c, "invalid question id")
 		return
 	}
 
@@ -307,7 +311,7 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 		OrderNum  *int     `json:"order_num"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 	updated, err := h.service.UpdateQuestion(c.Request.Context(), uint(questionID), services.UpdateQuestionRequest{
@@ -320,18 +324,18 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrQuestionNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "question not found", nil)
+			response.NotFound(c, "question not found")
 			return
 		}
 		if errors.Is(err, services.ErrQuizPublished) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot edit questions in published quiz", nil)
+			response.BadRequest(c, "cannot edit questions in published quiz")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update question", nil)
+		response.BadRequest(c, "failed to update question")
 		return
 	}
 
-	respondOK(c, updated)
+	response.OK(c, updated)
 }
 
 // DeleteQuestion deletes a question
@@ -339,23 +343,23 @@ func (h *quizHandlers) UpdateQuestion(c *gin.Context) {
 func (h *quizHandlers) DeleteQuestion(c *gin.Context) {
 	questionID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid question id", nil)
+		response.BadRequest(c, "invalid question id")
 		return
 	}
 
 	if err := h.service.DeleteQuestion(c.Request.Context(), uint(questionID)); err != nil {
 		if errors.Is(err, services.ErrQuestionNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "question not found", nil)
+			response.NotFound(c, "question not found")
 			return
 		}
 		if errors.Is(err, services.ErrQuizPublished) {
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "cannot delete questions from published quiz", nil)
+			response.BadRequest(c, "cannot delete questions from published quiz")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to delete question", nil)
+		response.BadRequest(c, "failed to delete question")
 		return
 	}
-	respondOK(c, gin.H{"message": "question deleted"})
+	response.OK(c, gin.H{"message": "question deleted"})
 }
 
 // --- Quiz Attempts ---
@@ -365,7 +369,7 @@ func (h *quizHandlers) DeleteQuestion(c *gin.Context) {
 func (h *quizHandlers) StartQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -377,22 +381,22 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrQuizNotFound):
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 		case errors.Is(err, services.ErrQuizNotAvailable):
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz not available", nil)
+			response.Forbidden(c, "quiz not available")
 		case errors.Is(err, services.ErrQuizNotStarted):
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz has not started yet", nil)
+			response.Forbidden(c, "quiz has not started yet")
 		case errors.Is(err, services.ErrQuizEnded):
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "quiz has ended", nil)
+			response.Forbidden(c, "quiz has ended")
 		case errors.Is(err, services.ErrMaxAttemptsReached):
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "maximum attempts reached", nil)
+			response.Forbidden(c, "maximum attempts reached")
 		default:
-			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to start quiz", nil)
+			response.BadRequest(c, "failed to start quiz")
 		}
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"attempt":   result.Attempt,
 		"questions": result.Questions,
 		"resumed":   result.Resumed,
@@ -404,7 +408,7 @@ func (h *quizHandlers) StartQuiz(c *gin.Context) {
 func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -413,7 +417,7 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 		Answers map[string]interface{} `json:"answers" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
 	result, err := h.service.SubmitQuiz(c.Request.Context(), uint(quizID), services.UserInfo{
@@ -423,18 +427,18 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, services.ErrNoActiveAttempt):
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "no active attempt found", nil)
+			response.NotFound(c, "no active attempt found")
 		case errors.Is(err, services.ErrSubmissionDeadline):
-			respondError(c, http.StatusForbidden, "FORBIDDEN", "submission deadline passed", nil)
+			response.Forbidden(c, "submission deadline passed")
 		case errors.Is(err, services.ErrAnswersTooLarge):
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "answers too large", nil)
+			response.BadRequest(c, "answers too large")
 		default:
-			respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to submit quiz", nil)
+			response.BadRequest(c, "failed to submit quiz")
 		}
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"score":     result.Score,
 		"max_score": result.MaxScore,
 		"attempt":   result.Attempt,
@@ -446,7 +450,7 @@ func (h *quizHandlers) SubmitQuiz(c *gin.Context) {
 func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid quiz id", nil)
+		response.BadRequest(c, "invalid quiz id")
 		return
 	}
 
@@ -457,15 +461,15 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrQuizNotFound) {
-			respondError(c, http.StatusNotFound, "NOT_FOUND", "quiz not found", nil)
+			response.NotFound(c, "quiz not found")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load quiz result", nil)
+		response.BadRequest(c, "failed to load quiz result")
 		return
 	}
 
 	if result.Questions != nil {
-		respondOK(c, gin.H{
+		response.OK(c, gin.H{
 			"quiz":      result.Quiz,
 			"attempts":  result.Attempts,
 			"questions": result.Questions,
@@ -473,7 +477,7 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"quiz":     result.Quiz,
 		"attempts": result.Attempts,
 	})

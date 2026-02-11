@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 import uuid
 import hmac
@@ -26,6 +27,14 @@ from app.graphrag.retrieve import build_rag_context, build_rag_context_hybrid, R
 from app.graphrag.embedding import get_embedding_provider, EmbeddingProvider
 from app.graphrag.vector_store import get_vector_store, VectorStore
 from app.graphrag.updater import IndexUpdater, Document
+from app.model_router import (
+    ModelFamily,
+    normalize_requested_model_family,
+    needs_vision as payload_needs_vision,
+    resolve_model_family,
+    to_openai_content,
+    validate_message_parts,
+)
 
 app = FastAPI(title="AI Service", version="0.2.0")
 
@@ -42,6 +51,18 @@ RequestIDSource = Literal["upstream", "generated"]
 
 ALLOWED_PRIVACY_LEVELS = {"private", "public"}
 ALLOWED_ROUTE_LEVELS = {"local", "cloud", "auto"}
+
+EDGE_TUTOR_SYSTEM_PROMPT = (
+    "你是端侧学习助手，优先本地处理请求。回答要简洁、结构化、可执行。"
+    "对于课程资源检索、学习追踪、简单问答，直接给出本地可执行建议。"
+    "当问题属于复杂推理、证明、深入理论分析时，不要编造长推导，"
+    "请明确说明该问题将转发云端 AI 处理。"
+)
+
+EDGE_COMPLEX_CLOUD_HINT = (
+    "这是一个数学证明问题，需要严密的逻辑推理。"
+    "我已将问题转发给云端 AI，它会提供完整的证明过程。"
+)
 
 
 class ChatMessage(BaseModel):
@@ -68,7 +89,40 @@ class ChatResponse(BaseModel):
     model: str | None = None
 
 
-@dataclass(slots=True)
+class MultimodalPart(BaseModel):
+    """Part item for multimodal chat requests."""
+
+    type: Literal["text", "image_url", "video_url"]
+    text: str | None = Field(default=None, max_length=8000)
+    url: str | None = None
+
+
+class MultimodalChatMessage(BaseModel):
+    """Message payload for multimodal chat."""
+
+    role: Literal["system", "user", "assistant"] = "user"
+    content: str | None = Field(default=None, max_length=8000)
+    parts: list[MultimodalPart] | None = None
+
+
+class MultimodalChatRequest(BaseModel):
+    """Request payload for multimodal chat endpoint."""
+
+    mode: str | None = None
+    messages: list[MultimodalChatMessage] = Field(min_length=1)
+    stream: bool = False
+    privacy: PrivacyLevel | None = None
+    route: RouteLevel | None = None
+    model_family: str | None = None
+
+
+if sys.version_info >= (3, 10):
+    _routing_decision_dataclass = dataclass(slots=True)
+else:
+    _routing_decision_dataclass = dataclass
+
+
+@_routing_decision_dataclass
 class RoutingDecision:
     request_id: str
     request_id_source: RequestIDSource
@@ -123,21 +177,59 @@ def _validate_on_startup() -> None:
     _validate_routing_policy()
 
 
-def _upstream_config(upstream: Literal["local", "cloud"]) -> dict[str, str]:
+def _family_suffix(model_family: ModelFamily) -> str:
+    return "VL" if model_family == "qwen3_vl" else "TEXT"
+
+
+def _upstream_config(
+    upstream: Literal["local", "cloud"],
+    model_family: ModelFamily = "qwen3",
+) -> dict[str, str]:
+    suffix = _family_suffix(model_family)
+    default_model = "qwen3-vl" if model_family == "qwen3_vl" else "qwen-plus"
+
     if upstream == "local":
-        base_url = _get_env("LLM_BASE_URL_LOCAL") or _get_env("LLM_BASE_URL")
-        api_key = _get_env("LLM_API_KEY_LOCAL") or _get_env("LLM_API_KEY")
-        model = _get_env("LLM_MODEL_LOCAL") or _get_env("LLM_MODEL") or "qwen-plus"
+        base_url = (
+            _get_env(f"LLM_BASE_URL_LOCAL_{suffix}")
+            or _get_env("LLM_BASE_URL_LOCAL")
+            or _get_env("LLM_BASE_URL")
+        )
+        api_key = (
+            _get_env(f"LLM_API_KEY_LOCAL_{suffix}")
+            or _get_env("LLM_API_KEY_LOCAL")
+            or _get_env("LLM_API_KEY")
+        )
+        model = (
+            _get_env(f"LLM_MODEL_LOCAL_{suffix}")
+            or _get_env("LLM_MODEL_LOCAL")
+            or _get_env("LLM_MODEL")
+            or default_model
+        )
         return {"base_url": base_url, "api_key": api_key, "model": model}
 
-    base_url = _get_env("LLM_BASE_URL_CLOUD")
-    api_key = _get_env("LLM_API_KEY_CLOUD")
-    model = _get_env("LLM_MODEL_CLOUD") or _get_env("LLM_MODEL_LOCAL") or _get_env("LLM_MODEL") or "qwen-plus"
+    base_url = (
+        _get_env(f"LLM_BASE_URL_CLOUD_{suffix}")
+        or _get_env("LLM_BASE_URL_CLOUD")
+    )
+    api_key = (
+        _get_env(f"LLM_API_KEY_CLOUD_{suffix}")
+        or _get_env("LLM_API_KEY_CLOUD")
+    )
+    model = (
+        _get_env(f"LLM_MODEL_CLOUD_{suffix}")
+        or _get_env("LLM_MODEL_CLOUD")
+        or _get_env("LLM_MODEL_LOCAL")
+        or _get_env("LLM_MODEL")
+        or default_model
+    )
     return {"base_url": base_url, "api_key": api_key, "model": model}
 
 
-def _upstream_ready(upstream: Literal["local", "cloud"]) -> bool:
-    cfg = _upstream_config(upstream)
+def _upstream_ready(
+    upstream: Literal["local", "cloud"],
+    model_family: ModelFamily = "qwen3",
+) -> bool:
+    cfg = _upstream_config(upstream, model_family=model_family)
     return bool(cfg["base_url"] and cfg["api_key"])
 
 
@@ -175,6 +267,9 @@ def _audit_event(
     fallback_reason: str,
     status_code: int,
     latency_ms: int,
+    model_family_requested: str = "",
+    model_family_resolved: str = "",
+    needs_vision: bool = False,
 ) -> None:
     payload = {
         "event": event,
@@ -191,6 +286,9 @@ def _audit_event(
         "fallback_reason": fallback_reason,
         "status_code": status_code,
         "latency_ms": latency_ms,
+        "model_family_requested": model_family_requested,
+        "model_family_resolved": model_family_resolved,
+        "needs_vision": needs_vision,
     }
     _audit_logger.info(json.dumps(payload, ensure_ascii=False))
 
@@ -345,14 +443,17 @@ def _enforce_public_policy(
         _raise_api_error(400, "INVALID_ROUTING_PARAMS", "private requests must use local route", request_id)
 
 
-def _can_cloud_fallback(decision: RoutingDecision) -> bool:
+def _can_cloud_fallback(
+    decision: RoutingDecision,
+    model_family: ModelFamily = "qwen3",
+) -> bool:
     if decision.route_resolved == "cloud":
         return False
     if decision.privacy_resolved != "public":
         return False
     if not decision.caller_trusted:
         return False
-    if not _upstream_ready("cloud"):
+    if not _upstream_ready("cloud", model_family=model_family):
         return False
     if _app_env() == "prod":
         return True
@@ -441,6 +542,9 @@ def _audit_request_complete(
     final_upstream: str,
     fallback_reason: str,
     started_at: float,
+    model_family_requested: str = "",
+    model_family_resolved: str = "",
+    needs_vision: bool = False,
 ) -> None:
     _audit_event(
         event="request_complete",
@@ -457,6 +561,9 @@ def _audit_request_complete(
         fallback_reason=fallback_reason,
         status_code=status_code,
         latency_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+        model_family_requested=model_family_requested,
+        model_family_resolved=model_family_resolved,
+        needs_vision=needs_vision,
     )
 
 
@@ -464,8 +571,9 @@ async def _post_chat_completions_once(
     payload: dict[str, Any],
     *,
     upstream: Literal["local", "cloud"],
+    model_family: ModelFamily = "qwen3",
 ) -> tuple[httpx.Response, str]:
-    cfg = _upstream_config(upstream)
+    cfg = _upstream_config(upstream, model_family=model_family)
     if not cfg["base_url"] or not cfg["api_key"]:
         raise ValueError(f"{upstream} upstream is not configured")
     model = cfg["model"] or "qwen-plus"
@@ -474,7 +582,7 @@ async def _post_chat_completions_once(
     url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
     timeout = _http_timeout(upstream, stream=False)
-    async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         response = await client.post(url, json=request_payload, headers=headers)
     return response, model
 
@@ -482,12 +590,19 @@ async def _post_chat_completions_once(
 async def _post_chat_completions_with_routing(
     payload: dict[str, Any],
     decision: RoutingDecision,
+    *,
+    model_family: ModelFamily = "qwen3",
+    model_family_requested: str = "qwen3",
+    needs_vision: bool = False,
 ) -> tuple[dict[str, Any], str, str, str]:
     primary: Literal["local", "cloud"] = "cloud" if decision.route_resolved == "cloud" else "local"
     fallback_reason = ""
 
     try:
-        resp, model = await _post_chat_completions_once(payload, upstream=primary)
+        once_kwargs: dict[str, Any] = {"upstream": primary}
+        if model_family != "qwen3":
+            once_kwargs["model_family"] = model_family
+        resp, model = await _post_chat_completions_once(payload, **once_kwargs)
         final_upstream = primary
     except httpx.TimeoutException as exc:
         if primary == "local":
@@ -506,8 +621,11 @@ async def _post_chat_completions_with_routing(
                 fallback_reason="local_timeout",
                 status_code=504,
                 latency_ms=0,
+                model_family_requested=model_family_requested,
+                model_family_resolved=model_family,
+                needs_vision=needs_vision,
             )
-            if _can_cloud_fallback(decision):
+            if _can_cloud_fallback(decision, model_family=model_family):
                 _audit_event(
                     event="cloud_fallback",
                     request_id=decision.request_id,
@@ -523,9 +641,15 @@ async def _post_chat_completions_with_routing(
                     fallback_reason="local_timeout",
                     status_code=200,
                     latency_ms=0,
+                    model_family_requested=model_family_requested,
+                    model_family_resolved=model_family,
+                    needs_vision=needs_vision,
                 )
                 try:
-                    resp, model = await _post_chat_completions_once(payload, upstream="cloud")
+                    cloud_kwargs: dict[str, Any] = {"upstream": "cloud"}
+                    if model_family != "qwen3":
+                        cloud_kwargs["model_family"] = model_family
+                    resp, model = await _post_chat_completions_once(payload, **cloud_kwargs)
                 except ValueError as cloud_cfg_error:
                     _raise_api_error(503, "UPSTREAM_NOT_CONFIGURED", str(cloud_cfg_error), decision.request_id)
                 except httpx.HTTPError as cloud_exc:
@@ -567,6 +691,62 @@ def _parse_mode(mode: str | None) -> tuple[str | None, bool]:
     return m, False
 
 
+def _latest_user_query_from_multimodal(messages: list[MultimodalChatMessage]) -> str:
+    """Extract latest user query text from multimodal messages."""
+    for message in reversed(messages):
+        if message.role != "user":
+            continue
+        if message.content and message.content.strip():
+            return message.content.strip()
+        if not message.parts:
+            continue
+        for part in message.parts:
+            if part.type == "text" and part.text and part.text.strip():
+                return part.text.strip()
+    return ""
+
+
+def _latest_user_query(messages: list[ChatMessage]) -> str:
+    for message in reversed(messages):
+        if message.role == "user" and message.content:
+            return message.content.strip()
+    return ""
+
+
+def _edge_complex_requires_cloud_hint(mode: str | None, query: str) -> bool:
+    if not _get_bool_env("EDGE_TUTOR_PROMPT_ENABLED", default=False):
+        return False
+    base_mode, _ = _parse_mode(mode)
+    if base_mode != "tutor":
+        return False
+    q = query.strip().lower()
+    if not q:
+        return False
+    keywords = (
+        "证明",
+        "推导",
+        "严格证明",
+        "复杂推理",
+        "格林定理",
+        "波动方程",
+    )
+    return any(k in q for k in keywords)
+
+
+def _to_openai_multimodal_message(message: MultimodalChatMessage) -> dict[str, Any]:
+    """Convert multimodal message into OpenAI-compatible format."""
+    message_dict = message.model_dump(exclude_none=True)
+    validate_message_parts(message_dict)
+    parts = message_dict.get("parts") or []
+    content = message_dict.get("content")
+    if not parts:
+        return {"role": message.role, "content": (content or "")}
+    return {
+        "role": message.role,
+        "content": to_openai_content(parts, content=content),
+    }
+
+
 def _system_prompt(mode: str | None, context: dict | None = None) -> str | None:
     """
     Get system prompt for a mode/skill.
@@ -588,6 +768,8 @@ def _system_prompt(mode: str | None, context: dict | None = None) -> str | None:
     
     # Legacy prompts for backward compatibility
     if base_mode == "tutor":
+        if _get_bool_env("EDGE_TUTOR_PROMPT_ENABLED", default=False):
+            return EDGE_TUTOR_SYSTEM_PROMPT
         return (
             "你是研究生专业英文写作课程助教（也可适配其他课程）。"
             "回答要循序渐进，先给结论/要点，再解释原因与例子，最后给可执行的修改/练习建议。"
@@ -779,6 +961,17 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         messages.append({"role": "system", "content": system})
     messages.extend([m.model_dump() for m in req.messages])
 
+    latest_user_query = _latest_user_query(req.messages)
+    if _edge_complex_requires_cloud_hint(req.mode, latest_user_query):
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream="local",
+            fallback_reason="edge_complex_cloud_hint",
+            started_at=started_at,
+        )
+        return ChatResponse(reply=EDGE_COMPLEX_CLOUD_HINT, model="edge-local-router")
+
     _, rag_requested = _parse_mode(req.mode)
     if rag_requested and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
         index_path = _get_env("GRAPH_RAG_INDEX_PATH") or "app/data/graphrag_index.json"
@@ -830,7 +1023,7 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
 
-                async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
                         if upstream_resp.status_code >= 300:
                             raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
@@ -973,6 +1166,281 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
             final_upstream=final_upstream,
             fallback_reason=fallback_reason or "request_failed",
             started_at=started_at,
+        )
+        raise
+
+
+# ============================================================================
+# Multimodal Chat Endpoint
+# ============================================================================
+
+
+@app.post("/v1/chat/multimodal", response_model=None)
+async def chat_multimodal(
+    req: MultimodalChatRequest,
+    request: Request,
+    response: Response,
+) -> ChatResponse | StreamingResponse:
+    """Handle multimodal chat requests routed between Qwen3 and Qwen3-VL."""
+    started_at = time.monotonic()
+    decision = _build_routing_decision(
+        request,
+        endpoint="/v1/chat/multimodal",
+        mode=req.mode,
+        body_privacy=req.privacy,
+        body_route=req.route,
+    )
+    response.headers["X-Request-ID"] = decision.request_id
+
+    try:
+        requested_family = normalize_requested_model_family(req.model_family)
+    except ValueError as exc:
+        _audit_request_complete(
+            decision,
+            status_code=400,
+            final_upstream="none",
+            fallback_reason="invalid_model_family",
+            started_at=started_at,
+            model_family_requested=req.model_family or "",
+            model_family_resolved="",
+            needs_vision=False,
+        )
+        _raise_api_error(400, "INVALID_MODEL_FAMILY", str(exc), decision.request_id)
+
+    if not _get_bool_env("AI_MULTIMODAL_ENABLED", default=False):
+        _audit_request_complete(
+            decision,
+            status_code=503,
+            final_upstream="none",
+            fallback_reason="multimodal_disabled",
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved="",
+            needs_vision=False,
+        )
+        _raise_api_error(503, "FEATURE_DISABLED", "multimodal endpoint is disabled", decision.request_id)
+
+    raw_messages: list[dict[str, Any]] = []
+    for i, message in enumerate(req.messages):
+        message_dict = message.model_dump(exclude_none=True)
+        try:
+            validate_message_parts(message_dict)
+        except ValueError as exc:
+            _audit_request_complete(
+                decision,
+                status_code=400,
+                final_upstream="none",
+                fallback_reason="invalid_multimodal_message",
+                started_at=started_at,
+                model_family_requested=requested_family,
+                model_family_resolved="",
+                needs_vision=False,
+            )
+            _raise_api_error(
+                400,
+                "INVALID_MULTIMODAL_MESSAGE",
+                f"messages[{i}] {exc}",
+                decision.request_id,
+            )
+        raw_messages.append(message_dict)
+
+    needs_vision = payload_needs_vision(raw_messages)
+    model_family = resolve_model_family(
+        requested_family,
+        needs_vision_input=needs_vision,
+    )
+
+    system = _system_prompt(req.mode)
+    messages: list[dict[str, Any]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    for message in req.messages:
+        messages.append(_to_openai_multimodal_message(message))
+
+    _, rag_requested = _parse_mode(req.mode)
+    if rag_requested and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+        index_path = _get_env("GRAPH_RAG_INDEX_PATH") or "app/data/graphrag_index.json"
+        index = _load_graphrag_index(index_path)
+        if index:
+            query = _latest_user_query_from_multimodal(req.messages)
+            context = build_rag_context(
+                index,
+                query,
+                seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
+                expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
+                final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
+                max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+            )
+            if context:
+                insert_at = 1 if system else 0
+                messages.insert(insert_at, {"role": "system", "content": _build_graphrag_system_message(context)})
+
+    payload: dict[str, Any] = {
+        "messages": messages,
+        "temperature": 0.2,
+    }
+
+    if req.stream:
+        primary_upstream: Literal["local", "cloud"] = "cloud" if decision.route_resolved == "cloud" else "local"
+
+        async def stream_generator() -> AsyncIterator[str]:
+            status_code = 200
+            fallback_reason = ""
+            final_upstream = "none"
+            emitted_content = False
+            model_name = ""
+
+            async def stream_once(upstream: Literal["local", "cloud"]) -> AsyncIterator[str]:
+                nonlocal emitted_content, model_name
+                cfg = _upstream_config(upstream, model_family=model_family)
+                if not cfg["base_url"] or not cfg["api_key"]:
+                    raise ValueError(f"{upstream} upstream is not configured")
+                model_name = cfg["model"] or "qwen-plus"
+                request_payload = dict(payload)
+                request_payload["model"] = model_name
+                request_payload["stream"] = True
+                headers = {"Authorization": f"Bearer {cfg['api_key']}"}
+                url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
+                timeout = _http_timeout(upstream, stream=True)
+
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+                    async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
+                        if upstream_resp.status_code >= 300:
+                            raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
+                        async for raw_line in upstream_resp.aiter_lines():
+                            line = raw_line.strip()
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                emitted_content = True
+                                yield f"data: {json.dumps({'content': content})}\n\n"
+
+            try:
+                yield f"data: {json.dumps({'type': 'start', 'request_id': decision.request_id})}\n\n"
+                try:
+                    final_upstream = primary_upstream
+                    async for chunk in stream_once(primary_upstream):
+                        yield chunk
+                except httpx.TimeoutException:
+                    if primary_upstream != "local":
+                        raise
+                    _audit_event(
+                        event="local_timeout",
+                        request_id=decision.request_id,
+                        request_id_source=decision.request_id_source,
+                        endpoint=decision.endpoint,
+                        mode=decision.mode,
+                        privacy_input=decision.privacy_input,
+                        route_input=decision.route_input,
+                        privacy_resolved=decision.privacy_resolved,
+                        route_resolved=decision.route_resolved,
+                        caller_trusted=decision.caller_trusted,
+                        final_upstream="local",
+                        fallback_reason="local_timeout",
+                        status_code=504,
+                        latency_ms=0,
+                        model_family_requested=requested_family,
+                        model_family_resolved=model_family,
+                        needs_vision=needs_vision,
+                    )
+                    if emitted_content or not _can_cloud_fallback(decision, model_family=model_family):
+                        raise
+                    _audit_event(
+                        event="cloud_fallback",
+                        request_id=decision.request_id,
+                        request_id_source=decision.request_id_source,
+                        endpoint=decision.endpoint,
+                        mode=decision.mode,
+                        privacy_input=decision.privacy_input,
+                        route_input=decision.route_input,
+                        privacy_resolved=decision.privacy_resolved,
+                        route_resolved=decision.route_resolved,
+                        caller_trusted=decision.caller_trusted,
+                        final_upstream="cloud",
+                        fallback_reason="local_timeout",
+                        status_code=200,
+                        latency_ms=0,
+                        model_family_requested=requested_family,
+                        model_family_resolved=model_family,
+                        needs_vision=needs_vision,
+                    )
+                    fallback_reason = "local_timeout"
+                    final_upstream = "cloud"
+                    async for chunk in stream_once("cloud"):
+                        yield chunk
+            except ValueError as exc:
+                status_code = 503
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except httpx.TimeoutException as exc:
+                status_code = 504
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except (RuntimeError, httpx.HTTPError) as exc:
+                status_code = 502
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            finally:
+                yield f"data: {json.dumps({'type': 'done', 'model': model_name})}\n\n"
+                _audit_request_complete(
+                    decision,
+                    status_code=status_code,
+                    final_upstream=final_upstream,
+                    fallback_reason=fallback_reason,
+                    started_at=started_at,
+                    model_family_requested=requested_family,
+                    model_family_resolved=model_family,
+                    needs_vision=needs_vision,
+                )
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Request-ID": decision.request_id,
+            },
+        )
+
+    final_upstream = "none"
+    fallback_reason = ""
+    try:
+        data, final_upstream, fallback_reason, model = await _post_chat_completions_with_routing(
+            payload,
+            decision,
+            model_family=model_family,
+            model_family_requested=requested_family,
+            needs_vision=needs_vision,
+        )
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream=final_upstream,
+            fallback_reason=fallback_reason,
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved=model_family,
+            needs_vision=needs_vision,
+        )
+        return ChatResponse(reply=str(content).strip(), model=model)
+    except HTTPException as exc:
+        _audit_request_complete(
+            decision,
+            status_code=exc.status_code,
+            final_upstream=final_upstream,
+            fallback_reason=fallback_reason or "request_failed",
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved=model_family,
+            needs_vision=needs_vision,
         )
         raise
 
@@ -1446,7 +1914,7 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
                 headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
-                async with httpx.AsyncClient(timeout=timeout, proxy=None) as client:
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                     async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
                         if upstream_resp.status_code >= 300:
                             raise RuntimeError(f"upstream error: {upstream_resp.status_code}")

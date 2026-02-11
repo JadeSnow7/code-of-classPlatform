@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"gorm.io/gorm"
 )
 
@@ -23,7 +23,7 @@ var (
 
 // ChapterService handles chapter CRUD and study tracking.
 type ChapterService struct {
-	repo *repositories.ChapterRepository
+	repo repositories.ChapterRepository
 	db   *gorm.DB
 }
 

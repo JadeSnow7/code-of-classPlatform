@@ -3,19 +3,19 @@ package repositories
 import (
 	"context"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
 )
 
-type ChapterRepository struct {
+type chapterRepository struct {
 	db *gorm.DB
 }
 
-func NewChapterRepository(db *gorm.DB) *ChapterRepository {
-	return &ChapterRepository{db: db}
+func NewChapterRepository(db *gorm.DB) ChapterRepository {
+	return &chapterRepository{db: db}
 }
 
-func (r *ChapterRepository) FindCourse(ctx context.Context, courseID uint) (*models.Course, error) {
+func (r *chapterRepository) FindCourse(ctx context.Context, courseID uint) (*models.Course, error) {
 	var course models.Course
 	if err := r.db.WithContext(ctx).First(&course, courseID).Error; err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (r *ChapterRepository) FindCourse(ctx context.Context, courseID uint) (*mod
 	return &course, nil
 }
 
-func (r *ChapterRepository) FindChapter(ctx context.Context, chapterID uint) (*models.Chapter, error) {
+func (r *chapterRepository) FindChapter(ctx context.Context, chapterID uint) (*models.Chapter, error) {
 	var chapter models.Chapter
 	if err := r.db.WithContext(ctx).First(&chapter, chapterID).Error; err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func (r *ChapterRepository) FindChapter(ctx context.Context, chapterID uint) (*m
 	return &chapter, nil
 }
 
-func (r *ChapterRepository) ListByCourse(ctx context.Context, courseID uint) ([]models.Chapter, error) {
+func (r *chapterRepository) ListByCourse(ctx context.Context, courseID uint) ([]models.Chapter, error) {
 	var chapters []models.Chapter
 	if err := r.db.WithContext(ctx).
 		Where("course_id = ?", courseID).
@@ -42,19 +42,19 @@ func (r *ChapterRepository) ListByCourse(ctx context.Context, courseID uint) ([]
 	return chapters, nil
 }
 
-func (r *ChapterRepository) Create(ctx context.Context, chapter *models.Chapter) error {
+func (r *chapterRepository) Create(ctx context.Context, chapter *models.Chapter) error {
 	return r.db.WithContext(ctx).Create(chapter).Error
 }
 
-func (r *ChapterRepository) Update(ctx context.Context, chapter *models.Chapter, updates map[string]interface{}) error {
+func (r *chapterRepository) Update(ctx context.Context, chapter *models.Chapter, updates map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(chapter).Updates(updates).Error
 }
 
-func (r *ChapterRepository) Delete(ctx context.Context, chapterID uint) error {
+func (r *chapterRepository) Delete(ctx context.Context, chapterID uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Chapter{}, chapterID).Error
 }
 
-func (r *ChapterRepository) HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error) {
+func (r *chapterRepository) HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error) {
 	var enrollment models.CourseEnrollment
 	err := r.db.WithContext(ctx).
 		Where("course_id = ? AND user_id = ?", courseID, userID).
@@ -68,7 +68,7 @@ func (r *ChapterRepository) HasEnrollment(ctx context.Context, courseID uint, us
 	return false, err
 }
 
-func (r *ChapterRepository) ClearChapterReferences(ctx context.Context, chapterID uint) error {
+func (r *chapterRepository) ClearChapterReferences(ctx context.Context, chapterID uint) error {
 	if err := r.db.WithContext(ctx).Model(&models.Resource{}).Where("chapter_id = ?", chapterID).Update("chapter_id", nil).Error; err != nil {
 		return err
 	}
@@ -81,6 +81,6 @@ func (r *ChapterRepository) ClearChapterReferences(ctx context.Context, chapterI
 	return nil
 }
 
-func (r *ChapterRepository) DeleteProgressByChapter(ctx context.Context, chapterID uint) error {
+func (r *chapterRepository) DeleteProgressByChapter(ctx context.Context, chapterID uint) error {
 	return r.db.WithContext(ctx).Where("chapter_id = ?", chapterID).Delete(&models.ChapterProgress{}).Error
 }

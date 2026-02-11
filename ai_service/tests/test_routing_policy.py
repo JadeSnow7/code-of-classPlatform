@@ -21,7 +21,15 @@ def reset_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LLM_API_KEY_CLOUD", raising=False)
     monkeypatch.delenv("LLM_BASE_URL_LOCAL", raising=False)
     monkeypatch.delenv("LLM_API_KEY_LOCAL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL_CLOUD_VL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY_CLOUD_VL", raising=False)
+    monkeypatch.delenv("LLM_MODEL_CLOUD_VL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL_LOCAL_VL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY_LOCAL_VL", raising=False)
+    monkeypatch.delenv("LLM_MODEL_LOCAL_VL", raising=False)
     monkeypatch.setenv("GRAPH_RAG_ENABLED", "false")
+    monkeypatch.setenv("AI_MULTIMODAL_ENABLED", "false")
+    monkeypatch.setenv("RERANKER_ENABLED", "false")
 
 
 @pytest.fixture
@@ -204,6 +212,120 @@ def test_hybrid_embedding_route_inherits_chat_route(monkeypatch: pytest.MonkeyPa
     assert captured and captured[-1] == "cloud"
 
 
+def test_multimodal_disabled_returns_503(client: TestClient) -> None:
+    resp = client.post(
+        "/v1/chat/multimodal",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "FEATURE_DISABLED"
+
+
+def test_multimodal_text_routes_to_qwen3(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MULTIMODAL_ENABLED", "true")
+    captured: list[str] = []
+
+    async def fake_post(payload: dict, decision: main.RoutingDecision, **kwargs):
+        captured.append(kwargs.get("model_family", "qwen3"))
+        return {"choices": [{"message": {"content": "ok"}}]}, "local", "", "text-model"
+
+    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as test_client:
+        resp = test_client.post(
+            "/v1/chat/multimodal",
+            json={"messages": [{"role": "user", "content": "just text"}]},
+        )
+
+    assert resp.status_code == 200
+    assert captured and captured[-1] == "qwen3"
+
+
+def test_multimodal_image_routes_to_qwen3_vl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MULTIMODAL_ENABLED", "true")
+    captured: list[str] = []
+
+    async def fake_post(payload: dict, decision: main.RoutingDecision, **kwargs):
+        captured.append(kwargs.get("model_family", "qwen3"))
+        return {"choices": [{"message": {"content": "ok"}}]}, "local", "", "vl-model"
+
+    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as test_client:
+        resp = test_client.post(
+            "/v1/chat/multimodal",
+            json={
+                "messages": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"type": "text", "text": "看图回答"},
+                            {"type": "image_url", "url": "https://example.com/x.png"},
+                        ],
+                    }
+                ]
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured and captured[-1] == "qwen3_vl"
+
+
+def test_multimodal_invalid_model_family_returns_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_MULTIMODAL_ENABLED", "true")
+    with TestClient(main.app) as test_client:
+        resp = test_client.post(
+            "/v1/chat/multimodal",
+            json={
+                "messages": [{"role": "user", "content": "hello"}],
+                "model_family": "invalid",
+            },
+        )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "INVALID_MODEL_FAMILY"
+
+
+@pytest.mark.asyncio
+async def test_multimodal_fallback_uses_same_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("LLM_BASE_URL_CLOUD_VL", "https://cloud.example.com")
+    monkeypatch.setenv("LLM_API_KEY_CLOUD_VL", "cloud-vl-key")
+
+    async def fake_once(payload: dict, *, upstream: str, model_family: str = "qwen3"):
+        calls.append((upstream, model_family))
+        if upstream == "local":
+            raise httpx.ReadTimeout("timeout")
+        request = httpx.Request("POST", "https://cloud.example.com/v1/chat/completions")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}, request=request), "cloud-vl-model"
+
+    monkeypatch.setattr(main, "_post_chat_completions_once", fake_once)
+
+    decision = main.RoutingDecision(
+        request_id="r-vl",
+        request_id_source="upstream",
+        endpoint="/v1/chat/multimodal",
+        mode="tutor",
+        privacy_input="public",
+        route_input="local",
+        privacy_resolved="public",
+        route_resolved="local",
+        caller_trusted=True,
+    )
+
+    _, final_upstream, fallback_reason, model = await main._post_chat_completions_with_routing(
+        {"messages": []},
+        decision,
+        model_family="qwen3_vl",
+        model_family_requested="qwen3_vl",
+        needs_vision=True,
+    )
+    assert calls == [("local", "qwen3_vl"), ("cloud", "qwen3_vl")]
+    assert final_upstream == "cloud"
+    assert fallback_reason == "local_timeout"
+    assert model == "cloud-vl-model"
+
+
 def test_audit_event_contains_required_fields(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="ai_service.audit")
     main._audit_event(
@@ -238,5 +360,8 @@ def test_audit_event_contains_required_fields(caplog: pytest.LogCaptureFixture) 
         "fallback_reason",
         "status_code",
         "latency_ms",
+        "model_family_requested",
+        "model_family_resolved",
+        "needs_vision",
     }
     assert required.issubset(payload.keys())

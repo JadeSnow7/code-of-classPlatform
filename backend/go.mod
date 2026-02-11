@@ -1,4 +1,4 @@
-module github.com/huaodong/emfield-teaching-platform/backend
+module github.com/huaodong/llm-teaching-platform/backend
 
 go 1.24.0
 
@@ -14,6 +14,7 @@ require (
 	golang.org/x/time v0.10.0
 	gorm.io/datatypes v1.2.7
 	gorm.io/driver/mysql v1.6.0
+	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.0
 )
 
@@ -42,6 +43,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/minio/crc64nvme v1.1.0 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

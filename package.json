@@ -1,5 +1,5 @@
 {
-  "name": "classplatform-workspace",
+  "name": "llm-teaching-platform-workspace",
   "private": true,
   "workspaces": [
     "frontend-react",

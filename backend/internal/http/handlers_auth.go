@@ -1,24 +1,26 @@
 package http
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/auth"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/authz"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
-	"gorm.io/gorm"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/authz"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 )
 
 type authHandlers struct {
-	db        *gorm.DB
+	service   services.AuthService
 	jwtSecret string
 }
 
-func newAuthHandlers(db *gorm.DB, jwtSecret string) *authHandlers {
-	return &authHandlers{db: db, jwtSecret: jwtSecret}
+func NewAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
+	return &authHandlers{service: service, jwtSecret: jwtSecret}
+}
+
+func newAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
+	return NewAuthHandlers(service, jwtSecret)
 }
 
 type loginRequest struct {
@@ -38,34 +40,27 @@ type loginResponse struct {
 func (h *authHandlers) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
-	var u models.User
-	if err := h.db.Where("username = ?", req.Username).First(&u).Error; err != nil {
-		respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid username or password", nil)
-		return
-	}
-	if !auth.VerifyPassword(u.PasswordHash, req.Password) {
-		respondError(c, http.StatusUnauthorized, "INVALID_CREDENTIALS", "invalid username or password", nil)
-		return
-	}
-
-	ttl := 24 * time.Hour
-	token, err := auth.SignToken(h.jwtSecret, u.ID, u.Username, u.Role, ttl)
+	// Use service to login (validates credentials and generates token)
+	user, token, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "TOKEN_SIGN_FAILED", "token sign failed", nil)
+		response.Unauthorized(c, "Invalid username or password")
 		return
 	}
 
-	respondOK(c, loginResponse{
+	// Note: Service token has 7 days TTL, but we report 24h for backward compatibility
+	ttl := 24 * time.Hour
+
+	response.OK(c, loginResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",
 		ExpiresIn:   int64(ttl.Seconds()),
-		UserID:      u.ID,
-		Username:    u.Username,
-		Role:        u.Role,
+		UserID:      user.ID,
+		Username:    user.Username,
+		Role:        user.Role,
 	})
 }
 
@@ -81,21 +76,21 @@ type MeResponse struct {
 func (h *authHandlers) Me(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
-	// Fetch fresh user data from database
-	var dbUser models.User
-	if err := h.db.First(&dbUser, u.ID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "USER_NOT_FOUND", "user not found", nil)
+	// Fetch fresh user data from service
+	dbUser, err := h.service.GetUserByID(c.Request.Context(), u.ID)
+	if err != nil {
+		response.NotFound(c, "User")
 		return
 	}
 
 	// Get permissions from RBAC
 	permissions := authz.GetPermissions(dbUser.Role)
 
-	respondOK(c, MeResponse{
+	response.OK(c, MeResponse{
 		ID:          dbUser.ID,
 		Username:    dbUser.Username,
 		Name:        dbUser.Name,

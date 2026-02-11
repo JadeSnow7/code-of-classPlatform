@@ -71,6 +71,69 @@ func TestChatPropagatesHeadersAndRoutingFields(t *testing.T) {
 	}
 }
 
+func TestChatMultimodalPropagatesHeadersAndBody(t *testing.T) {
+	t.Parallel()
+
+	client := NewAIClient("http://ai.local", "gateway-token")
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/v1/chat/multimodal" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if got := r.Header.Get("X-Request-ID"); got != "req-mm-123" {
+				t.Fatalf("unexpected X-Request-ID: %q", got)
+			}
+			if got := r.Header.Get("X-AI-Gateway-Token"); got != "gateway-token" {
+				t.Fatalf("unexpected X-AI-Gateway-Token: %q", got)
+			}
+
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body failed: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("unmarshal body failed: %v", err)
+			}
+			if got := payload["model_family"]; got != "qwen3_vl" {
+				t.Fatalf("unexpected model_family: %#v", got)
+			}
+			if got := payload["privacy"]; got != "public" {
+				t.Fatalf("unexpected privacy: %#v", got)
+			}
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"reply":"ok-mm","model":"qwen3-vl"}`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		}),
+	}
+
+	ctx := WithRequestID(context.Background(), "req-mm-123")
+	_, err := client.ChatMultimodal(ctx, ChatMultimodalRequest{
+		Mode: "tutor",
+		Messages: []MultimodalChatMessage{
+			{
+				Role:    "user",
+				Content: "请解释这张图",
+				Parts: []MultimodalPart{
+					{Type: "image_url", URL: "https://example.com/test.png"},
+				},
+			},
+		},
+		Privacy:     "public",
+		Route:       "local",
+		ModelFamily: "qwen3_vl",
+	})
+	if err != nil {
+		t.Fatalf("chat multimodal failed: %v", err)
+	}
+}
+
 func TestAnalyzeWritingPropagatesHeaders(t *testing.T) {
 	t.Parallel()
 

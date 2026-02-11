@@ -2,20 +2,21 @@ package repositories
 
 import (
 	"context"
+	"time"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"gorm.io/gorm"
 )
 
-type QuizRepository struct {
+type quizRepository struct {
 	db *gorm.DB
 }
 
-func NewQuizRepository(db *gorm.DB) *QuizRepository {
-	return &QuizRepository{db: db}
+func NewQuizRepository(db *gorm.DB) QuizRepository {
+	return &quizRepository{db: db}
 }
 
-func (r *QuizRepository) ListByCourse(ctx context.Context, courseID uint, publishedOnly bool) ([]models.Quiz, error) {
+func (r *quizRepository) ListByCourse(ctx context.Context, courseID uint, publishedOnly bool) ([]models.Quiz, error) {
 	db := r.db.WithContext(ctx).Where("course_id = ?", courseID).Order("created_at DESC")
 	if publishedOnly {
 		db = db.Where("is_published = ?", true)
@@ -27,7 +28,7 @@ func (r *QuizRepository) ListByCourse(ctx context.Context, courseID uint, publis
 	return quizzes, nil
 }
 
-func (r *QuizRepository) FindByID(ctx context.Context, quizID uint) (*models.Quiz, error) {
+func (r *quizRepository) FindByID(ctx context.Context, quizID uint) (*models.Quiz, error) {
 	var quiz models.Quiz
 	if err := r.db.WithContext(ctx).First(&quiz, quizID).Error; err != nil {
 		return nil, err
@@ -35,23 +36,62 @@ func (r *QuizRepository) FindByID(ctx context.Context, quizID uint) (*models.Qui
 	return &quiz, nil
 }
 
-func (r *QuizRepository) Create(ctx context.Context, quiz *models.Quiz) error {
+func (r *quizRepository) Count(ctx context.Context) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Quiz{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *quizRepository) FindPublishedActive(ctx context.Context, now time.Time) ([]models.Quiz, error) {
+	var quizzes []models.Quiz
+	if err := r.db.WithContext(ctx).
+		Where("is_published = ? AND end_time > ?", true, now).
+		Find(&quizzes).Error; err != nil {
+		return nil, err
+	}
+	return quizzes, nil
+}
+
+func (r *quizRepository) FindSubmittedAttemptsByStudent(ctx context.Context, studentID uint) ([]models.QuizAttempt, error) {
+	var attempts []models.QuizAttempt
+	if err := r.db.WithContext(ctx).
+		Where("student_id = ? AND submitted_at IS NOT NULL", studentID).
+		Find(&attempts).Error; err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+func (r *quizRepository) CountSubmittedAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&models.QuizAttempt{}).
+		Where("quiz_id = ? AND student_id = ? AND submitted_at IS NOT NULL", quizID, studentID).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *quizRepository) Create(ctx context.Context, quiz *models.Quiz) error {
 	return r.db.WithContext(ctx).Create(quiz).Error
 }
 
-func (r *QuizRepository) Update(ctx context.Context, quiz *models.Quiz, updates map[string]interface{}) error {
+func (r *quizRepository) Update(ctx context.Context, quiz *models.Quiz, updates map[string]interface{}) error {
 	return r.db.WithContext(ctx).Model(quiz).Updates(updates).Error
 }
 
-func (r *QuizRepository) Save(ctx context.Context, quiz *models.Quiz) error {
+func (r *quizRepository) Save(ctx context.Context, quiz *models.Quiz) error {
 	return r.db.WithContext(ctx).Save(quiz).Error
 }
 
-func (r *QuizRepository) DeleteByID(ctx context.Context, quizID uint) error {
+func (r *quizRepository) DeleteByID(ctx context.Context, quizID uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Quiz{}, quizID).Error
 }
 
-func (r *QuizRepository) ListQuestions(ctx context.Context, quizID uint) ([]models.Question, error) {
+func (r *quizRepository) ListQuestions(ctx context.Context, quizID uint) ([]models.Question, error) {
 	var questions []models.Question
 	if err := r.db.WithContext(ctx).Where("quiz_id = ?", quizID).Order("order_num ASC").Find(&questions).Error; err != nil {
 		return nil, err
@@ -59,7 +99,7 @@ func (r *QuizRepository) ListQuestions(ctx context.Context, quizID uint) ([]mode
 	return questions, nil
 }
 
-func (r *QuizRepository) FindQuestionByID(ctx context.Context, questionID uint) (*models.Question, error) {
+func (r *quizRepository) FindQuestionByID(ctx context.Context, questionID uint) (*models.Question, error) {
 	var question models.Question
 	if err := r.db.WithContext(ctx).First(&question, questionID).Error; err != nil {
 		return nil, err
@@ -67,27 +107,27 @@ func (r *QuizRepository) FindQuestionByID(ctx context.Context, questionID uint) 
 	return &question, nil
 }
 
-func (r *QuizRepository) CreateQuestion(ctx context.Context, question *models.Question) error {
+func (r *quizRepository) CreateQuestion(ctx context.Context, question *models.Question) error {
 	return r.db.WithContext(ctx).Create(question).Error
 }
 
-func (r *QuizRepository) SaveQuestion(ctx context.Context, question *models.Question) error {
+func (r *quizRepository) SaveQuestion(ctx context.Context, question *models.Question) error {
 	return r.db.WithContext(ctx).Save(question).Error
 }
 
-func (r *QuizRepository) DeleteQuestion(ctx context.Context, questionID uint) error {
+func (r *quizRepository) DeleteQuestion(ctx context.Context, questionID uint) error {
 	return r.db.WithContext(ctx).Delete(&models.Question{}, questionID).Error
 }
 
-func (r *QuizRepository) DeleteQuestionsByQuiz(ctx context.Context, quizID uint) error {
+func (r *quizRepository) DeleteQuestionsByQuiz(ctx context.Context, quizID uint) error {
 	return r.db.WithContext(ctx).Where("quiz_id = ?", quizID).Delete(&models.Question{}).Error
 }
 
-func (r *QuizRepository) DeleteAttemptsByQuiz(ctx context.Context, quizID uint) error {
+func (r *quizRepository) DeleteAttemptsByQuiz(ctx context.Context, quizID uint) error {
 	return r.db.WithContext(ctx).Where("quiz_id = ?", quizID).Delete(&models.QuizAttempt{}).Error
 }
 
-func (r *QuizRepository) CountAttempts(ctx context.Context, quizID uint) (int64, error) {
+func (r *quizRepository) CountAttempts(ctx context.Context, quizID uint) (int64, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&models.QuizAttempt{}).Where("quiz_id = ?", quizID).Count(&count).Error; err != nil {
 		return 0, err
@@ -95,7 +135,7 @@ func (r *QuizRepository) CountAttempts(ctx context.Context, quizID uint) (int64,
 	return count, nil
 }
 
-func (r *QuizRepository) CountAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error) {
+func (r *quizRepository) CountAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).
 		Model(&models.QuizAttempt{}).
@@ -106,7 +146,7 @@ func (r *QuizRepository) CountAttemptsByQuizAndStudent(ctx context.Context, quiz
 	return count, nil
 }
 
-func (r *QuizRepository) FindInProgressAttempt(ctx context.Context, quizID uint, studentID uint) (*models.QuizAttempt, error) {
+func (r *quizRepository) FindInProgressAttempt(ctx context.Context, quizID uint, studentID uint) (*models.QuizAttempt, error) {
 	var attempt models.QuizAttempt
 	if err := r.db.WithContext(ctx).
 		Where("quiz_id = ? AND student_id = ? AND submitted_at IS NULL", quizID, studentID).
@@ -116,15 +156,15 @@ func (r *QuizRepository) FindInProgressAttempt(ctx context.Context, quizID uint,
 	return &attempt, nil
 }
 
-func (r *QuizRepository) CreateAttempt(ctx context.Context, attempt *models.QuizAttempt) error {
+func (r *quizRepository) CreateAttempt(ctx context.Context, attempt *models.QuizAttempt) error {
 	return r.db.WithContext(ctx).Create(attempt).Error
 }
 
-func (r *QuizRepository) SaveAttempt(ctx context.Context, attempt *models.QuizAttempt) error {
+func (r *quizRepository) SaveAttempt(ctx context.Context, attempt *models.QuizAttempt) error {
 	return r.db.WithContext(ctx).Save(attempt).Error
 }
 
-func (r *QuizRepository) SumQuestionPoints(ctx context.Context, quizID uint) (int, error) {
+func (r *quizRepository) SumQuestionPoints(ctx context.Context, quizID uint) (int, error) {
 	var total int
 	if err := r.db.WithContext(ctx).Model(&models.Question{}).
 		Where("quiz_id = ?", quizID).
@@ -135,7 +175,7 @@ func (r *QuizRepository) SumQuestionPoints(ctx context.Context, quizID uint) (in
 	return total, nil
 }
 
-func (r *QuizRepository) ListAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) ([]models.QuizAttempt, error) {
+func (r *quizRepository) ListAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) ([]models.QuizAttempt, error) {
 	var attempts []models.QuizAttempt
 	if err := r.db.WithContext(ctx).Where("quiz_id = ? AND student_id = ?", quizID, studentID).Find(&attempts).Error; err != nil {
 		return nil, err
@@ -143,7 +183,7 @@ func (r *QuizRepository) ListAttemptsByQuizAndStudent(ctx context.Context, quizI
 	return attempts, nil
 }
 
-func (r *QuizRepository) ListAttemptsByQuiz(ctx context.Context, quizID uint, order string) ([]models.QuizAttempt, error) {
+func (r *quizRepository) ListAttemptsByQuiz(ctx context.Context, quizID uint, order string) ([]models.QuizAttempt, error) {
 	db := r.db.WithContext(ctx).Where("quiz_id = ?", quizID)
 	if order != "" {
 		db = db.Order(order)
@@ -155,7 +195,7 @@ func (r *QuizRepository) ListAttemptsByQuiz(ctx context.Context, quizID uint, or
 	return attempts, nil
 }
 
-func (r *QuizRepository) ListAttemptsByQuizAndStudentOrder(ctx context.Context, quizID uint, studentID uint, order string) ([]models.QuizAttempt, error) {
+func (r *quizRepository) ListAttemptsByQuizAndStudentOrder(ctx context.Context, quizID uint, studentID uint, order string) ([]models.QuizAttempt, error) {
 	db := r.db.WithContext(ctx).Where("quiz_id = ? AND student_id = ?", quizID, studentID)
 	if order != "" {
 		db = db.Order(order)

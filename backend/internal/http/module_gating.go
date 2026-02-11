@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -23,16 +23,16 @@ func RequireCourseModule(db *gorm.DB, moduleKey string) gin.HandlerFunc {
 		courseID, err := extractCourseID(c)
 		if err != nil {
 			if errors.Is(err, errCourseIDMissing) {
-				respondError(c, http.StatusBadRequest, "COURSE_ID_REQUIRED", "course_id is required", nil)
+				response.BadRequest(c, "course_id is required")
 				return
 			}
-			respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid course_id", nil)
+			response.BadRequest(c, "invalid course_id")
 			return
 		}
 
 		var course models.Course
 		if err := db.First(&course, courseID).Error; err != nil {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "course not found")
 			return
 		}
 
@@ -42,11 +42,11 @@ func RequireCourseModule(db *gorm.DB, moduleKey string) gin.HandlerFunc {
 
 		ok, err := isModuleEnabled(course.EnabledModules, moduleKey)
 		if err != nil {
-			respondError(c, http.StatusInternalServerError, "MODULE_CONFIG_INVALID", "invalid enabled_modules", nil)
+			response.BadRequest(c, "invalid enabled_modules")
 			return
 		}
 		if !ok {
-			respondError(c, http.StatusForbidden, "MODULE_DISABLED", "module disabled for this course", nil)
+			response.Forbidden(c, "module disabled for this course")
 			return
 		}
 
@@ -58,7 +58,7 @@ func RequireCourseModule(db *gorm.DB, moduleKey string) gin.HandlerFunc {
 func requireCourseModuleForCourseID(c *gin.Context, db *gorm.DB, courseID uint, moduleKey string) bool {
 	var course models.Course
 	if err := db.First(&course, courseID).Error; err != nil {
-		respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+		response.NotFound(c, "course not found")
 		return false
 	}
 	if !authorizeCourseAccess(c, db, &course) {
@@ -66,11 +66,11 @@ func requireCourseModuleForCourseID(c *gin.Context, db *gorm.DB, courseID uint, 
 	}
 	ok, err := isModuleEnabled(course.EnabledModules, moduleKey)
 	if err != nil {
-		respondError(c, http.StatusInternalServerError, "MODULE_CONFIG_INVALID", "invalid enabled_modules", nil)
+		response.BadRequest(c, "invalid enabled_modules")
 		return false
 	}
 	if !ok {
-		respondError(c, http.StatusForbidden, "MODULE_DISABLED", "module disabled for this course", nil)
+		response.Forbidden(c, "module disabled for this course")
 		return false
 	}
 	return true

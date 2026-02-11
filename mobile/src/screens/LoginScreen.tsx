@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { login } from '../api';
 import type { AuthSession } from '../types';
+import { palette, radius, spacing } from '../theme';
 
 type LoginScreenProps = {
     onLoginSuccess: (session: AuthSession) => void;
@@ -27,7 +28,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     const canSubmit = username.trim().length > 0 && password.length > 0 && !loading;
 
     const handleLogin = async () => {
-        if (!canSubmit) return;
+        if (!canSubmit) {
+            return;
+        }
 
         setError(null);
         setLoading(true);
@@ -50,8 +53,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
                 <View style={styles.header}>
-                    <Text style={styles.title}>classPlatform</Text>
-                    <Text style={styles.subtitle}>AI 智能教学辅导平台</Text>
+                    <View style={styles.logoCircle}>
+                        <Text style={styles.logoText}>⚡</Text>
+                    </View>
+                    <Text style={styles.title}>电磁学教学平台</Text>
+                    <Text style={styles.subtitle}>AI 驱动的智能学习系统</Text>
                 </View>
 
                 <View style={styles.form}>
@@ -62,7 +68,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                             value={username}
                             onChangeText={setUsername}
                             placeholder="请输入用户名"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor={palette.textMuted}
                             autoCapitalize="none"
                             autoCorrect={false}
                             editable={!loading}
@@ -76,17 +82,17 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                             value={password}
                             onChangeText={setPassword}
                             placeholder="请输入密码"
-                            placeholderTextColor="#64748b"
+                            placeholderTextColor={palette.textMuted}
                             secureTextEntry
                             editable={!loading}
                         />
                     </View>
 
-                    {error && (
+                    {error ? (
                         <View style={styles.errorBanner}>
                             <Text style={styles.errorText}>{error}</Text>
                         </View>
-                    )}
+                    ) : null}
 
                     <Pressable
                         style={({ pressed }) => [
@@ -94,17 +100,17 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                             !canSubmit && styles.buttonDisabled,
                             pressed && canSubmit && styles.buttonPressed,
                         ]}
-                        onPress={handleLogin}
+                        onPress={() => void handleLogin()}
                         disabled={!canSubmit}
                     >
                         {loading ? (
-                            <ActivityIndicator color="#fff" size="small" />
+                            <ActivityIndicator color={palette.textPrimary} size="small" />
                         ) : (
                             <Text style={styles.buttonText}>登 录</Text>
                         )}
                     </Pressable>
 
-                    <Text style={styles.hint}>提示：使用测试账号 student1 / password123</Text>
+                    <Text style={styles.hint}>测试账号：student1 / password123</Text>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
@@ -114,83 +120,107 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0b1220',
+        backgroundColor: palette.background,
     },
     inner: {
         flex: 1,
         justifyContent: 'center',
-        paddingHorizontal: 24,
+        paddingHorizontal: spacing.xl,
     },
     header: {
         alignItems: 'center',
-        marginBottom: 48,
+        marginBottom: spacing.xxl,
+    },
+    logoCircle: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        borderWidth: 1,
+        borderColor: '#1f3b72',
+        backgroundColor: '#0e1b35',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    logoText: {
+        fontSize: 28,
     },
     title: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: '#f8fafc',
-        marginBottom: 8,
+        fontSize: 30,
+        fontWeight: '800',
+        color: palette.textPrimary,
+        marginBottom: spacing.xs,
+        textAlign: 'center',
     },
     subtitle: {
-        fontSize: 14,
-        color: '#94a3b8',
+        fontSize: 13,
+        color: palette.textMuted,
+        textAlign: 'center',
     },
     form: {
-        gap: 16,
+        gap: spacing.md,
+        padding: spacing.lg,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: palette.border,
+        backgroundColor: palette.backgroundPanel,
     },
     inputGroup: {
         gap: 6,
     },
     label: {
-        fontSize: 13,
+        color: palette.textSecondary,
+        fontSize: 12,
         fontWeight: '600',
-        color: '#cbd5e1',
-        marginLeft: 4,
+        marginLeft: 2,
     },
     input: {
-        backgroundColor: '#1e293b',
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        fontSize: 16,
-        color: '#f8fafc',
+        backgroundColor: palette.background,
+        borderRadius: radius.md,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
+        fontSize: 15,
+        color: palette.textPrimary,
         borderWidth: 1,
-        borderColor: '#334155',
+        borderColor: palette.border,
     },
     errorBanner: {
         backgroundColor: '#450a0a',
-        borderRadius: 10,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
+        borderRadius: radius.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.sm,
+        borderWidth: 1,
+        borderColor: '#7f1d1d',
     },
     errorText: {
         color: '#fca5a5',
-        fontSize: 13,
+        fontSize: 12,
         textAlign: 'center',
     },
     button: {
-        backgroundColor: '#2563eb',
-        borderRadius: 12,
-        paddingVertical: 16,
+        minHeight: 46,
+        borderRadius: radius.md,
+        backgroundColor: palette.primary,
         alignItems: 'center',
-        marginTop: 8,
+        justifyContent: 'center',
+        marginTop: 4,
     },
     buttonDisabled: {
-        backgroundColor: '#1e40af',
-        opacity: 0.6,
+        backgroundColor: palette.primaryMuted,
+        opacity: 0.5,
     },
     buttonPressed: {
-        opacity: 0.85,
+        opacity: 0.86,
     },
     buttonText: {
-        color: '#fff',
-        fontSize: 17,
-        fontWeight: '600',
+        color: palette.textPrimary,
+        fontSize: 16,
+        fontWeight: '700',
+        letterSpacing: 1.2,
     },
     hint: {
-        color: '#64748b',
-        fontSize: 12,
+        color: palette.textMuted,
+        fontSize: 11,
         textAlign: 'center',
-        marginTop: 16,
     },
 });

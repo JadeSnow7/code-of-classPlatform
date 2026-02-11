@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -33,7 +35,12 @@ func setupChapterTestDB(t *testing.T) *gorm.DB {
 
 func setupChapterRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	hChapter := newChapterHandlers(db)
-	hAuth := newAuthHandlers(db, jwtSecret)
+	// hAuth := newAuthHandlers(db, jwtSecret) // Old line
+
+	// New lines for AuthService
+	userRepo := repositories.NewUserRepository(db)
+	authService := services.NewAuthService(userRepo, jwtSecret)
+	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()
 	r.POST("/auth/login", hAuth.Login)

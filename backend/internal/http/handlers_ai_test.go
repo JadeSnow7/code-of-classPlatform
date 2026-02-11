@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/clients"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -152,8 +152,8 @@ func TestChatGuided_EmptyMessages(t *testing.T) {
 func TestUserIDInjection(t *testing.T) {
 	// Test that user_id from context is correctly injected
 	testCases := []struct {
-		name              string
-		user              *middleware.UserContext
+		name               string
+		user               *middleware.UserContext
 		expectUnauthorized bool
 	}{
 		{"valid user", &middleware.UserContext{ID: 123, Username: "alice", Role: "teacher"}, false},
@@ -192,6 +192,38 @@ func TestUserIDInjection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChatMultimodal_BadRequest(t *testing.T) {
+	handler := newAIHandlers(&clients.AIClient{})
+
+	r := gin.New()
+	r.POST("/ai/chat/multimodal", handler.ChatMultimodal)
+
+	req := httptest.NewRequest(http.MethodPost, "/ai/chat/multimodal", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestChatMultimodal_RejectsStreamMode(t *testing.T) {
+	handler := newAIHandlers(&clients.AIClient{})
+
+	r := gin.New()
+	r.POST("/ai/chat/multimodal", handler.ChatMultimodal)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/ai/chat/multimodal",
+		bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"x"}],"stream":true}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 // Placeholder for integration test requiring actual DB

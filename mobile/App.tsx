@@ -15,6 +15,7 @@ import {
 } from './src/storage';
 import type { AuthSession, ChatMessage } from './src/types';
 import { getRedirectURIForWecomOAuth, getUrlParam, isWecomWebView, removeUrlParams } from './src/wecom';
+import { palette, radius, spacing } from './src/theme';
 
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -161,33 +162,33 @@ export default function App() {
 const styles = StyleSheet.create({
   bootContainer: {
     flex: 1,
-    backgroundColor: '#0b1220',
+    backgroundColor: palette.background,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: spacing.lg,
   },
   bootText: {
-    marginTop: 16,
-    color: '#94a3b8',
+    marginTop: spacing.md,
+    color: palette.textMuted,
     fontSize: 14,
     textAlign: 'center',
   },
   bootErrorText: {
-    marginTop: 12,
+    marginTop: spacing.sm,
     color: '#fca5a5',
     fontSize: 12,
     textAlign: 'center',
   },
   bootFallbackButton: {
-    marginTop: 16,
-    backgroundColor: '#2563eb',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    marginTop: spacing.md,
+    backgroundColor: palette.primary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
   },
   bootFallbackButtonText: {
-    color: '#fff',
+    color: palette.textPrimary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

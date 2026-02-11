@@ -2,19 +2,21 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import type { AuthSession, ChatMessage, Course } from '../types';
+import { palette } from '../theme';
 
-// Import screens
 import LoginScreen from '../screens/LoginScreen';
 import CoursesScreen from '../screens/CoursesScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
 import ChapterContentScreen from '../screens/ChapterContentScreen';
 import ChatScreen from '../screens/ChatScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import AssignmentDetailScreen from '../screens/AssignmentDetailScreen';
+import QuizDetailScreen from '../screens/QuizDetailScreen';
+import WritingDetailScreen from '../screens/WritingDetailScreen';
 
-// Navigation types
 export type RootStackParamList = {
     Auth: undefined;
     Main: undefined;
@@ -34,29 +36,30 @@ export type HomeStackParamList = {
     Courses: undefined;
     CourseDetail: { course: Course };
     ChapterContent: { chapterId: number; title: string };
+    AssignmentDetail: { assignmentId: number; courseId: number; title?: string };
+    QuizDetail: { quizId: number; courseId: number; title?: string };
+    WritingDetail: { submissionId: number; courseId: number; title?: string };
 };
 
-// Stack and Tab navigators
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
-// Tab icons
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     const icons: Record<string, string> = {
         home: '📚',
         chat: '💬',
         profile: '👤',
     };
+
     return (
         <View style={styles.tabIcon}>
-            <Text style={{ fontSize: focused ? 22 : 20 }}>{icons[name] || '•'}</Text>
+            <Text style={{ fontSize: focused ? 21 : 19 }}>{icons[name] || '•'}</Text>
         </View>
     );
 }
 
-// Auth Stack Navigator
 function AuthNavigator({
     onLoginSuccess,
 }: {
@@ -71,14 +74,15 @@ function AuthNavigator({
     );
 }
 
-// Home Stack Navigator
 function HomeNavigator({ session }: { session: AuthSession }) {
     return (
         <HomeStack.Navigator
             screenOptions={{
-                headerStyle: { backgroundColor: '#0b1220' },
-                headerTintColor: '#f8fafc',
-                headerTitleStyle: { fontWeight: '600' },
+                headerStyle: { backgroundColor: palette.background },
+                headerTintColor: palette.textPrimary,
+                headerTitleStyle: { fontWeight: '700' },
+                headerShadowVisible: false,
+                contentStyle: { backgroundColor: palette.background },
             }}
         >
             <HomeStack.Screen name="Courses" options={{ title: '我的课程' }}>
@@ -96,11 +100,28 @@ function HomeNavigator({ session }: { session: AuthSession }) {
             >
                 {(props) => <ChapterContentScreen {...props} session={session} />}
             </HomeStack.Screen>
+            <HomeStack.Screen
+                name="AssignmentDetail"
+                options={({ route }) => ({ title: route.params.title || '作业详情' })}
+            >
+                {(props) => <AssignmentDetailScreen {...props} session={session} />}
+            </HomeStack.Screen>
+            <HomeStack.Screen
+                name="QuizDetail"
+                options={({ route }) => ({ title: route.params.title || '测验详情' })}
+            >
+                {(props) => <QuizDetailScreen {...props} session={session} />}
+            </HomeStack.Screen>
+            <HomeStack.Screen
+                name="WritingDetail"
+                options={({ route }) => ({ title: route.params.title || '写作详情' })}
+            >
+                {(props) => <WritingDetailScreen {...props} session={session} />}
+            </HomeStack.Screen>
         </HomeStack.Navigator>
     );
 }
 
-// Main Tab Navigator
 function MainNavigator({
     session,
     messages,
@@ -118,12 +139,19 @@ function MainNavigator({
         <MainTab.Navigator
             screenOptions={{
                 tabBarStyle: {
-                    backgroundColor: '#0b1220',
-                    borderTopColor: '#1f2937',
+                    backgroundColor: palette.background,
+                    borderTopColor: palette.border,
                     borderTopWidth: 1,
+                    height: 62,
+                    paddingBottom: 8,
+                    paddingTop: 6,
                 },
-                tabBarActiveTintColor: '#60a5fa',
-                tabBarInactiveTintColor: '#94a3b8',
+                tabBarActiveTintColor: palette.primary,
+                tabBarInactiveTintColor: palette.textMuted,
+                tabBarLabelStyle: {
+                    fontSize: 11,
+                    fontWeight: '600',
+                },
                 headerShown: false,
             }}
         >
@@ -142,8 +170,9 @@ function MainNavigator({
                     title: 'AI 助教',
                     tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
                     headerShown: true,
-                    headerStyle: { backgroundColor: '#0b1220' },
-                    headerTintColor: '#f8fafc',
+                    headerStyle: { backgroundColor: palette.background },
+                    headerTintColor: palette.textPrimary,
+                    headerTitleStyle: { fontWeight: '700' },
                 }}
             >
                 {() => (
@@ -156,9 +185,10 @@ function MainNavigator({
                     title: '我的',
                     tabBarIcon: ({ focused }) => <TabIcon name="profile" focused={focused} />,
                     headerShown: true,
-                    headerStyle: { backgroundColor: '#0b1220' },
-                    headerTintColor: '#f8fafc',
+                    headerStyle: { backgroundColor: palette.background },
+                    headerTintColor: palette.textPrimary,
                     headerTitle: '个人中心',
+                    headerTitleStyle: { fontWeight: '700' },
                 }}
             >
                 {() => (
@@ -174,7 +204,6 @@ function MainNavigator({
     );
 }
 
-// Root Navigator
 export default function AppNavigator({
     session,
     messages,
@@ -219,6 +248,5 @@ const styles = StyleSheet.create({
     tabIcon: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingTop: 4,
     },
 });

@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graduationdesign.local/schemas/training_compare_metrics.schema.json",
+  "title": "Training Compare Run Metrics",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "run_id",
+    "batch",
+    "framework",
+    "trainer",
+    "stage",
+    "seed",
+    "status",
+    "model_ref",
+    "git_commit",
+    "dirty_flag",
+    "python_bin",
+    "swift_version",
+    "quantization_mode",
+    "qlora_requested",
+    "qlora_effective",
+    "template_hash",
+    "prompt_hash",
+    "hyperparam_hash",
+    "decode_hash",
+    "dataset_hash",
+    "evalset_hash",
+    "full_dataset_alignment_hash",
+    "quality_summary",
+    "train_wall_time_sec",
+    "steps_per_sec",
+    "peak_memory_gb",
+    "total_examples_consumed",
+    "effective_tokens_nonpad",
+    "decode_params_expected",
+    "decode_params_actual",
+    "randomness_probe_hash",
+    "warnings",
+    "blocking_failures",
+    "artifacts"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "batch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "type": "string",
+      "enum": [
+        "custom",
+        "swift"
+      ]
+    },
+    "trainer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "style",
+        "writing",
+        "all"
+      ]
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "SUCCESS",
+        "FAILED",
+        "INVALID",
+        "DRY_RUN"
+      ]
+    },
+    "model_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "git_commit": {
+      "type": "string"
+    },
+    "dirty_flag": {
+      "type": "boolean"
+    },
+    "python_bin": {
+      "type": "string",
+      "minLength": 1
+    },
+    "swift_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quantization_mode": {
+      "type": "string",
+      "enum": [
+        "qlora_4bit_nf4",
+        "none"
+      ]
+    },
+    "qlora_requested": {
+      "type": "boolean"
+    },
+    "qlora_effective": {
+      "type": "boolean"
+    },
+    "template_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hyperparam_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decode_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evalset_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "full_dataset_alignment_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quality_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_point_coverage",
+        "refusal_accuracy",
+        "response_format",
+        "tool_call_accuracy",
+        "citation_accuracy"
+      ],
+      "properties": {
+        "key_point_coverage": {
+          "type": "number"
+        },
+        "refusal_accuracy": {
+          "type": "number"
+        },
+        "response_format": {
+          "type": "number"
+        },
+        "tool_call_accuracy": {
+          "type": "number"
+        },
+        "citation_accuracy": {
+          "type": "number"
+        }
+      }
+    },
+    "train_wall_time_sec": {
+      "type": "number"
+    },
+    "steps_per_sec": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "peak_memory_gb": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "total_examples_consumed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "effective_tokens_nonpad": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decode_params_expected": {
+      "type": "object"
+    },
+    "decode_params_actual": {
+      "type": "object"
+    },
+    "randomness_probe_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blocking_failures": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "train_log",
+        "predict_log",
+        "evaluate_log",
+        "eval_report_json"
+      ],
+      "properties": {
+        "train_log": {
+          "type": "string"
+        },
+        "predict_log": {
+          "type": "string"
+        },
+        "evaluate_log": {
+          "type": "string"
+        },
+        "eval_report_json": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

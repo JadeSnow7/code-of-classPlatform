@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"gorm.io/gorm"
 )
 
@@ -18,12 +18,12 @@ var (
 
 // AssignmentService handles assignment CRUD and grading workflows.
 type AssignmentService struct {
-	repo *repositories.AssignmentRepository
+	repo repositories.AssignmentRepository
+	db   *gorm.DB
 }
 
-// NewAssignmentService builds an AssignmentService with its repository.
 func NewAssignmentService(db *gorm.DB) *AssignmentService {
-	return &AssignmentService{repo: repositories.NewAssignmentRepository(db)}
+	return &AssignmentService{repo: repositories.NewAssignmentRepository(db), db: db}
 }
 
 // CreateAssignmentRequest contains the fields required to create an assignment.

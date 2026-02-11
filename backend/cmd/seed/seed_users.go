@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/auth"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/config"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/db"
-	"github.com/huaodong/emfield-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/db"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 )
 
 func main() {

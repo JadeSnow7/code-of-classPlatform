@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { ChatMessage } from '../types';
+import { palette, radius, spacing } from '../theme';
 
 type MessageBubbleProps = {
     message: ChatMessage;
@@ -10,10 +11,14 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
     return (
         <View style={[styles.container, isUser ? styles.containerUser : styles.containerAssistant]}>
-            <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
-                <Text style={[styles.text, isUser ? styles.textUser : styles.textAssistant]}>
-                    {message.content}
-                </Text>
+            <View style={styles.row}>
+                {!isUser ? <View style={styles.avatar}><Text style={styles.avatarText}>AI</Text></View> : null}
+                <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
+                    <Text style={[styles.text, isUser ? styles.textUser : styles.textAssistant]}>
+                        {message.content}
+                    </Text>
+                </View>
+                {isUser ? <View style={styles.avatarUser}><Text style={styles.avatarText}>你</Text></View> : null}
             </View>
             <Text style={[styles.time, isUser ? styles.timeUser : styles.timeAssistant]}>
                 {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -24,8 +29,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
 
 const styles = StyleSheet.create({
     container: {
-        marginBottom: 12,
-        maxWidth: '85%',
+        marginBottom: spacing.sm,
+        maxWidth: '95%',
     },
     containerUser: {
         alignSelf: 'flex-end',
@@ -35,39 +40,70 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
         alignItems: 'flex-start',
     },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: spacing.xs,
+    },
+    avatar: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#312e81',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 2,
+    },
+    avatarUser: {
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        backgroundColor: '#0f766e',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 2,
+    },
+    avatarText: {
+        color: '#e0e7ff',
+        fontSize: 10,
+        fontWeight: '700',
+    },
     bubble: {
-        borderRadius: 16,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
+        borderRadius: radius.lg,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        maxWidth: '86%',
     },
     bubbleUser: {
-        backgroundColor: '#2563eb',
-        borderBottomRightRadius: 4,
+        backgroundColor: palette.primary,
+        borderBottomRightRadius: 6,
     },
     bubbleAssistant: {
-        backgroundColor: '#1e293b',
-        borderBottomLeftRadius: 4,
+        backgroundColor: palette.backgroundPanel,
+        borderBottomLeftRadius: 6,
         borderWidth: 1,
-        borderColor: '#334155',
+        borderColor: palette.border,
     },
     text: {
-        fontSize: 15,
-        lineHeight: 22,
+        fontSize: 14,
+        lineHeight: 21,
     },
     textUser: {
-        color: '#fff',
+        color: palette.textPrimary,
     },
     textAssistant: {
-        color: '#e2e8f0',
+        color: palette.textSecondary,
     },
     time: {
         fontSize: 10,
         marginTop: 4,
     },
     timeUser: {
-        color: '#64748b',
+        color: palette.textMuted,
+        marginRight: 30,
     },
     timeAssistant: {
-        color: '#64748b',
+        color: palette.textMuted,
+        marginLeft: 30,
     },
 });

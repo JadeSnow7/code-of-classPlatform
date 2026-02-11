@@ -12,9 +12,11 @@ import {
 } from 'react-native';
 
 import { chat } from '../api';
-import { DEFAULT_CHAT_MODE, MAX_CONTEXT_MESSAGES } from '../config';
+import { DEFAULT_CHAT_MODE, EDGE_ROUTER_ENGINE, MAX_CONTEXT_MESSAGES } from '../config';
+import { decideRouteWithRust } from '../rustBridge';
 import type { AuthSession, ChatMessage } from '../types';
 import MessageBubble from '../components/MessageBubble';
+import { appStyles, palette, radius, spacing } from '../theme';
 
 type ChatScreenProps = {
     session: AuthSession;
@@ -63,8 +65,16 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
 
     const canSend = input.trim().length > 0 && !loading;
 
+    const handleStop = () => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setLoading(false);
+    };
+
     const handleSend = async () => {
-        if (!canSend) return;
+        if (!canSend) {
+            return;
+        }
 
         const content = input.trim();
         const userMessage: ChatMessage = {
@@ -88,15 +98,39 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
         requestIdRef.current = requestId;
 
         try {
+            let route: 'local' | 'cloud' | 'auto' = 'local';
+            if (EDGE_ROUTER_ENGINE === 'rust') {
+                const decision = await decideRouteWithRust({
+                    privacy_level: 'private',
+                    user_preference: 'balanced',
+                    device_load: 0.5,
+                    device_context: {
+                        memory_available_mb: 1024,
+                    },
+                    network_rtt_ms: 120,
+                    local_model_ready: true,
+                    cloud_model_ready: true,
+                });
+                if (decision?.route) {
+                    route = decision.route;
+                }
+            }
+
             const responseText = await chat(
                 session.token,
                 session.tokenType,
                 nextMessages.slice(-MAX_CONTEXT_MESSAGES),
                 mode,
-                controller.signal
+                controller.signal,
+                {
+                    privacy: 'private',
+                    route,
+                }
             );
 
-            if (!mountedRef.current || requestId !== requestIdRef.current) return;
+            if (!mountedRef.current || requestId !== requestIdRef.current) {
+                return;
+            }
 
             const assistantMessage: ChatMessage = {
                 id: createId(),
@@ -107,14 +141,18 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
 
             setMessages((prev) => [...prev, assistantMessage]);
         } catch (err) {
-            if (!mountedRef.current || requestId !== requestIdRef.current) return;
+            if (!mountedRef.current || requestId !== requestIdRef.current) {
+                return;
+            }
 
             const message = err instanceof Error ? err.message : 'Request failed';
             if (message !== 'Request canceled') {
                 setError(message);
             }
         } finally {
-            if (!mountedRef.current || requestId !== requestIdRef.current) return;
+            if (!mountedRef.current || requestId !== requestIdRef.current) {
+                return;
+            }
 
             setLoading(false);
             abortRef.current = null;
@@ -123,7 +161,6 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
 
     return (
         <View style={styles.container}>
-            {/* Mode selector */}
             <View style={styles.modeRow}>
                 {MODE_OPTIONS.map((option, index) => {
                     const isActive = option.key === mode;
@@ -146,14 +183,12 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                 })}
             </View>
 
-            {/* Error banner */}
-            {error && (
+            {error ? (
                 <View style={styles.errorBanner}>
                     <Text style={styles.errorText}>{error}</Text>
                 </View>
-            )}
+            ) : null}
 
-            {/* Messages list */}
             <FlatList
                 ref={listRef}
                 data={messages}
@@ -164,15 +199,13 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                 ListEmptyComponent={
                     <View style={styles.emptyState}>
                         <Text style={styles.emptyTitle}>开始学习对话</Text>
-                        <Text style={styles.emptyText}>
-                            发送问题，AI 助教将为你解答。{'\n'}消息会保存在本地。
-                        </Text>
+                        <Text style={styles.emptyText}>发送你的问题，AI 助教会给出即时解答。</Text>
                     </View>
                 }
                 ListFooterComponent={
                     loading ? (
                         <View style={styles.loadingRow}>
-                            <ActivityIndicator color="#60a5fa" style={styles.loadingIndicator} />
+                            <ActivityIndicator color={palette.primary} style={styles.loadingIndicator} />
                             <Text style={styles.loadingText}>AI 正在思考...</Text>
                         </View>
                     ) : (
@@ -181,29 +214,38 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                 }
             />
 
-            {/* Input area */}
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
                 <View style={styles.inputWrap}>
                     <TextInput
                         value={input}
                         onChangeText={setInput}
                         placeholder="请输入问题..."
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor={palette.textMuted}
                         multiline
                         style={styles.input}
                         editable={!loading}
                     />
-                    <Pressable
-                        style={({ pressed }) => [
-                            styles.sendButton,
-                            !canSend && styles.sendButtonDisabled,
-                            pressed && canSend && styles.sendButtonPressed,
-                        ]}
-                        onPress={handleSend}
-                        disabled={!canSend}
-                    >
-                        <Text style={styles.sendButtonText}>发送</Text>
-                    </Pressable>
+
+                    {loading ? (
+                        <Pressable
+                            style={({ pressed }) => [styles.stopButton, pressed && styles.stopButtonPressed]}
+                            onPress={handleStop}
+                        >
+                            <Text style={styles.stopButtonText}>停止</Text>
+                        </Pressable>
+                    ) : (
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.sendButton,
+                                !canSend && styles.sendButtonDisabled,
+                                pressed && canSend && styles.sendButtonPressed,
+                            ]}
+                            onPress={() => void handleSend()}
+                            disabled={!canSend}
+                        >
+                            <Text style={styles.sendButtonText}>发送</Text>
+                        </Pressable>
+                    )}
                 </View>
             </KeyboardAvoidingView>
         </View>
@@ -212,133 +254,154 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
 
 const styles = StyleSheet.create({
     container: {
-        flex: 1,
-        backgroundColor: '#0b1220',
+        ...appStyles.page,
     },
     modeRow: {
         flexDirection: 'row',
-        paddingHorizontal: 16,
-        paddingTop: 12,
-        paddingBottom: 4,
+        paddingHorizontal: spacing.md,
+        paddingTop: spacing.sm,
+        paddingBottom: 6,
     },
     modeChip: {
-        paddingVertical: 6,
-        paddingHorizontal: 14,
-        borderRadius: 999,
+        paddingVertical: 7,
+        paddingHorizontal: spacing.sm,
+        borderRadius: radius.full,
+        borderWidth: 1,
     },
     modeChipSpacing: {
-        marginRight: 10,
+        marginRight: spacing.xs,
     },
     modeChipIdle: {
-        backgroundColor: '#111827',
-        borderWidth: 1,
-        borderColor: '#1f2937',
+        backgroundColor: palette.backgroundMuted,
+        borderColor: palette.border,
     },
     modeChipActive: {
-        backgroundColor: '#1d4ed8',
+        backgroundColor: palette.primary,
+        borderColor: palette.primary,
     },
     modeChipPressed: {
-        opacity: 0.85,
+        opacity: 0.86,
     },
     modeText: {
-        fontSize: 13,
-        fontWeight: '600',
+        fontSize: 12,
+        fontWeight: '700',
     },
     modeTextIdle: {
-        color: '#cbd5e1',
+        color: palette.textSecondary,
     },
     modeTextActive: {
-        color: '#f8fafc',
+        color: palette.textPrimary,
     },
     errorBanner: {
-        marginHorizontal: 16,
+        marginHorizontal: spacing.md,
         marginTop: 6,
         backgroundColor: '#450a0a',
-        borderRadius: 10,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        borderRadius: radius.md,
+        paddingVertical: spacing.xs,
+        paddingHorizontal: spacing.sm,
+        borderWidth: 1,
+        borderColor: '#7f1d1d',
     },
     errorText: {
         color: '#fca5a5',
         fontSize: 12,
     },
     list: {
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 12,
+        paddingHorizontal: spacing.md,
+        paddingTop: spacing.sm,
+        paddingBottom: spacing.sm,
     },
     emptyList: {
         flexGrow: 1,
         justifyContent: 'center',
-        paddingHorizontal: 24,
+        paddingHorizontal: spacing.xl,
     },
     emptyState: {
         alignItems: 'center',
+        gap: 6,
     },
     emptyTitle: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#f8fafc',
-        marginBottom: 8,
+        fontSize: 20,
+        fontWeight: '700',
+        color: palette.textPrimary,
     },
     emptyText: {
         textAlign: 'center',
-        color: '#94a3b8',
-        lineHeight: 22,
+        color: palette.textMuted,
+        lineHeight: 21,
+        fontSize: 13,
     },
     loadingRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
     },
     loadingIndicator: {
-        marginRight: 10,
+        marginRight: spacing.xs,
     },
     loadingText: {
-        color: '#94a3b8',
+        color: palette.textMuted,
         fontSize: 12,
     },
     footerSpace: {
-        height: 6,
+        height: 8,
     },
     inputWrap: {
         flexDirection: 'row',
         alignItems: 'flex-end',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        backgroundColor: '#0b1220',
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        backgroundColor: palette.background,
         borderTopWidth: 1,
-        borderTopColor: '#1f2937',
+        borderTopColor: palette.border,
+        gap: spacing.xs,
     },
     input: {
         flex: 1,
-        minHeight: 42,
+        minHeight: 44,
         maxHeight: 120,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        borderRadius: 12,
-        backgroundColor: '#1e293b',
-        color: '#f8fafc',
-        fontSize: 15,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.md,
+        backgroundColor: palette.backgroundPanel,
+        borderWidth: 1,
+        borderColor: palette.border,
+        color: palette.textPrimary,
+        fontSize: 14,
     },
     sendButton: {
-        backgroundColor: '#2563eb',
-        paddingHorizontal: 20,
-        paddingVertical: 12,
-        borderRadius: 12,
-        marginLeft: 10,
+        backgroundColor: palette.primary,
+        minHeight: 44,
+        paddingHorizontal: spacing.md,
+        borderRadius: radius.md,
+        justifyContent: 'center',
     },
     sendButtonPressed: {
-        opacity: 0.85,
+        opacity: 0.86,
     },
     sendButtonDisabled: {
-        backgroundColor: '#1e40af',
+        backgroundColor: palette.primaryMuted,
         opacity: 0.5,
     },
     sendButtonText: {
-        color: '#fff',
-        fontSize: 15,
-        fontWeight: '600',
+        color: palette.textPrimary,
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    stopButton: {
+        backgroundColor: '#b91c1c',
+        minHeight: 44,
+        paddingHorizontal: spacing.md,
+        borderRadius: radius.md,
+        justifyContent: 'center',
+    },
+    stopButtonPressed: {
+        opacity: 0.85,
+    },
+    stopButtonText: {
+        color: palette.textPrimary,
+        fontSize: 14,
+        fontWeight: '700',
     },
 });

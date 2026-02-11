@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     AppState,
+    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -9,84 +10,93 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { getChapterContent, recordStudyTime } from '../api';
-import type { AuthSession, Chapter } from '../types';
+import { getChapterContent, getChapterStats, recordStudyTime } from '../api';
+import type { AuthSession, Chapter, ChapterStats } from '../types';
 import type { HomeStackParamList } from '../navigation/AppNavigator';
+import { appStyles, palette, radius, spacing } from '../theme';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ChapterContent'> & {
     session: AuthSession;
 };
 
-const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+const HEARTBEAT_INTERVAL_MS = 30000;
 
 export default function ChapterContentScreen({ route, session }: Props) {
-    const { chapterId, title } = route.params;
+    const { chapterId } = route.params;
     const [chapter, setChapter] = useState<Chapter | null>(null);
+    const [stats, setStats] = useState<ChapterStats | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [studySeconds, setStudySeconds] = useState(0);
 
-    const startTimeRef = useRef(Date.now());
     const lastHeartbeatRef = useRef(Date.now());
     const isActiveRef = useRef(true);
 
-    // Fetch chapter content
     useEffect(() => {
         const fetchContent = async () => {
             setLoading(true);
             setError(null);
+
             try {
-                const data = await getChapterContent(session.token, session.tokenType, chapterId);
-                setChapter(data);
+                const [chapterData, statsData] = await Promise.all([
+                    getChapterContent(session.token, session.tokenType, chapterId),
+                    getChapterStats(session.token, session.tokenType, chapterId),
+                ]);
+                setChapter(chapterData);
+                setStats(statsData);
+                setStudySeconds(statsData.study_duration_seconds ?? 0);
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Failed to load chapter');
             } finally {
                 setLoading(false);
             }
         };
-        fetchContent();
-    }, [chapterId]);
 
-    // Study time tracking
+        void fetchContent();
+    }, [chapterId, session.token, session.tokenType]);
+
     useEffect(() => {
-        startTimeRef.current = Date.now();
         lastHeartbeatRef.current = Date.now();
         isActiveRef.current = true;
-
-        const handleAppStateChange = (nextState: string) => {
-            if (nextState === 'active') {
-                isActiveRef.current = true;
-                startTimeRef.current = Date.now();
-            } else {
-                isActiveRef.current = false;
-                sendHeartbeat();
-            }
-        };
 
         const sendHeartbeat = async () => {
             const now = Date.now();
             const elapsed = Math.floor((now - lastHeartbeatRef.current) / 1000);
-            if (elapsed > 0 && isActiveRef.current) {
-                try {
-                    await recordStudyTime(session.token, session.tokenType, chapterId, elapsed);
-                    setStudySeconds((prev) => prev + elapsed);
-                    lastHeartbeatRef.current = now;
-                } catch {
-                    // Ignore heartbeat errors
-                }
+
+            if (!isActiveRef.current || elapsed <= 0) {
+                return;
+            }
+
+            try {
+                await recordStudyTime(session.token, session.tokenType, chapterId, elapsed);
+                setStudySeconds((prev) => prev + elapsed);
+                lastHeartbeatRef.current = now;
+            } catch {
+                // Ignore heartbeat errors.
+            }
+        };
+
+        const handleAppStateChange = (nextState: string) => {
+            if (nextState === 'active') {
+                isActiveRef.current = true;
+                lastHeartbeatRef.current = Date.now();
+            } else {
+                isActiveRef.current = false;
+                void sendHeartbeat();
             }
         };
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
-        const intervalId = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+        const intervalId = setInterval(() => {
+            void sendHeartbeat();
+        }, HEARTBEAT_INTERVAL_MS);
 
         return () => {
             subscription.remove();
             clearInterval(intervalId);
-            // Send final heartbeat on unmount
-            sendHeartbeat();
+            void sendHeartbeat();
         };
-    }, [chapterId]);
+    }, [chapterId, session.token, session.tokenType]);
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -96,109 +106,245 @@ export default function ChapterContentScreen({ route, session }: Props) {
 
     if (loading) {
         return (
-            <View style={styles.center}>
-                <ActivityIndicator size="large" color="#60a5fa" />
-                <Text style={styles.loadingText}>加载章节内容中...</Text>
+            <View style={styles.centerContainer}>
+                <ActivityIndicator size="large" color={palette.primary} />
+                <Text style={styles.centerText}>加载章节内容中...</Text>
             </View>
         );
     }
 
     if (error || !chapter) {
         return (
-            <View style={styles.center}>
+            <View style={styles.centerContainer}>
                 <Text style={styles.errorText}>{error || '章节不存在'}</Text>
             </View>
         );
     }
 
+    const knowledgePoints = stats?.knowledge_points ?? [];
+    const resources = stats?.resources ?? [];
+
     return (
-        <View style={styles.container}>
-            {/* Study time indicator */}
+        <ScrollView style={appStyles.page} contentContainerStyle={styles.pageContent}>
             <View style={styles.studyBar}>
-                <Text style={styles.studyLabel}>📖 本次学习时长</Text>
-                <Text style={styles.studyTime}>{formatTime(studySeconds)}</Text>
+                <Text style={styles.studyLabel}>本章累计学习</Text>
+                <Text style={styles.studyValue}>{formatTime(studySeconds)}</Text>
             </View>
 
-            {/* Content */}
-            <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+            <View style={styles.heroCard}>
                 <Text style={styles.chapterTitle}>{chapter.title}</Text>
-                {chapter.description && (
-                    <Text style={styles.description}>{chapter.description}</Text>
+                {chapter.summary || chapter.description ? (
+                    <Text style={styles.chapterSummary}>{chapter.summary || chapter.description}</Text>
+                ) : null}
+            </View>
+
+            <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>正文内容</Text>
+                <Text style={styles.contentText}>{chapter.content || '暂无内容'}</Text>
+            </View>
+
+            <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>知识点</Text>
+                {knowledgePoints.length === 0 ? (
+                    <Text style={styles.emptyText}>暂无知识点标注</Text>
+                ) : (
+                    <View style={styles.pointWrap}>
+                        {knowledgePoints.map((point, index) => (
+                            <View key={`${point}-${index}`} style={styles.pointChip}>
+                                <Text style={styles.pointText}>{point}</Text>
+                            </View>
+                        ))}
+                    </View>
                 )}
-                <View style={styles.divider} />
-                <Text style={styles.content}>{chapter.content || '暂无内容'}</Text>
-            </ScrollView>
-        </View>
+            </View>
+
+            <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>学习资料</Text>
+                {resources.length === 0 ? (
+                    <Text style={styles.emptyText}>暂无关联资料</Text>
+                ) : (
+                    <View style={styles.resourceColumn}>
+                        {resources.map((resource) => (
+                            <Pressable key={resource.ID} style={styles.resourceItem}>
+                                <View style={styles.resourceMain}>
+                                    <Text style={styles.resourceTitle}>{resource.title || resource.name || '未命名资源'}</Text>
+                                    <Text style={styles.resourceMeta}>{resource.type || 'link'}</Text>
+                                </View>
+                                <Text style={styles.chevron}>›</Text>
+                            </Pressable>
+                        ))}
+                    </View>
+                )}
+            </View>
+
+            <View style={styles.gridRow}>
+                <View style={styles.gridCard}>
+                    <Text style={styles.gridLabel}>作业提交</Text>
+                    <Text style={styles.gridValue}>
+                        {stats?.assignment_stats?.submitted ?? 0}/{stats?.assignment_stats?.total ?? 0}
+                    </Text>
+                    <Text style={styles.gridSub}>平均分 {(stats?.assignment_stats?.avg_score ?? 0).toFixed(1)}</Text>
+                </View>
+                <View style={styles.gridCard}>
+                    <Text style={styles.gridLabel}>测验完成</Text>
+                    <Text style={styles.gridValue}>
+                        {stats?.quiz_stats?.attempted ?? 0}/{stats?.quiz_stats?.total ?? 0}
+                    </Text>
+                    <Text style={styles.gridSub}>平均分 {(stats?.quiz_stats?.avg_score ?? 0).toFixed(1)}</Text>
+                </View>
+            </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0b1220',
+    pageContent: {
+        padding: spacing.md,
+        paddingBottom: spacing.xxl,
+        gap: spacing.md,
     },
-    center: {
-        flex: 1,
-        backgroundColor: '#0b1220',
+    centerContainer: {
+        ...appStyles.page,
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
+        padding: spacing.xl,
     },
-    loadingText: {
-        color: '#94a3b8',
-        marginTop: 12,
+    centerText: {
+        color: palette.textMuted,
+        marginTop: spacing.sm,
         fontSize: 14,
     },
     errorText: {
-        color: '#fca5a5',
+        color: palette.danger,
         fontSize: 14,
         textAlign: 'center',
     },
     studyBar: {
+        ...appStyles.card,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: '#065f46',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+        backgroundColor: '#073b2a',
+        borderColor: '#14532d',
     },
     studyLabel: {
         color: '#a7f3d0',
         fontSize: 13,
+        fontWeight: '600',
     },
-    studyTime: {
-        color: '#10b981',
-        fontSize: 16,
+    studyValue: {
+        color: '#34d399',
+        fontSize: 20,
         fontWeight: '700',
         fontVariant: ['tabular-nums'],
     },
-    scroll: {
-        flex: 1,
-    },
-    scrollContent: {
-        padding: 20,
-        paddingBottom: 40,
+    heroCard: {
+        ...appStyles.card,
+        backgroundColor: palette.backgroundElevated,
     },
     chapterTitle: {
-        color: '#f8fafc',
-        fontSize: 22,
+        color: palette.textPrimary,
+        fontSize: 24,
         fontWeight: '700',
-        marginBottom: 8,
+        marginBottom: spacing.xs,
     },
-    description: {
-        color: '#94a3b8',
+    chapterSummary: {
+        color: palette.textSecondary,
         fontSize: 14,
         lineHeight: 22,
-        marginBottom: 12,
     },
-    divider: {
-        height: 1,
-        backgroundColor: '#334155',
-        marginVertical: 16,
+    sectionCard: {
+        ...appStyles.card,
+        gap: spacing.sm,
     },
-    content: {
-        color: '#cbd5e1',
+    sectionTitle: {
+        color: palette.textPrimary,
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    contentText: {
+        color: palette.textSecondary,
         fontSize: 15,
-        lineHeight: 26,
+        lineHeight: 25,
+    },
+    emptyText: {
+        color: palette.textMuted,
+        fontSize: 13,
+    },
+    pointWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.xs,
+    },
+    pointChip: {
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 7,
+        borderRadius: radius.full,
+        borderWidth: 1,
+        borderColor: '#4338ca',
+        backgroundColor: '#312e81',
+    },
+    pointText: {
+        color: '#c7d2fe',
+        fontSize: 12,
+        fontWeight: '600',
+    },
+    resourceColumn: {
+        gap: spacing.xs,
+    },
+    resourceItem: {
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: palette.border,
+        backgroundColor: palette.background,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: spacing.sm,
+    },
+    resourceMain: {
+        flex: 1,
+        gap: 4,
+    },
+    resourceTitle: {
+        color: palette.textPrimary,
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    resourceMeta: {
+        color: palette.textMuted,
+        fontSize: 11,
+        textTransform: 'uppercase',
+    },
+    chevron: {
+        color: palette.textMuted,
+        fontSize: 20,
+    },
+    gridRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.sm,
+    },
+    gridCard: {
+        ...appStyles.card,
+        width: '48%',
+        backgroundColor: '#0f1a2f',
+    },
+    gridLabel: {
+        color: palette.textMuted,
+        fontSize: 12,
+    },
+    gridValue: {
+        color: palette.textPrimary,
+        fontSize: 22,
+        fontWeight: '800',
+        marginTop: spacing.xs,
+    },
+    gridSub: {
+        color: palette.textSecondary,
+        fontSize: 11,
+        marginTop: 4,
     },
 });

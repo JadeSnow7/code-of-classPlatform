@@ -12,7 +12,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 REFUSAL_SENTENCE_PATTERNS = [
     re.compile(r"^(?:抱歉|对不起)?[,，]?(?:我)?(?:现在)?(?:无法|不能|不便|没法|不能够).{0,24}(?:回答|提供|协助|完成|执行|给出|处理)"),
@@ -49,6 +49,8 @@ NON_REFUSAL_CONTEXT_HINTS = (
     "无穷多解",
     "无法求解",
 )
+STYLE_REQUIRED_MARKERS = ("### 结论", "### 推导", "### 检查")
+WRITING_REQUIRED_MARKERS = ("### 问题诊断", "### 改进建议", "### 规范说明")
 
 
 def parse_args() -> argparse.Namespace:
@@ -258,9 +260,98 @@ def detect_refusal(response: str) -> bool:
     return len(compact) <= 120 and any(phrase in compact for phrase in SHORT_REFUSAL_PHRASES)
 
 
-def check_format(response: str) -> bool:
-    required = ["### 结论", "### 推导", "### 检查"]
-    return all(r in response for r in required)
+def _extract_system_prompt(sample: Dict[str, Any]) -> str:
+    messages = sample.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "system":
+            return str(msg.get("content") or "")
+    return ""
+
+
+def infer_lane(sample: Dict[str, Any]) -> str:
+    meta = sample.get("meta")
+    if isinstance(meta, dict):
+        lane = str(meta.get("lane") or "").strip().lower()
+        if lane in {"style", "writing", "tool", "rag"}:
+            return lane
+
+    system_prompt = _extract_system_prompt(sample)
+    if any(token in system_prompt for token in WRITING_REQUIRED_MARKERS) or "学术写作" in system_prompt:
+        return "writing"
+
+    sample_id = str(sample.get("id") or "").lower()
+    if sample_id.startswith("writing-") or sample_id.startswith("formal-writing-"):
+        return "writing"
+    return "style"
+
+
+def infer_sample_type(sample: Dict[str, Any], lane: str) -> str:
+    sample_type = str(sample.get("type") or "").strip().lower()
+    if sample_type and sample_type != "unknown":
+        return sample_type
+    if lane == "writing":
+        return "writing"
+    return "concept"
+
+
+def _extract_reference_answer(sample: Dict[str, Any]) -> str:
+    messages = sample.get("messages")
+    if not isinstance(messages, list):
+        return ""
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            return str(msg.get("content") or "")
+    return ""
+
+
+def resolve_expected(sample: Dict[str, Any], lane: str) -> Tuple[Dict[str, Any], str]:
+    raw_expected = sample.get("expected")
+    if isinstance(raw_expected, dict):
+        expected = {
+            "key_points": [str(x) for x in (raw_expected.get("key_points") or [])],
+            "citations": [str(x) for x in (raw_expected.get("citations") or [])],
+            "tool_calls": [str(x) for x in (raw_expected.get("tool_calls") or [])],
+            "should_refuse": raw_expected.get("should_refuse"),
+        }
+        if expected["should_refuse"] is not None:
+            expected["should_refuse"] = bool(expected["should_refuse"])
+        return expected, "formal"
+
+    # Legacy benchmark compatibility: infer a minimal expected contract from messages.
+    reference_answer = _extract_reference_answer(sample)
+    key_points = list(WRITING_REQUIRED_MARKERS if lane == "writing" else STYLE_REQUIRED_MARKERS)
+    should_refuse = detect_refusal(reference_answer) if reference_answer else False
+    expected = {
+        "key_points": key_points,
+        "citations": _parse_citations_from_text(reference_answer) if reference_answer else [],
+        "tool_calls": _parse_tool_calls_from_text(reference_answer) if reference_answer else [],
+        "should_refuse": should_refuse,
+    }
+    return expected, "legacy_compat"
+
+
+def _contains_style_format(response: str) -> bool:
+    return (
+        "### 结论" in response
+        and "### 推导" in response
+        and re.search(r"###\s*检查", response) is not None
+    )
+
+
+def _contains_writing_format(response: str) -> bool:
+    return all(marker in response for marker in WRITING_REQUIRED_MARKERS)
+
+
+def check_format(response: str, lane: str, sample_type: str, should_refuse: Optional[bool]) -> bool:
+    if bool(should_refuse):
+        # Refusal answers may not always follow section templates.
+        return detect_refusal(response) or _contains_style_format(response) or _contains_writing_format(response)
+
+    if lane == "writing" or sample_type == "writing":
+        return _contains_writing_format(response)
+    return _contains_style_format(response)
 
 
 def ratio(numerator: int, denominator: int) -> float:
@@ -272,6 +363,9 @@ def ratio(numerator: int, denominator: int) -> float:
 def score_sample(
     expected: Dict[str, Any],
     prediction: Dict[str, Any] | None,
+    *,
+    sample_type: str,
+    lane: str,
 ) -> Tuple[Dict[str, Any], Dict[str, float]]:
     result: Dict[str, Any] = {}
     metrics: Dict[str, float] = {}
@@ -324,8 +418,10 @@ def score_sample(
         result["refused_pred"] = bool(predicted_refused)
         result["refused_expected"] = bool(should_refuse)
 
-    metrics["response_format"] = 1.0 if check_format(response) else 0.0
+    metrics["response_format"] = 1.0 if check_format(response, lane, sample_type, should_refuse) else 0.0
     result["response_format"] = bool(metrics["response_format"])
+    result["lane"] = lane
+    result["sample_type"] = sample_type
 
     return result, metrics
 
@@ -349,10 +445,11 @@ def main() -> None:
 
     for sample in eval_items:
         sample_id = sample.get("id")
-        expected = sample.get("expected", {})
-        sample_type = sample.get("type", "unknown")
+        lane = infer_lane(sample)
+        sample_type = infer_sample_type(sample, lane)
+        expected, schema_mode = resolve_expected(sample, lane)
         pred = pred_map.get(sample_id)
-        result, metrics = score_sample(expected, pred)
+        result, metrics = score_sample(expected, pred, sample_type=sample_type, lane=lane)
 
         for key, value in metrics.items():
             summary_values.setdefault(key, []).append(value)
@@ -364,6 +461,8 @@ def main() -> None:
             details.append({
                 "id": sample_id,
                 "type": sample_type,
+                "lane": lane,
+                "schema_mode": schema_mode,
                 "metrics": metrics,
                 "result": result,
             })
