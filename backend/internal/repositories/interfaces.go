@@ -18,6 +18,77 @@ type UserRepository interface {
 	CountByRole(ctx context.Context, role string) (int64, error)
 }
 
+// CourseRepository 课程数据访问接口
+type CourseRepository interface {
+	FindByID(ctx context.Context, id uint) (*models.Course, error)
+	FindAll(ctx context.Context) ([]models.Course, error)
+	FindByTeacherID(ctx context.Context, teacherID uint) ([]models.Course, error)
+	FindByStudentID(ctx context.Context, studentID uint) ([]models.Course, error)
+	Create(ctx context.Context, course *models.Course) error
+	Update(ctx context.Context, course *models.Course, updates map[string]interface{}) error
+	Delete(ctx context.Context, id uint) error
+	HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error)
+}
+
+// AssignmentRepository 作业数据访问接口
+type AssignmentRepository interface {
+	FindCourse(ctx context.Context, courseID uint) (*models.Course, error)
+	FindAssignment(ctx context.Context, assignmentID uint) (*models.Assignment, error)
+	CreateAssignment(ctx context.Context, assignment *models.Assignment) error
+	ListByCourse(ctx context.Context, courseID uint) ([]models.Assignment, error)
+	FindSubmission(ctx context.Context, assignmentID uint, studentID uint) (*models.Submission, error)
+	FindSubmissionByID(ctx context.Context, submissionID uint) (*models.Submission, error)
+	SaveSubmission(ctx context.Context, submission *models.Submission) error
+	CreateSubmission(ctx context.Context, submission *models.Submission) error
+	ListSubmissionsByAssignment(ctx context.Context, assignmentID uint) ([]models.Submission, error)
+	CountAssignmentsByCourse(ctx context.Context, courseID uint) (int64, error)
+	CountSubmissionsByCourseAndStudent(ctx context.Context, courseID uint, studentID uint) (int64, error)
+	CountPendingGradingByCourse(ctx context.Context, courseID uint) (int64, error)
+	AvgGradeByCourseAndStudent(ctx context.Context, courseID uint, studentID uint) (float64, error)
+	AvgGradeByCourse(ctx context.Context, courseID uint) (float64, error)
+	CountStudentsByCourse(ctx context.Context, courseID uint) (int64, error)
+	HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error)
+}
+
+// QuizRepository 测验数据访问接口
+type QuizRepository interface {
+	ListByCourse(ctx context.Context, courseID uint, publishedOnly bool) ([]models.Quiz, error)
+	FindByID(ctx context.Context, quizID uint) (*models.Quiz, error)
+	Create(ctx context.Context, quiz *models.Quiz) error
+	Update(ctx context.Context, quiz *models.Quiz, updates map[string]interface{}) error
+	Save(ctx context.Context, quiz *models.Quiz) error
+	DeleteByID(ctx context.Context, quizID uint) error
+	ListQuestions(ctx context.Context, quizID uint) ([]models.Question, error)
+	FindQuestionByID(ctx context.Context, questionID uint) (*models.Question, error)
+	CreateQuestion(ctx context.Context, question *models.Question) error
+	SaveQuestion(ctx context.Context, question *models.Question) error
+	DeleteQuestion(ctx context.Context, questionID uint) error
+	DeleteQuestionsByQuiz(ctx context.Context, quizID uint) error
+	DeleteAttemptsByQuiz(ctx context.Context, quizID uint) error
+	CountAttempts(ctx context.Context, quizID uint) (int64, error)
+	CountAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error)
+	FindInProgressAttempt(ctx context.Context, quizID uint, studentID uint) (*models.QuizAttempt, error)
+	CreateAttempt(ctx context.Context, attempt *models.QuizAttempt) error
+	SaveAttempt(ctx context.Context, attempt *models.QuizAttempt) error
+	SumQuestionPoints(ctx context.Context, quizID uint) (int, error)
+	ListAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) ([]models.QuizAttempt, error)
+	ListAttemptsByQuiz(ctx context.Context, quizID uint, order string) ([]models.QuizAttempt, error)
+	ListAttemptsByQuizAndStudentOrder(ctx context.Context, quizID uint, studentID uint, order string) ([]models.QuizAttempt, error)
+}
+
+// ChapterRepository 章节数据访问接口
+type ChapterRepository interface {
+	FindCourse(ctx context.Context, courseID uint) (*models.Course, error)
+	FindChapter(ctx context.Context, chapterID uint) (*models.Chapter, error)
+	ListByCourse(ctx context.Context, courseID uint) ([]models.Chapter, error)
+	Create(ctx context.Context, chapter *models.Chapter) error
+	Update(ctx context.Context, chapter *models.Chapter, updates map[string]interface{}) error
+	Delete(ctx context.Context, chapterID uint) error
+	HasEnrollment(ctx context.Context, courseID uint, userID uint) (bool, error)
+	ClearChapterReferences(ctx context.Context, chapterID uint) error
+	DeleteProgressByChapter(ctx context.Context, chapterID uint) error
+}
+
 // AnnouncementRepository 公告数据访问接口
 type AnnouncementRepository interface {
 	FindByCourseID(ctx context.Context, courseID uint) ([]*models.Announcement, error)
