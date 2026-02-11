@@ -2,12 +2,12 @@ package http
 
 import (
 	"errors"
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
@@ -46,13 +46,13 @@ func (h *chapterHandlers) ListChapters(c *gin.Context) {
 	courseIDStr := c.Param("courseId")
 	courseID, err := strconv.ParseUint(courseIDStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
@@ -62,37 +62,37 @@ func (h *chapterHandlers) ListChapters(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "access this course")
 			return
 		}
 		if errors.Is(err, services.ErrCourseNotFound) {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "Course")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "LIST_CHAPTERS_FAILED", "list chapters failed", nil)
+		response.BadRequest(c, "Failed to list chapters")
 		return
 	}
 
-	respondOK(c, chapters)
+	response.OK(c, chapters)
 }
 
 // CreateChapter creates a new chapter
 func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	courseID, err := strconv.ParseUint(c.Param("courseId"), 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_COURSE_ID", "invalid course id", nil)
+		response.BadRequest(c, "Invalid course ID")
 		return
 	}
 
 	var req createChapterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -108,18 +108,18 @@ func (h *chapterHandlers) CreateChapter(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrCourseNotFound) {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "Course")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "create chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "CREATE_CHAPTER_FAILED", "create chapter failed", nil)
+		response.BadRequest(c, "Failed to create chapter")
 		return
 	}
 
-	respondCreated(c, chapter)
+	response.Created(c, chapter)
 }
 
 // GetChapter returns a single chapter
@@ -127,13 +127,13 @@ func (h *chapterHandlers) GetChapter(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
@@ -143,38 +143,38 @@ func (h *chapterHandlers) GetChapter(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "access this chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "GET_CHAPTER_FAILED", "get chapter failed", nil)
+		response.BadRequest(c, "Failed to get chapter")
 		return
 	}
 
-	respondOK(c, chapter)
+	response.OK(c, chapter)
 }
 
 // UpdateChapter updates a chapter
 func (h *chapterHandlers) UpdateChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
 	var req updateChapterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -189,36 +189,36 @@ func (h *chapterHandlers) UpdateChapter(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrCourseNotFound) {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "Course")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "update chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "UPDATE_CHAPTER_FAILED", "update chapter failed", nil)
+		response.BadRequest(c, "Failed to update chapter")
 		return
 	}
 
-	respondOK(c, chapter)
+	response.OK(c, chapter)
 }
 
 // DeleteChapter deletes a chapter
 func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
@@ -227,22 +227,22 @@ func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 		Role: u.Role,
 	}); err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrCourseNotFound) {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "Course")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "delete chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "DELETE_CHAPTER_FAILED", "delete chapter failed", nil)
+		response.BadRequest(c, "Failed to delete chapter")
 		return
 	}
 
-	respondOK(c, gin.H{"message": "deleted"})
+	response.OK(c, gin.H{"message": "deleted"})
 }
 
 // ============ Heartbeat Handler ============
@@ -251,14 +251,14 @@ func (h *chapterHandlers) DeleteChapter(c *gin.Context) {
 func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
@@ -268,27 +268,27 @@ func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
 			if u.Role != "student" {
-				respondError(c, http.StatusForbidden, "ROLE_NOT_ALLOWED", "only students can record study time", nil)
+				response.Forbidden(c, "record study time (students only)")
 				return
 			}
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "access this chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "DATABASE_ERROR", "database error", nil)
+		response.BadRequest(c, "Database error")
 		return
 	}
 
 	if started {
-		respondOK(c, gin.H{"message": "started", "duration": 0})
+		response.OK(c, gin.H{"message": "started", "duration": 0})
 		return
 	}
 
-	respondOK(c, gin.H{
+	response.OK(c, gin.H{
 		"message":  "recorded",
 		"duration": duration,
 	})
@@ -300,14 +300,14 @@ func (h *chapterHandlers) Heartbeat(c *gin.Context) {
 func (h *chapterHandlers) GetMyStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
@@ -317,55 +317,55 @@ func (h *chapterHandlers) GetMyStats(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "access this chapter")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load stats", nil)
+		response.BadRequest(c, "Failed to load stats")
 		return
 	}
 
-	respondOK(c, stats)
+	response.OK(c, stats)
 }
 
 // GetClassStats returns class-wide stats for a chapter (teachers only)
 func (h *chapterHandlers) GetClassStats(c *gin.Context) {
 	u, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+		response.Unauthorized(c, "User not authenticated")
 		return
 	}
 
 	idStr := c.Param("id")
 	chapterID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		respondError(c, http.StatusBadRequest, "INVALID_ID", "invalid id", nil)
+		response.BadRequest(c, "Invalid ID")
 		return
 	}
 
-	response, err := h.service.GetClassStats(c.Request.Context(), uint(chapterID), services.UserInfo{
+	statsData, err := h.service.GetClassStats(c.Request.Context(), uint(chapterID), services.UserInfo{
 		ID:   u.ID,
 		Role: u.Role,
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrChapterNotFound) {
-			respondError(c, http.StatusNotFound, "CHAPTER_NOT_FOUND", "chapter not found", nil)
+			response.NotFound(c, "Chapter")
 			return
 		}
 		if errors.Is(err, services.ErrCourseNotFound) {
-			respondError(c, http.StatusNotFound, "COURSE_NOT_FOUND", "course not found", nil)
+			response.NotFound(c, "Course")
 			return
 		}
 		if errors.Is(err, services.ErrAccessDenied) {
-			respondError(c, http.StatusForbidden, "ACCESS_DENIED", "access denied", nil)
+			response.Forbidden(c, "access class stats")
 			return
 		}
-		respondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to load stats", nil)
+		response.BadRequest(c, "Failed to load stats")
 		return
 	}
 
-	respondOK(c, response)
+	response.OK(c, statsData)
 }
