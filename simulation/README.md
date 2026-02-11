@@ -61,6 +61,12 @@ app/
 - `SIM_ENGINE=rust`：优先尝试 `simulation-rs`（PyO3 模块），失败自动回退 Python。
 - `wave_1d` 接口响应 schema 不变：`png_base64/n_time_steps/dx/dt`。
 
+## wave_1d Benchmark 脚本
+
+- `scripts/benchmark_wave_endpoint.py`：接口全链路（含序列化与绘图）。
+- `scripts/benchmark_wave_kernel.py`：纯数值核（Python solver vs Rust PyO3）。
+- `scripts/plot_wave_benchmark.py`：汇总 JSON/CSV/报告/图表/Slide 片段。
+
 ## 相关文档
 
 - [API 文档](../../docs/api/simulation-services.md)
