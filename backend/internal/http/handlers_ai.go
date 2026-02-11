@@ -3,11 +3,11 @@ package http
 import (
 	"fmt"
 	"io"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 )
 
 type aiHandlers struct {
@@ -38,7 +38,7 @@ type multimodalChatRequest struct {
 func (h *aiHandlers) Chat(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "invalid request")
 		return
 	}
 
@@ -58,10 +58,10 @@ func (h *aiHandlers) Chat(c *gin.Context) {
 		Route:    req.Route,
 	})
 	if err != nil {
-		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
-	respondOK(c, resp)
+	response.OK(c, resp)
 }
 
 func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
@@ -108,11 +108,11 @@ func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
 func (h *aiHandlers) ChatMultimodal(c *gin.Context) {
 	var req multimodalChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "invalid request")
 		return
 	}
 	if req.Stream {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "streaming is not supported for /ai/chat/multimodal", nil)
+		response.BadRequest(c, "streaming is not supported for /ai/chat/multimodal")
 		return
 	}
 
@@ -126,26 +126,26 @@ func (h *aiHandlers) ChatMultimodal(c *gin.Context) {
 		ModelFamily: req.ModelFamily,
 	})
 	if err != nil {
-		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
-	respondOK(c, resp)
+	response.OK(c, resp)
 }
 
 func (h *aiHandlers) ChatWithTools(c *gin.Context) {
 	var req clients.ChatWithToolsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "invalid request")
 		return
 	}
 
 	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
 	resp, err := h.ai.ChatWithTools(ctx, req)
 	if err != nil {
-		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
-	respondOK(c, resp)
+	response.OK(c, resp)
 }
 
 // guidedChatRequest is the request body for guided chat
@@ -163,14 +163,14 @@ type guidedChatRequest struct {
 func (h *aiHandlers) ChatGuided(c *gin.Context) {
 	var req guidedChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid request", nil)
+		response.BadRequest(c, "invalid request")
 		return
 	}
 
 	// Extract user from JWT context (set by AuthRequired middleware)
 	user, ok := middleware.GetUser(c)
 	if !ok {
-		respondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "user not found in context", nil)
+		response.Unauthorized(c, "user not found in context")
 		return
 	}
 
@@ -188,8 +188,8 @@ func (h *aiHandlers) ChatGuided(c *gin.Context) {
 	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
 	resp, err := h.ai.ChatGuided(ctx, aiReq)
 	if err != nil {
-		respondError(c, http.StatusBadGateway, "BAD_GATEWAY", err.Error(), nil)
+		response.BadRequest(c, err.Error())
 		return
 	}
-	respondOK(c, resp)
+	response.OK(c, resp)
 }
