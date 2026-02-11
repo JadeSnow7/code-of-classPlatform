@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"strconv"
 	"time"
 
@@ -13,11 +14,14 @@ import (
 
 type globalProfileHandlers struct {
 	service services.GlobalProfileService
-	db      *gorm.DB // Keep for pagination/filtering queries temporarily
 }
 
-func newGlobalProfileHandlers(service services.GlobalProfileService, db *gorm.DB) *globalProfileHandlers {
-	return &globalProfileHandlers{service: service, db: db}
+func NewGlobalProfileHandlers(service services.GlobalProfileService) *globalProfileHandlers {
+	return &globalProfileHandlers{service: service}
+}
+
+func newGlobalProfileHandlers(service services.GlobalProfileService) *globalProfileHandlers {
+	return NewGlobalProfileHandlers(service)
 }
 
 // GetGlobalProfile returns a student's global learning profile
@@ -40,7 +44,7 @@ func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 	// Use service to get profile
 	profile, err := h.service.GetGlobalProfile(c.Request.Context(), uint(studentID))
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Return empty profile if not found
 			response.OK(c, models.StudentGlobalProfile{
 				StudentID:          uint(studentID),
@@ -133,20 +137,11 @@ func (h *globalProfileHandlers) GetLearningTimeline(c *gin.Context) {
 		}
 	}
 
-	// Query events (keep DB query for pagination - service doesn't support it yet)
-	var events []models.LearningEvent
-	var total int64
-
-	query := h.db.Model(&models.LearningEvent{}).Where("student_id = ?", studentID)
-	if courseID != nil {
-		query = query.Where("course_id = ?", *courseID)
+	events, total, err := h.service.GetLearningTimelinePage(c.Request.Context(), uint(studentID), page, pageSize, courseID)
+	if err != nil {
+		response.Error(c, err)
+		return
 	}
-
-	query.Count(&total)
-	query.Order("created_at DESC").
-		Offset((page - 1) * pageSize).
-		Limit(pageSize).
-		Find(&events)
 
 	response.OK(c, gin.H{"items": events, "total": total, "page": page, "page_size": pageSize})
 }

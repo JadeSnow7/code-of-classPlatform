@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"net/url"
 	"strconv"
 
@@ -14,11 +15,14 @@ import (
 
 type resourceHandlers struct {
 	service services.ResourceService
-	db      *gorm.DB // Temporarily keep for course permission check
 }
 
-func newResourceHandlers(service services.ResourceService, db *gorm.DB) *resourceHandlers {
-	return &resourceHandlers{service: service, db: db}
+func NewResourceHandlers(service services.ResourceService) *resourceHandlers {
+	return &resourceHandlers{service: service}
+}
+
+func newResourceHandlers(service services.ResourceService) *resourceHandlers {
+	return NewResourceHandlers(service)
 }
 
 // --- Resource CRUD ---
@@ -51,17 +55,6 @@ func (h *resourceHandlers) CreateResource(c *gin.Context) {
 		return
 	}
 
-	// Validate user is teacher of the course (keep permission check in handler for now)
-	var course models.Course
-	if err := h.db.First(&course, req.CourseID).Error; err != nil {
-		response.NotFound(c, "Course")
-		return
-	}
-	if course.TeacherID != user.ID && user.Role != "admin" {
-		response.Forbidden(c, "You are not the course teacher")
-		return
-	}
-
 	// Validate type
 	validTypes := map[string]bool{"video": true, "paper": true, "link": true}
 	if !validTypes[req.Type] {
@@ -78,9 +71,15 @@ func (h *resourceHandlers) CreateResource(c *gin.Context) {
 		Description: req.Description,
 	}
 
-	// Use service to create
-	if err := h.service.Create(c.Request.Context(), &resource); err != nil {
-		response.Error(c, err)
+	if err := h.service.CreateWithPermission(c.Request.Context(), &resource, user.ID, user.Role); err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Course")
+		case errors.Is(err, services.ErrAccessDeniedService):
+			response.Forbidden(c, "You are not the course teacher")
+		default:
+			response.Error(c, err)
+		}
 		return
 	}
 
@@ -121,26 +120,15 @@ func (h *resourceHandlers) DeleteResource(c *gin.Context) {
 		return
 	}
 
-	// Need to check ownership before delete (keep in handler for now)
-	var resource models.Resource
-	if err := h.db.First(&resource, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	if err := h.service.DeleteWithPermission(c.Request.Context(), uint(id), user.ID, user.Role); err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
 			response.NotFound(c, "Resource")
-		} else {
+		case errors.Is(err, services.ErrAccessDeniedService):
+			response.Forbidden(c, "You are not authorized to delete this resource")
+		default:
 			response.Error(c, err)
 		}
-		return
-	}
-
-	// Only creator or admin can delete
-	if resource.CreatedByID != user.ID && user.Role != "admin" {
-		response.Forbidden(c, "You are not authorized to delete this resource")
-		return
-	}
-
-	// Use service to delete
-	if err := h.service.Delete(c.Request.Context(), uint(id)); err != nil {
-		response.Error(c, err)
 		return
 	}
 
