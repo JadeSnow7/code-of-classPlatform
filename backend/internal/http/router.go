@@ -12,6 +12,7 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
@@ -28,8 +29,9 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, m
 
 	r.Use(middleware.RateLimitByIP(globalLimiter))
 
-	r.GET("/healthz", func(c *gin.Context) {
-		respondOK(c, gin.H{"status": "ok"})
+	// Health check
+	r.GET("/health", func(c *gin.Context) {
+		response.OK(c, gin.H{"status": "ok"})
 	})
 
 	// Initialize services for migrated handlers
