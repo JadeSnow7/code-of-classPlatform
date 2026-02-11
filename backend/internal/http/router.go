@@ -10,6 +10,8 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/http/routes"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
@@ -30,21 +32,34 @@ func NewRouter(cfg config.Config, gormDB *gorm.DB, aiClient *clients.AIClient, m
 		respondOK(c, gin.H{"status": "ok"})
 	})
 
+	// Initialize services for migrated handlers
+	resourceRepo := repositories.NewResourceRepository(gormDB)
+	resourceService := services.NewResourceService(resourceRepo)
+
+	announcementRepo := repositories.NewAnnouncementRepository(gormDB)
+	announcementService := services.NewAnnouncementService(announcementRepo)
+
+	learningProfileRepo := repositories.NewLearningProfileRepository(gormDB)
+	learningProfileService := services.NewLearningProfileService(learningProfileRepo)
+
+	globalProfileRepo := repositories.NewGlobalProfileRepository(gormDB)
+	globalProfileService := services.NewGlobalProfileService(globalProfileRepo)
+
 	// Initialize handlers
 	hAuth := newAuthHandlers(gormDB, cfg.JWTSecret)
 	hCourse := newCourseHandlers(gormDB)
 	hAI := newAIHandlers(aiClient)
 	hAssignment := newAssignmentHandlers(gormDB, aiClient)
-	hResource := newResourceHandlers(gormDB)
+	hResource := newResourceHandlers(resourceService, gormDB) // MIGRATED: uses service
 	hUpload := newUploadHandlers(gormDB, minioClient)
 	hQuiz := newQuizHandlers(gormDB)
 	hUser := newUserHandlers(gormDB)
 	hChapter := newChapterHandlers(gormDB)
-	hAnnouncement := newAnnouncementHandlers(gormDB)
+	hAnnouncement := newAnnouncementHandlers(announcementService, gormDB) // MIGRATED: uses service
 	hAttendance := newAttendanceHandlers(gormDB)
-	hLearningProfile := newLearningProfileHandlers(gormDB)
+	hLearningProfile := newLearningProfileHandlers(learningProfileService) // MIGRATED: uses service
 	hAdmin := newAdminHandlers(gormDB)
-	hGlobalProfile := newGlobalProfileHandlers(gormDB)
+	hGlobalProfile := newGlobalProfileHandlers(globalProfileService, gormDB) // MIGRATED: uses service
 	hWriting := newWritingHandlers(gormDB, aiClient)
 
 	// WeChat Work client (optional)
