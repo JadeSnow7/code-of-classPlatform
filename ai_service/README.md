@@ -30,12 +30,12 @@ uvicorn app.main:app --reload --port 8001
 
 ```
 app/
-├── main.py           # 应用入口
-├── graphrag/         # 图RAG实现
-│   ├── build.py      # 知识图谱构建
-│   ├── index.py      # 索引管理
-│   └── retrieve.py   # 检索服务
-└── models/           # 数据模型
+├── main.py                # App factory + router 注册
+├── core/                  # 路由/审计/上游请求/迁移开关
+├── services/              # 业务服务层（chat/hybrid/tools/guided/writing）
+├── routers/               # HTTP 路由层（支持 modular -> legacy fallback）
+├── graphrag/              # 图RAG实现
+└── legacy*.py             # legacy 兼容适配与回退实现
 ```
 
 ## 主要功能
@@ -51,6 +51,9 @@ app/
 - `LLM_BASE_URL`: OpenAI-compatible Base URL（如 OpenAI/DashScope/Ollama 等）
 - `LLM_API_KEY`: API Key（本地模型可填占位值）
 - `LLM_MODEL`: 模型名（如 `qwen-plus`）
+- `AI_SERVICE_HANDLER_IMPL`: `modular|legacy`，默认 `modular`
+- `AI_SERVICE_LEGACY_FALLBACK`: `true|false`，modular 异常时是否回退 legacy
+- `AI_SERVICE_LEGACY_FALLBACK_ENDPOINTS`: 允许回退的端点集合（逗号分隔）
 - `AI_MULTIMODAL_ENABLED`: 是否启用多模态端点（`true/false`）
 - `RERANKER_ENABLED`: 是否启用 reranker（本阶段默认 `false`）
 - `LLM_*_TEXT_*`: 文本模型上游配置（local/cloud）

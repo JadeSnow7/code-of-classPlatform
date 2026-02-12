@@ -9,12 +9,18 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import main
+from app.core import audit as audit_core
+from app.core import upstream as upstream_core
+from app.services import hybrid_service
 
 
 @pytest.fixture(autouse=True)
 def reset_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_ROUTING_POLICY", "local_first")
     monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("AI_SERVICE_HANDLER_IMPL", "modular")
+    monkeypatch.setenv("AI_SERVICE_LEGACY_FALLBACK", "true")
+    monkeypatch.setenv("AI_SERVICE_LEGACY_FALLBACK_ENDPOINTS", "chat,multimodal,hybrid,tools,guided,writing,index")
     monkeypatch.delenv("AI_GATEWAY_SHARED_TOKEN", raising=False)
     monkeypatch.delenv("LLM_ENABLE_CLOUD_FALLBACK_NONPROD", raising=False)
     monkeypatch.delenv("LLM_BASE_URL_CLOUD", raising=False)
@@ -37,7 +43,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     async def fake_post(payload: dict, decision: main.RoutingDecision):
         return {"choices": [{"message": {"content": "ok"}}]}, "local", "", "local-model"
 
-    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_with_routing", fake_post)
     return TestClient(main.app)
 
 
@@ -87,7 +93,7 @@ async def test_private_request_timeout_does_not_fallback(monkeypatch: pytest.Mon
     async def timeout_once(payload: dict, *, upstream: str):
         raise httpx.ReadTimeout("timeout")
 
-    monkeypatch.setattr(main, "_post_chat_completions_once", timeout_once)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_once", timeout_once)
 
     decision = main.RoutingDecision(
         request_id="r1",
@@ -121,7 +127,7 @@ async def test_public_trusted_prod_timeout_fallbacks_to_cloud(monkeypatch: pytes
         request = httpx.Request("POST", "https://cloud.example.com/v1/chat/completions")
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}, request=request), "cloud-model"
 
-    monkeypatch.setattr(main, "_post_chat_completions_once", fake_once)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_once", fake_once)
 
     decision = main.RoutingDecision(
         request_id="r2",
@@ -151,7 +157,7 @@ async def test_nonprod_default_disables_fallback(monkeypatch: pytest.MonkeyPatch
     async def timeout_once(payload: dict, *, upstream: str):
         raise httpx.ReadTimeout("timeout")
 
-    monkeypatch.setattr(main, "_post_chat_completions_once", timeout_once)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_once", timeout_once)
 
     decision = main.RoutingDecision(
         request_id="r3",
@@ -183,18 +189,18 @@ def test_hybrid_embedding_route_inherits_chat_route(monkeypatch: pytest.MonkeyPa
         return {"choices": [{"message": {"content": "ok"}}]}, "cloud", "", "cloud-model"
 
     async def fake_hybrid(*args, **kwargs):
-        return ""
+        return "ctx"
 
-    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
-    monkeypatch.setattr(main, "_load_graphrag_index", lambda _path: DummyIndex())
-    monkeypatch.setattr(main, "build_rag_context_hybrid", fake_hybrid)
-    monkeypatch.setattr(main, "_get_vector_store", lambda route="local": object())
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_with_routing", fake_post)
+    monkeypatch.setattr(hybrid_service.graphrag_core, "_load_graphrag_index", lambda _path: DummyIndex())
+    monkeypatch.setattr(hybrid_service, "build_rag_context_hybrid", fake_hybrid)
+    monkeypatch.setattr(hybrid_service.graphrag_core, "_get_vector_store", lambda route="local": object())
 
     def fake_get_embedding(route="local"):
         captured.append(route)
         return object()
 
-    monkeypatch.setattr(main, "_get_embedding", fake_get_embedding)
+    monkeypatch.setattr(hybrid_service.graphrag_core, "_get_embedding", fake_get_embedding)
 
     with TestClient(main.app) as test_client:
         resp = test_client.post(
@@ -229,7 +235,7 @@ def test_multimodal_text_routes_to_qwen3(monkeypatch: pytest.MonkeyPatch) -> Non
         captured.append(kwargs.get("model_family", "qwen3"))
         return {"choices": [{"message": {"content": "ok"}}]}, "local", "", "text-model"
 
-    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_with_routing", fake_post)
 
     with TestClient(main.app) as test_client:
         resp = test_client.post(
@@ -249,7 +255,7 @@ def test_multimodal_image_routes_to_qwen3_vl(monkeypatch: pytest.MonkeyPatch) ->
         captured.append(kwargs.get("model_family", "qwen3"))
         return {"choices": [{"message": {"content": "ok"}}]}, "local", "", "vl-model"
 
-    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fake_post)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_with_routing", fake_post)
 
     with TestClient(main.app) as test_client:
         resp = test_client.post(
@@ -299,7 +305,7 @@ async def test_multimodal_fallback_uses_same_family(monkeypatch: pytest.MonkeyPa
         request = httpx.Request("POST", "https://cloud.example.com/v1/chat/completions")
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]}, request=request), "cloud-vl-model"
 
-    monkeypatch.setattr(main, "_post_chat_completions_once", fake_once)
+    monkeypatch.setattr(upstream_core, "_post_chat_completions_once", fake_once)
 
     decision = main.RoutingDecision(
         request_id="r-vl",
@@ -328,7 +334,7 @@ async def test_multimodal_fallback_uses_same_family(monkeypatch: pytest.MonkeyPa
 
 def test_audit_event_contains_required_fields(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="ai_service.audit")
-    main._audit_event(
+    audit_core._audit_event(
         event="routing_decision",
         request_id="rid",
         request_id_source="generated",
