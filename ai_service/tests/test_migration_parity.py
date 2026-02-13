@@ -124,6 +124,29 @@ def test_multimodal_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch)
     assert resp.json()["reply"] == "legacy-mm"
 
 
+def test_multimodal_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "multimodal")
+    monkeypatch.setenv("AI_MULTIMODAL_ENABLED", "true")
+
+    async def crash_modular(*_args, **_kwargs):
+        raise RuntimeError("multimodal crash")
+
+    async def fake_post(payload: dict, decision, **_kwargs):
+        return {"choices": [{"message": {"content": "legacy-mm-safe"}}]}, "local", "", "legacy-mm-model"
+
+    monkeypatch.setattr(chat_service, "chat_multimodal", crash_modular)
+    monkeypatch.setattr(legacy_impl, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as client:
+        resp = client.post(
+            "/v1/chat/multimodal",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "legacy-mm-safe"
+
+
 def test_hybrid_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_fallback(monkeypatch, "hybrid")
     captured: dict[str, str | None] = {}

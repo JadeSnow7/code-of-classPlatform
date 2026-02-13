@@ -21,9 +21,15 @@ from app.core import contracts
 from app.core import graphrag_runtime as graphrag_core
 from app.core import routing as routing_core
 from app.core import upstream as upstream_core
+from app.model_router import (
+    needs_vision as payload_needs_vision,
+    normalize_requested_model_family,
+    resolve_model_family,
+    validate_message_parts,
+)
 from app.writing_concepts import WRITING_TYPES
 from app.writing_prompts import get_writing_analysis_prompt
-from app.services import chat_service, guided_service, hybrid_service, tools_service, writing_service
+from app.services import chat_service, guided_service, tools_service
 
 load_dotenv()
 
@@ -33,7 +39,6 @@ app = FastAPI(title="AI Service", version="0.2.0")
 # compatibility path even when modular handlers are monkeypatched in tests.
 _healthz_impl = chat_service.healthz
 _list_skills_impl = chat_service.list_skills
-_chat_multimodal_impl = chat_service.chat_multimodal
 _chat_with_tools_impl = tools_service.chat_with_tools
 _add_to_index_impl = tools_service.add_to_index
 _delete_from_index_impl = tools_service.delete_from_index
@@ -243,7 +248,115 @@ async def chat_multimodal(
     request: Request,
     response: Response,
 ) -> ChatResponse | StreamingResponse:
-    return await _chat_multimodal_impl(req, request, response)
+    started_at = time.monotonic()
+    decision = _build_routing_decision(
+        request,
+        endpoint="/v1/chat/multimodal",
+        mode=req.mode,
+        body_privacy=req.privacy,
+        body_route=req.route,
+    )
+    response.headers["X-Request-ID"] = decision.request_id
+
+    try:
+        requested_family = normalize_requested_model_family(req.model_family)
+    except ValueError as exc:
+        _audit_request_complete(
+            decision,
+            status_code=400,
+            final_upstream="none",
+            fallback_reason="invalid_model_family",
+            started_at=started_at,
+            model_family_requested=req.model_family or "",
+            model_family_resolved="",
+            needs_vision=False,
+        )
+        _raise_api_error(400, "INVALID_MODEL_FAMILY", str(exc), decision.request_id)
+
+    if not _get_bool_env("AI_MULTIMODAL_ENABLED", default=False):
+        _audit_request_complete(
+            decision,
+            status_code=503,
+            final_upstream="none",
+            fallback_reason="multimodal_disabled",
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved="",
+            needs_vision=False,
+        )
+        _raise_api_error(503, "FEATURE_DISABLED", "multimodal endpoint is disabled", decision.request_id)
+
+    raw_messages: list[dict[str, Any]] = []
+    for index, message in enumerate(req.messages):
+        message_dict = message.model_dump(exclude_none=True)
+        try:
+            validate_message_parts(message_dict)
+        except ValueError as exc:
+            _audit_request_complete(
+                decision,
+                status_code=400,
+                final_upstream="none",
+                fallback_reason="invalid_multimodal_message",
+                started_at=started_at,
+                model_family_requested=requested_family,
+                model_family_resolved="",
+                needs_vision=False,
+            )
+            _raise_api_error(
+                400,
+                "INVALID_MULTIMODAL_MESSAGE",
+                "messages[{0}] {1}".format(index, exc),
+                decision.request_id,
+            )
+        raw_messages.append(message_dict)
+
+    needs_vision = payload_needs_vision(raw_messages)
+    model_family = resolve_model_family(requested_family, needs_vision_input=needs_vision)
+
+    system = _system_prompt(req.mode)
+    messages: list[dict[str, Any]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    for message in req.messages:
+        messages.append(_to_openai_multimodal_message(message))
+
+    payload: dict[str, Any] = {"messages": messages, "temperature": 0.2}
+    final_upstream = "none"
+    fallback_reason = ""
+    try:
+        data, final_upstream, fallback_reason, model = await _post_chat_completions_with_routing(
+            payload,
+            decision,
+            model_family=model_family,
+            model_family_requested=requested_family,
+            needs_vision=needs_vision,
+        )
+        content = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream=final_upstream,
+            fallback_reason=fallback_reason,
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved=model_family,
+            needs_vision=needs_vision,
+        )
+        if req.stream:
+            return await _stream_single_response(request_id=decision.request_id, model=model, reply=content)
+        return ChatResponse(reply=content, model=model)
+    except HTTPException as exc:
+        _audit_request_complete(
+            decision,
+            status_code=exc.status_code,
+            final_upstream=final_upstream,
+            fallback_reason=fallback_reason or "request_failed",
+            started_at=started_at,
+            model_family_requested=requested_family,
+            model_family_resolved=model_family,
+            needs_vision=needs_vision,
+        )
+        raise
 
 
 @app.post("/v1/chat/hybrid", response_model=None)
