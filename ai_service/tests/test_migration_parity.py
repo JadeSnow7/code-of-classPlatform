@@ -5,7 +5,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app import legacy, main
+from app import legacy, legacy_impl, main
 from app.core.contracts import (
     ChatResponse,
     ChatWithToolsResponse,
@@ -13,7 +13,6 @@ from app.core.contracts import (
     IndexDocumentResponse,
     WritingAnalysisResponse,
 )
-from app.core import upstream as upstream_core
 from app.core.migration import (
     handler_impl,
     legacy_fallback_enabled,
@@ -94,7 +93,7 @@ def test_chat_router_fallback_uses_bound_legacy_impl(monkeypatch: pytest.MonkeyP
         return {"choices": [{"message": {"content": "legacy-bound-ok"}}]}, "local", "", "legacy-model"
 
     monkeypatch.setattr(chat_service, "chat", crash_modular)
-    monkeypatch.setattr(upstream_core, "_post_chat_completions_with_routing", fake_post)
+    monkeypatch.setattr(legacy_impl, "_post_chat_completions_with_routing", fake_post)
 
     with TestClient(main.app) as client:
         resp = client.post("/v1/chat", json={"messages": [{"role": "user", "content": "hello"}]})
@@ -151,6 +150,29 @@ def test_hybrid_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> 
     assert resp.json()["reply"] == "legacy-hybrid"
     assert captured["course_id"] == "C001"
     assert captured["user_role"] == "student"
+
+
+def test_hybrid_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "hybrid")
+
+    async def crash_modular(*_args, **_kwargs):
+        raise RuntimeError("hybrid crash")
+
+    async def fake_post(payload: dict, decision, **_kwargs):
+        return {"choices": [{"message": {"content": "legacy-hybrid-safe"}}]}, "local", "", "legacy-model"
+
+    monkeypatch.setattr(hybrid_service, "chat_hybrid", crash_modular)
+    monkeypatch.setattr(legacy_impl, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as client:
+        resp = client.post(
+            "/v1/chat/hybrid",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+            headers={"X-Course-Id": "C001", "X-User-Role": "student"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "legacy-hybrid-safe"
 
 
 def test_tools_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,6 +275,40 @@ def test_writing_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) ->
 
     assert resp.status_code == 200
     assert resp.json()["model"] == "legacy-model"
+
+
+def test_writing_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "writing")
+
+    async def crash_modular(*_args, **_kwargs):
+        raise RuntimeError("writing crash")
+
+    async def fake_post(payload: dict, decision, **_kwargs):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": "总体评分：8.5/10\n优点：\n- 结构清晰\n改进建议：\n- 强化论证链条"
+                    }
+                }
+            ]
+        }, "local", "", "legacy-writing-model"
+
+    monkeypatch.setattr(writing_service, "analyze_writing", crash_modular)
+    monkeypatch.setattr(legacy_impl, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as client:
+        resp = client.post(
+            "/v1/writing/analyze",
+            json={
+                "content": "A" * 100,
+                "writing_type": "course_paper",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["model"] == "legacy-writing-model"
+    assert resp.json()["overall_score"] == pytest.approx(8.5)
 
 
 def test_index_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
