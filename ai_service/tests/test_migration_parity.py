@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import legacy, legacy_impl, main
+from app.legacy_runtime import guided_fallback, tools_fallback
 from app.core.contracts import (
     ChatResponse,
     ChatWithToolsResponse,
@@ -229,6 +230,33 @@ def test_tools_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> N
     assert resp.json()["reply"] == "legacy-tools"
 
 
+def test_tools_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "tools")
+
+    async def crash_modular(*_args, **_kwargs):
+        raise RuntimeError("tools crash")
+
+    async def fake_post(payload: dict, decision, **_kwargs):
+        return {"choices": [{"message": {"content": "legacy-tools-safe"}}]}, "local", "", "legacy-tools-model"
+
+    monkeypatch.setattr(tools_service, "chat_with_tools", crash_modular)
+    monkeypatch.setattr(tools_fallback.upstream_core, "_post_chat_completions_with_routing", fake_post)
+
+    with TestClient(main.app) as client:
+        resp = client.post(
+            "/v1/chat_with_tools",
+            json={
+                "messages": [{"role": "user", "content": "请帮我算一下"}],
+                "enable_tools": True,
+                "max_tool_calls": 3,
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "legacy-tools-safe"
+    assert resp.json()["model"] == "legacy-tools-model"
+
+
 def test_guided_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_fallback(monkeypatch, "guided")
 
@@ -263,6 +291,50 @@ def test_guided_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert resp.status_code == 200
     assert resp.json()["reply"] == "legacy-guided"
+
+
+def test_guided_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "guided")
+    counter = {"n": 0}
+
+    async def crash_modular(*_args, **_kwargs):
+        raise RuntimeError("guided crash")
+
+    async def fake_call(*_args, **_kwargs):
+        counter["n"] += 1
+        if counter["n"] == 1:
+            return (
+                '{"steps":[{"step":1,"title":"基础概念","description":"先理解基本概念"}]}',
+                [],
+                "legacy-guided-model",
+                "local",
+                "",
+            )
+        return (
+            "legacy-guided-safe",
+            [],
+            "legacy-guided-model",
+            "local",
+            "",
+        )
+
+    monkeypatch.setattr(guided_service, "chat_guided", crash_modular)
+    monkeypatch.setattr(guided_fallback, "_call_llm_with_tools", fake_call)
+    monkeypatch.setattr(guided_fallback, "detect_weak_points", lambda _reply: [])
+
+    with TestClient(main.app) as client:
+        resp = client.post(
+            "/v1/chat/guided",
+            json={
+                "messages": [{"role": "user", "content": "hello"}],
+                "user_id": "u-guided-independent",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "legacy-guided-safe"
+    assert resp.json()["model"] == "legacy-guided-model"
+    assert resp.json()["session_id"]
 
 
 def test_writing_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -369,6 +441,37 @@ def test_index_router_falls_back_to_legacy(monkeypatch: pytest.MonkeyPatch) -> N
     assert resp_add.json()["message"] == "legacy-add"
     assert resp_delete.status_code == 200
     assert resp_delete.json()["message"] == "legacy-delete"
+
+
+def test_index_router_fallback_uses_legacy_impl(monkeypatch: pytest.MonkeyPatch) -> None:
+    _enable_fallback(monkeypatch, "index")
+
+    async def crash_add(*_args, **_kwargs):
+        raise RuntimeError("index add crash")
+
+    async def crash_delete(*_args, **_kwargs):
+        raise RuntimeError("index delete crash")
+
+    monkeypatch.setattr(tools_service, "add_to_index", crash_add)
+    monkeypatch.setattr(tools_service, "delete_from_index", crash_delete)
+
+    with TestClient(main.app) as client:
+        resp_add = client.post(
+            "/v1/graphrag/index",
+            json={
+                "doc_id": "d1",
+                "content": "hello world",
+                "source": "assignment:1",
+            },
+        )
+        resp_delete = client.request("DELETE", "/v1/graphrag/index", json={"doc_id": "d1"})
+
+    assert resp_add.status_code == 200
+    assert resp_add.json()["success"] is False
+    assert resp_add.json()["message"] == "GraphRAG is not enabled"
+    assert resp_delete.status_code == 200
+    assert resp_delete.json()["success"] is False
+    assert resp_delete.json()["message"] == "GraphRAG is not enabled"
 
 
 @pytest.mark.parametrize(

@@ -21,6 +21,7 @@ from app.core import contracts
 from app.core import graphrag_runtime as graphrag_core
 from app.core import routing as routing_core
 from app.core import upstream as upstream_core
+from app.legacy_runtime import guided_fallback, tools_fallback
 from app.model_router import (
     needs_vision as payload_needs_vision,
     normalize_requested_model_family,
@@ -29,7 +30,7 @@ from app.model_router import (
 )
 from app.writing_concepts import WRITING_TYPES
 from app.writing_prompts import get_writing_analysis_prompt
-from app.services import chat_service, guided_service, tools_service
+from app.services import chat_service
 
 load_dotenv()
 
@@ -39,10 +40,6 @@ app = FastAPI(title="AI Service", version="0.2.0")
 # compatibility path even when modular handlers are monkeypatched in tests.
 _healthz_impl = chat_service.healthz
 _list_skills_impl = chat_service.list_skills
-_chat_with_tools_impl = tools_service.chat_with_tools
-_add_to_index_impl = tools_service.add_to_index
-_delete_from_index_impl = tools_service.delete_from_index
-_chat_guided_impl = guided_service.chat_guided
 
 
 @app.on_event("startup")
@@ -126,9 +123,9 @@ invalidate_graphrag_cache = graphrag_core.invalidate_graphrag_cache
 _build_graphrag_system_message = graphrag_core._build_graphrag_system_message
 
 # Service-internal helpers surfaced for compatibility tests.
-_build_tool_prompt = tools_service._build_tool_prompt
-_parse_learning_path = guided_service._parse_learning_path
-_call_llm_with_tools = guided_service._call_llm_with_tools
+_build_tool_prompt = tools_fallback._build_tool_prompt
+_parse_learning_path = guided_fallback._parse_learning_path
+_call_llm_with_tools = guided_fallback._call_llm_with_tools
 
 
 async def _stream_single_response(
@@ -389,17 +386,17 @@ async def chat_with_tools(
     request: Request,
     response: Response,
 ) -> ChatWithToolsResponse:
-    return await _chat_with_tools_impl(req, request, response)
+    return await tools_fallback.chat_with_tools(req, request, response)
 
 
 @app.post("/v1/graphrag/index", response_model=IndexDocumentResponse)
 async def add_to_index(req: IndexDocumentRequest) -> IndexDocumentResponse:
-    return await _add_to_index_impl(req)
+    return await tools_fallback.add_to_index(req)
 
 
 @app.delete("/v1/graphrag/index", response_model=IndexDocumentResponse)
 async def delete_from_index(req: DeleteDocumentRequest) -> IndexDocumentResponse:
-    return await _delete_from_index_impl(req)
+    return await tools_fallback.delete_from_index(req)
 
 
 @app.post("/v1/chat/guided", response_model=GuidedChatResponse)
@@ -408,7 +405,7 @@ async def chat_guided(
     request: Request,
     response: Response,
 ) -> GuidedChatResponse:
-    return await _chat_guided_impl(req, request, response)
+    return await guided_fallback.chat_guided(req, request, response)
 
 
 @app.post("/v1/writing/analyze", response_model=WritingAnalysisResponse)
