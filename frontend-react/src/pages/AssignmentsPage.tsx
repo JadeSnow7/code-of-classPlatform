@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { FileText, Plus, Calendar, User, ChevronRight, Loader2 } from 'lucide-react';
+import { FileText, Plus, Calendar, User, ChevronRight } from 'lucide-react';
 import { assignmentApi, type Assignment } from '@/api/assignment';
 import { authStore } from '@/lib/auth-store';
+import { List, Typography, Button, Spin, Alert, Modal, Form, Input, Space, message } from 'antd';
+
+const { Title, Text, Paragraph } = Typography;
 
 export function AssignmentsPage() {
     const { courseId } = useParams<{ courseId: string }>();
@@ -22,8 +25,8 @@ export function AssignmentsPage() {
             const data = await assignmentApi.listByCourse(parseInt(courseId));
             setAssignments(data);
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Failed to load assignments';
-            setError(message);
+            const msg = err instanceof Error ? err.message : 'Failed to load assignments';
+            setError(msg);
         } finally {
             setIsLoading(false);
         }
@@ -34,26 +37,26 @@ export function AssignmentsPage() {
         void loadAssignments();
     }, [courseId, loadAssignments]);
 
-    const handleCreate = async (title: string, description: string) => {
+    const handleCreate = async (values: { title: string; description: string }) => {
         if (!courseId) return;
         try {
             await assignmentApi.create({
                 course_id: parseInt(courseId),
-                title,
-                description,
+                ...values,
             });
             setShowCreate(false);
+            message.success('作业发布成功');
             loadAssignments();
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : '创建失败';
-            alert('创建失败: ' + message);
+            const msg = err instanceof Error ? err.message : '创建失败';
+            message.error(msg);
         }
     };
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Spin size="large" />
             </div>
         );
     }
@@ -63,146 +66,110 @@ export function AssignmentsPage() {
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-white">作业列表</h1>
-                    <p className="text-gray-400 text-sm mt-1">
-                        共 {assignments.length} 个作业
-                    </p>
+                    <Title level={3} style={{ color: '#F8FAFC', margin: 0 }}>作业列表</Title>
+                    <Text style={{ color: '#94A3B8' }}>共 {assignments.length} 个作业</Text>
                 </div>
                 {canCreate && (
-                    <button
+                    <Button
+                        type="primary"
+                        icon={<Plus size={16} />}
                         onClick={() => setShowCreate(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                        style={{ backgroundColor: '#2563EB' }}
                     >
-                        <Plus className="w-4 h-4" />
                         发布作业
-                    </button>
+                    </Button>
                 )}
             </div>
 
             {/* Error */}
             {error && (
-                <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-6">
-                    {error}
-                </div>
-            )}
-
-            {/* Empty State */}
-            {assignments.length === 0 && !error && (
-                <div className="text-center py-16 text-gray-500">
-                    <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                    <p className="text-lg">暂无作业</p>
-                    {canCreate && (
-                        <p className="text-sm mt-2">点击上方按钮发布第一个作业</p>
-                    )}
-                </div>
+                <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
             )}
 
             {/* Assignment List */}
-            <div className="space-y-3">
-                {assignments.map((assignment) => (
-                    <Link
-                        key={assignment.ID}
-                        to={`/courses/${courseId}/assignments/${assignment.ID}`}
-                        className="block bg-gray-800/50 border border-gray-700 rounded-xl p-5 hover:border-blue-500/50 hover:bg-gray-800 transition-all group"
-                    >
-                        <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                                <h3 className="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">
-                                    {assignment.title}
-                                </h3>
-                                <p className="text-gray-400 text-sm mt-1 line-clamp-2">
-                                    {assignment.description || '暂无描述'}
-                                </p>
-                                <div className="flex items-center gap-4 mt-3 text-sm text-gray-500">
-                                    <div className="flex items-center gap-1">
-                                        <Calendar className="w-4 h-4" />
-                                        <span>
-                                            {assignment.deadline
-                                                ? new Date(assignment.deadline).toLocaleDateString('zh-CN')
-                                                : '无截止日期'}
-                                        </span>
+            <List
+                dataSource={assignments}
+                locale={{
+                    emptyText: (
+                        <div className="text-center py-16 text-gray-500">
+                            <FileText size={48} className="mx-auto mb-4 opacity-30" />
+                            <Title level={5} style={{ color: '#6B7280' }}>暂无作业</Title>
+                            {canCreate && <Text style={{ color: '#6B7280' }}>点击上方按钮发布第一个作业</Text>}
+                        </div>
+                    )
+                }}
+                renderItem={(assignment) => (
+                    <List.Item style={{ padding: 0, borderBottom: 'none', marginBottom: 12 }}>
+                        <Link
+                            to={`/courses/${courseId}/assignments/${assignment.ID}`}
+                            className="w-full block transition-all group"
+                        >
+                            <div
+                                style={{
+                                    background: 'rgba(31, 41, 55, 0.5)',
+                                    border: '1px solid #374151',
+                                    borderRadius: 12,
+                                    padding: 20
+                                }}
+                                className="hover:border-blue-500/50 hover:bg-gray-800"
+                            >
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                        <Title level={5} className="group-hover:text-blue-400 transition-colors" style={{ color: '#F8FAFC', marginBottom: 8 }}>
+                                            {assignment.title}
+                                        </Title>
+                                        <Paragraph ellipsis={{ rows: 2 }} style={{ color: '#94A3B8', marginBottom: 12 }}>
+                                            {assignment.description || '暂无描述'}
+                                        </Paragraph>
+                                        <Space size="large" style={{ color: '#6B7280', fontSize: 14 }}>
+                                            <Space size="small">
+                                                <Calendar size={14} />
+                                                <span>
+                                                    {assignment.deadline
+                                                        ? new Date(assignment.deadline).toLocaleDateString('zh-CN')
+                                                        : '无截止日期'}
+                                                </span>
+                                            </Space>
+                                            <Space size="small">
+                                                <User size={14} />
+                                                <span>教师 #{assignment.teacher_id}</span>
+                                            </Space>
+                                        </Space>
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <User className="w-4 h-4" />
-                                        <span>教师 #{assignment.teacher_id}</span>
-                                    </div>
+                                    <ChevronRight size={20} className="text-gray-600 group-hover:text-blue-400 transition-colors" />
                                 </div>
                             </div>
-                            <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-blue-400 transition-colors" />
-                        </div>
-                    </Link>
-                ))}
-            </div>
+                        </Link>
+                    </List.Item>
+                )}
+            />
 
             {/* Create Modal */}
-            {showCreate && (
-                <CreateAssignmentModal
-                    onClose={() => setShowCreate(false)}
-                    onCreate={handleCreate}
-                />
-            )}
-        </div>
-    );
-}
-
-function CreateAssignmentModal({
-    onClose,
-    onCreate,
-}: {
-    onClose: () => void;
-    onCreate: (title: string, description: string) => void;
-}) {
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!title.trim()) return;
-        onCreate(title, description);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
-                <h2 className="text-xl font-bold text-white mb-4">发布新作业</h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">作业标题 *</label>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="输入作业标题"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">描述</label>
-                        <textarea
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-none"
-                            placeholder="输入作业描述"
-                        />
-                    </div>
-                    <div className="flex gap-3 pt-2">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
-                        >
-                            取消
-                        </button>
-                        <button
-                            type="submit"
-                            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
-                        >
-                            发布
-                        </button>
-                    </div>
-                </form>
-            </div>
+            <Modal
+                title="发布新作业"
+                open={showCreate}
+                onCancel={() => setShowCreate(false)}
+                footer={null}
+            >
+                <Form layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
+                    <Form.Item
+                        name="title"
+                        label="作业标题"
+                        rules={[{ required: true, message: '请填写作业标题' }]}
+                    >
+                        <Input placeholder="输入作业标题" size="large" />
+                    </Form.Item>
+                    <Form.Item name="description" label="描述">
+                        <Input.TextArea placeholder="输入作业描述" rows={4} />
+                    </Form.Item>
+                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                        <Space>
+                            <Button onClick={() => setShowCreate(false)}>取消</Button>
+                            <Button type="primary" htmlType="submit" style={{ backgroundColor: '#2563EB' }}>发布</Button>
+                        </Space>
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div>
     );
 }

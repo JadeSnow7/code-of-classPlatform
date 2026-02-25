@@ -6,6 +6,9 @@ import { attendanceApi } from '@/api/attendance';
 import { assignmentApi } from '@/api/assignment';
 import { useAuth } from '@/domains/auth/useAuth';
 import { logger } from '@/lib/logger';
+import { Typography, Row, Col, Card, Statistic, Space } from 'antd';
+
+const { Title, Text, Paragraph } = Typography;
 
 export function OverviewPage() {
     const { course } = useCourse();
@@ -37,56 +40,96 @@ export function OverviewPage() {
     }, [course?.ID]);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadStats();
     }, [loadStats]);
 
     return (
-        <div className="p-6 space-y-6">
-            {/* Hero */}
-            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl p-8 border border-blue-500/20">
-                <h1 className="text-3xl font-bold text-white mb-2">{course?.name}</h1>
-                <p className="text-gray-300">暂无描述</p>
-                <div className="flex items-center gap-2 mt-4 text-gray-400">
-                    <Users className="w-4 h-4" />
-                    <span>授课教师ID: {course?.teacher_id}</span>
-                </div>
-            </div>
-
-            {/* Quick stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-600/20 flex items-center justify-center">
-                            <Megaphone className="w-5 h-5 text-blue-400" />
-                        </div>
-                        <span className="text-gray-300 font-medium">公告</span>
-                    </div>
-                    <p className="text-2xl font-bold text-white">{stats.unreadAnnouncements}</p>
-                    <p className="text-sm text-gray-500">条未读公告</p>
+        <div className="p-6">
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {/* Hero */}
+                <div
+                    style={{
+                        background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(124, 58, 237, 0.2))',
+                        borderRadius: 16,
+                        padding: 32,
+                        border: '1px solid rgba(59, 130, 246, 0.2)'
+                    }}
+                >
+                    <Title level={2} style={{ color: '#F8FAFC', marginTop: 0 }}>{course?.name}</Title>
+                    <Paragraph style={{ color: '#CBD5E1' }}>暂无描述</Paragraph>
+                    <Space style={{ color: '#94A3B8', marginTop: 16 }}>
+                        <Users size={16} />
+                        <Text style={{ color: '#94A3B8' }}>授课教师ID: {course?.teacher_id}</Text>
+                    </Space>
                 </div>
 
-                <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-lg bg-green-600/20 flex items-center justify-center">
-                            <Calendar className="w-5 h-5 text-green-400" />
-                        </div>
-                        <span className="text-gray-300 font-medium">{user?.role === 'student' ? '待提交作业' : '待批改作业'}</span>
-                    </div>
-                    <p className="text-2xl font-bold text-white">{stats.pendingAssignments}</p>
-                    <p className="text-sm text-gray-500">项</p>
-                </div>
+                {/* Quick stats */}
+                <Row gutter={[16, 16]}>
+                    <Col xs={24} md={8}>
+                        <Card
+                            bordered={false}
+                            style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid #374151', borderRadius: 12 }}
+                        >
+                            <Statistic
+                                title={
+                                    <Space>
+                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Megaphone size={16} color="#60A5FA" />
+                                        </div>
+                                        <Text style={{ color: '#D1D5DB' }}>公告</Text>
+                                    </Space>
+                                }
+                                value={stats.unreadAnnouncements}
+                                suffix={<span style={{ fontSize: 14, color: '#6B7280', marginLeft: 8 }}>条未读公告</span>}
+                                valueStyle={{ color: '#F8FAFC', fontWeight: 'bold' }}
+                            />
+                        </Card>
+                    </Col>
 
-                <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-10 h-10 rounded-lg bg-purple-600/20 flex items-center justify-center">
-                            <UserCheck className="w-5 h-5 text-purple-400" />
-                        </div>
-                        <span className="text-gray-300 font-medium">签到</span>
-                    </div>
-                    <p className="text-2xl font-bold text-white">{stats.attendanceRate}%</p>
-                    <p className="text-sm text-gray-500">出勤率</p>
-                </div>
-            </div>
+                    <Col xs={24} md={8}>
+                        <Card
+                            bordered={false}
+                            style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid #374151', borderRadius: 12 }}
+                        >
+                            <Statistic
+                                title={
+                                    <Space>
+                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Calendar size={16} color="#34D399" />
+                                        </div>
+                                        <Text style={{ color: '#D1D5DB' }}>{user?.role === 'student' ? '待提交作业' : '待批改作业'}</Text>
+                                    </Space>
+                                }
+                                value={stats.pendingAssignments}
+                                suffix={<span style={{ fontSize: 14, color: '#6B7280', marginLeft: 8 }}>项</span>}
+                                valueStyle={{ color: '#F8FAFC', fontWeight: 'bold' }}
+                            />
+                        </Card>
+                    </Col>
+
+                    <Col xs={24} md={8}>
+                        <Card
+                            bordered={false}
+                            style={{ background: 'rgba(31, 41, 55, 0.5)', border: '1px solid #374151', borderRadius: 12 }}
+                        >
+                            <Statistic
+                                title={
+                                    <Space>
+                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(167, 139, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <UserCheck size={16} color="#A78BFA" />
+                                        </div>
+                                        <Text style={{ color: '#D1D5DB' }}>签到</Text>
+                                    </Space>
+                                }
+                                value={stats.attendanceRate}
+                                suffix={<span style={{ fontSize: 14, color: '#6B7280', marginLeft: 8 }}>% 出勤率</span>}
+                                valueStyle={{ color: '#F8FAFC', fontWeight: 'bold' }}
+                            />
+                        </Card>
+                    </Col>
+                </Row>
+            </Space>
         </div>
     );
 }

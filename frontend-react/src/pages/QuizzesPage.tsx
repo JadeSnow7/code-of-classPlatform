@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import {
-    ClipboardList, Plus, Clock,
-    AlertCircle, Loader2, Trophy
-} from 'lucide-react';
+import { ClipboardList, Plus, Clock, Trophy } from 'lucide-react';
 import { quizApi, type Quiz, type QuizWithAttempt } from '@/api/quiz';
 import { authStore } from '@/lib/auth-store';
+import { List, Typography, Button, Spin, Alert, Modal, Form, Input, InputNumber, Space, Tag, Card } from 'antd';
+
+const { Title, Text, Paragraph } = Typography;
 
 export function QuizzesPage() {
     const { courseId } = useParams<{ courseId: string }>();
@@ -38,14 +38,14 @@ export function QuizzesPage() {
         void loadQuizzes();
     }, [courseId, loadQuizzes]);
 
-    const handleCreate = async (title: string, description: string, timeLimit: number) => {
+    const handleCreate = async (values: { title: string; description: string; timeLimit: number }) => {
         if (!courseId) return;
         try {
             const quiz = await quizApi.create({
                 course_id: parseInt(courseId),
-                title,
-                description,
-                time_limit: timeLimit,
+                title: values.title,
+                description: values.description,
+                time_limit: values.timeLimit || 0,
                 max_attempts: 1,
             });
             setShowCreate(false);
@@ -59,197 +59,161 @@ export function QuizzesPage() {
     const getQuizStatus = (quiz: Quiz | QuizWithAttempt) => {
         const now = new Date();
         if (!quiz.is_published) {
-            return { label: '草稿', color: 'bg-gray-500/20 text-gray-400' };
+            return { label: '草稿', color: 'default' };
         }
         if (quiz.start_time && new Date(quiz.start_time) > now) {
-            return { label: '未开始', color: 'bg-yellow-500/20 text-yellow-400' };
+            return { label: '未开始', color: 'warning' };
         }
         if (quiz.end_time && new Date(quiz.end_time) < now) {
-            return { label: '已结束', color: 'bg-red-500/20 text-red-400' };
+            return { label: '已结束', color: 'error' };
         }
-        return { label: '进行中', color: 'bg-green-500/20 text-green-400' };
+        return { label: '进行中', color: 'success' };
     };
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-64">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            <div className="flex items-center justify-center min-h-[50vh]">
+                <Spin size="large" />
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="text-center py-12">
-                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                <p className="text-gray-400">{error}</p>
+            <div className="p-6">
+                <Alert message={error} type="error" showIcon />
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <ClipboardList className="w-6 h-6 text-purple-400" />
-                    <h1 className="text-2xl font-bold text-white">在线测验</h1>
-                </div>
+                <Space size="middle">
+                    <div style={{ background: 'rgba(167, 139, 250, 0.2)', padding: 8, borderRadius: 8 }}>
+                        <ClipboardList className="w-6 h-6 text-purple-400" />
+                    </div>
+                    <Title level={3} style={{ color: '#F8FAFC', margin: 0 }}>在线测验</Title>
+                </Space>
                 {isTeacher && (
-                    <button
+                    <Button
+                        type="primary"
+                        icon={<Plus size={16} />}
                         onClick={() => setShowCreate(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+                        style={{ backgroundColor: '#9333EA', borderColor: '#9333EA' }}
                     >
-                        <Plus className="w-4 h-4" />
                         创建测验
-                    </button>
+                    </Button>
                 )}
             </div>
 
             {/* Quiz List */}
-            {quizzes.length === 0 ? (
-                <div className="text-center py-12 bg-gray-800/50 rounded-xl border border-gray-700">
-                    <ClipboardList className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                    <p className="text-gray-400">暂无测验</p>
-                </div>
-            ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {quizzes.map((quiz) => {
-                        const status = getQuizStatus(quiz);
+            <List
+                grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3, xl: 3, xxl: 4 }}
+                dataSource={quizzes}
+                locale={{
+                    emptyText: (
+                        <div className="text-center py-12 bg-gray-800/50 rounded-xl border border-gray-700">
+                            <ClipboardList className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                            <Text style={{ color: '#94A3B8' }}>暂无测验</Text>
+                        </div>
+                    )
+                }}
+                renderItem={(quiz) => {
+                    const status = getQuizStatus(quiz);
 
+                    return (
+                        <List.Item>
+                            <Link to={`/courses/${courseId}/quizzes/${quiz.ID}`}>
+                                <Card
+                                    hoverable
+                                    style={{
+                                        background: 'rgba(31, 41, 55, 0.5)',
+                                        border: '1px solid #374151',
+                                        borderRadius: 12,
+                                        height: '100%'
+                                    }}
+                                    bodyStyle={{ padding: 20 }}
+                                >
+                                    <div className="flex items-start justify-between mb-3">
+                                        <Title level={5} style={{ color: '#F8FAFC', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                            {quiz.title}
+                                        </Title>
+                                        <Tag color={status.color} style={{ margin: 0, marginLeft: 8 }}>
+                                            {status.label}
+                                        </Tag>
+                                    </div>
 
-                        return (
-                            <Link
-                                key={quiz.ID}
-                                to={`/courses/${courseId}/quizzes/${quiz.ID}`}
-                                className="block bg-gray-800/50 border border-gray-700 rounded-xl p-5 hover:border-purple-500/50 transition-colors"
-                            >
-                                <div className="flex items-start justify-between mb-3">
-                                    <h3 className="text-lg font-semibold text-white line-clamp-2">
-                                        {quiz.title}
-                                    </h3>
-                                    <span className={`px-2 py-1 rounded text-xs ${status.color}`}>
-                                        {status.label}
-                                    </span>
-                                </div>
+                                    <Paragraph
+                                        style={{ color: '#94A3B8', fontSize: 13, minHeight: 40 }}
+                                        ellipsis={{ rows: 2 }}
+                                    >
+                                        {quiz.description || '暂无描述'}
+                                    </Paragraph>
 
-                                <p className="text-gray-400 text-sm line-clamp-2 mb-4">
-                                    {quiz.description || '暂无描述'}
-                                </p>
+                                    <Space size="large" style={{ color: '#6B7280', fontSize: 13 }}>
+                                        {(quiz.time_limit ?? 0) > 0 && (
+                                            <Space size="small">
+                                                <Clock size={16} />
+                                                <span>{quiz.time_limit}分钟</span>
+                                            </Space>
+                                        )}
+                                        <Space size="small">
+                                            <Trophy size={16} />
+                                            <span>{quiz.total_points}分</span>
+                                        </Space>
+                                    </Space>
 
-                                <div className="flex items-center gap-4 text-sm text-gray-500">
-                                    {(quiz.time_limit ?? 0) > 0 && (
-                                        <div className="flex items-center gap-1">
-                                            <Clock className="w-4 h-4" />
-                                            <span>{quiz.time_limit ?? 0}分钟</span>
+                                    {/* Student: show attempt info */}
+                                    {'attempt_count' in quiz && (
+                                        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Text style={{ color: '#94A3B8', fontSize: 12 }}>
+                                                已尝试 {quiz.attempt_count}/{quiz.max_attempts} 次
+                                            </Text>
+                                            {quiz.best_score !== null && (
+                                                <Text style={{ color: '#4ADE80', fontSize: 12 }}>
+                                                    最高分: {quiz.best_score}
+                                                </Text>
+                                            )}
                                         </div>
                                     )}
-                                    <div className="flex items-center gap-1">
-                                        <Trophy className="w-4 h-4" />
-                                        <span>{quiz.total_points}分</span>
-                                    </div>
-                                </div>
-
-                                {/* Student: show attempt info */}
-                                {'attempt_count' in quiz && (
-                                    <div className="mt-3 pt-3 border-t border-gray-700 flex items-center justify-between">
-                                        <span className="text-sm text-gray-400">
-                                            已尝试 {quiz.attempt_count}/{quiz.max_attempts} 次
-                                        </span>
-                                        {quiz.best_score !== null && (
-                                            <span className="text-sm text-green-400">
-                                                最高分: {quiz.best_score}
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
+                                </Card>
                             </Link>
-                        );
-                    })}
-                </div>
-            )}
+                        </List.Item>
+                    );
+                }}
+            />
 
             {/* Create Modal */}
-            {showCreate && (
-                <CreateQuizModal
-                    onClose={() => setShowCreate(false)}
-                    onCreate={handleCreate}
-                />
-            )}
-        </div>
-    );
-}
-
-function CreateQuizModal({
-    onClose,
-    onCreate,
-}: {
-    onClose: () => void;
-    onCreate: (title: string, description: string, timeLimit: number) => void;
-}) {
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [timeLimit, setTimeLimit] = useState(30);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!title.trim()) return;
-        onCreate(title, description, timeLimit);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
-                <h2 className="text-xl font-bold text-white mb-4">创建测验</h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">标题 *</label>
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            placeholder="输入测验标题"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">描述</label>
-                        <textarea
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 h-20 resize-none"
-                            placeholder="输入测验描述"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-400 mb-1">时间限制（分钟）</label>
-                        <input
-                            type="number"
-                            value={timeLimit}
-                            onChange={(e) => setTimeLimit(parseInt(e.target.value) || 0)}
-                            min="0"
-                            className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            placeholder="0 = 无限制"
-                        />
-                    </div>
-                    <div className="flex gap-3 pt-2">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
-                        >
-                            取消
-                        </button>
-                        <button
-                            type="submit"
-                            className="flex-1 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
-                        >
-                            创建
-                        </button>
-                    </div>
-                </form>
-            </div>
+            <Modal
+                title="创建测验"
+                open={showCreate}
+                onCancel={() => setShowCreate(false)}
+                footer={null}
+            >
+                <Form layout="vertical" onFinish={handleCreate} initialValues={{ timeLimit: 30 }} style={{ marginTop: 16 }}>
+                    <Form.Item
+                        name="title"
+                        label="标题"
+                        rules={[{ required: true, message: '请填写测验标题' }]}
+                    >
+                        <Input placeholder="输入测验标题" size="large" />
+                    </Form.Item>
+                    <Form.Item name="description" label="描述">
+                        <Input.TextArea placeholder="输入测验描述" rows={3} />
+                    </Form.Item>
+                    <Form.Item name="timeLimit" label="时间限制（分钟）" extra="0 = 无限制">
+                        <InputNumber min={0} style={{ width: '100%' }} size="large" />
+                    </Form.Item>
+                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                        <Space>
+                            <Button onClick={() => setShowCreate(false)}>取消</Button>
+                            <Button type="primary" htmlType="submit" style={{ backgroundColor: '#9333EA', borderColor: '#9333EA' }}>创建</Button>
+                        </Space>
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div>
     );
 }

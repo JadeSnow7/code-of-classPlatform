@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState } from 'react';
 import {
   Play,
   Code2,
@@ -6,8 +6,11 @@ import {
   Grid3X3,
   MessageCircle,
   Sparkles,
-  Square,
-} from 'lucide-react'
+} from 'lucide-react';
+import { Layout, Button, Typography, Space } from 'antd';
+
+const { Sider, Content, Header } = Layout;
+const { Title, Text } = Typography;
 
 // Mock simulation field SVG
 function SimFieldVisualization({ base64 }: { base64?: string }) {
@@ -18,7 +21,7 @@ function SimFieldVisualization({ base64 }: { base64?: string }) {
         alt="仿真结果"
         className="max-h-full max-w-full object-contain"
       />
-    )
+    );
   }
   return (
     <div className="rounded-lg overflow-hidden border border-[#1E1F2E] inline-block mt-4">
@@ -47,14 +50,14 @@ function SimFieldVisualization({ base64 }: { base64?: string }) {
         </text>
       </svg>
     </div>
-  )
+  );
 }
 
 const SIM_TYPES = [
-  { id: 'python', label: 'Python 代码', desc: '自定义 Python 仿真代码', Icon: Code2 },
-  { id: 'laplace', label: 'Laplace 2D', desc: '二维拉普拉斯方程数值解', Icon: Zap },
-  { id: 'point_charge', label: '点电荷场', desc: '点电荷系统电场分布', Icon: Grid3X3 },
-]
+  { key: 'python', label: 'Python 代码', desc: '自定义 Python 仿真代码', icon: <Code2 size={16} /> },
+  { key: 'laplace', label: 'Laplace 2D', desc: '二维拉普拉斯方程数值解', icon: <Zap size={16} /> },
+  { key: 'point_charge', label: '点电荷场', desc: '点电荷系统电场分布', icon: <Grid3X3 size={16} /> },
+];
 
 const CODE_LINES = [
   '# 电磁场仿真示例代码',
@@ -73,133 +76,143 @@ const CODE_LINES = [
   'def electric_field(qx, qy, X, Y, q=1):',
   '    dx = X - qx',
   '    dy = Y - qy',
-]
+];
 
 function highlightLine(line: string): string {
   if (line.startsWith('#')) {
-    return `<span style="color: #4ADE80">${line}</span>`
+    return `<span style="color: #4ADE80">${line}</span>`;
   }
   if (line.includes('def ')) {
-    return `<span style="color:#60A5FA">def</span> ${line.replace('def ', '').replace('electric_field', '<span style="color:#A78BFA">electric_field</span>')}`
+    return `<span style="color:#60A5FA">def</span> ${line.replace('def ', '').replace('electric_field', '<span style="color:#A78BFA">electric_field</span>')}`;
   }
   if (line.includes('np.')) {
-    return line.replace(/np\./g, '<span style="color:#FCD34D">np.</span>')
+    return line.replace(/np\./g, '<span style="color:#FCD34D">np.</span>');
   }
-  return line
+  return line;
 }
 
 export function WorkspacePage() {
-  const [activeSim, setActiveSim] = useState('python')
-  const [running, setRunning] = useState(false)
-  const [showResult, setShowResult] = useState(true)
-  const [modifyOpen, setModifyOpen] = useState(true)
-  const [modifyInput, setModifyInput] = useState('非对称情况下的点电荷场')
+  const [activeSim, setActiveSim] = useState('python');
+  const [running, setRunning] = useState(false);
+  const [showResult, setShowResult] = useState(true);
+  const [modifyOpen, setModifyOpen] = useState(true);
+  const [modifyInput, setModifyInput] = useState('非对称情况下的点电荷场');
 
   const handleRun = () => {
-    setRunning(true)
-    setShowResult(false)
+    setRunning(true);
+    setShowResult(false);
     setTimeout(() => {
-      setRunning(false)
-      setShowResult(true)
-    }, 2000)
-  }
+      setRunning(false);
+      setShowResult(true);
+    }, 2000);
+  };
 
   return (
-    <div className="h-full flex text-sm" style={{ backgroundColor: '#0D0E15', color: 'rgba(255,255,255,0.85)' }}>
+    <Layout style={{ height: '100vh', background: '#0D0E15', color: 'rgba(255,255,255,0.85)' }}>
       {/* Simulation Types Sub-sidebar */}
-      <div
-        className="w-64 flex-shrink-0 border-r flex flex-col"
-        style={{ borderColor: '#1E1F2E', backgroundColor: '#13141F' }}
-      >
-        <div className="p-5">
-          <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>仿真类型</p>
+      <Sider width={260} style={{ background: '#13141F', borderRight: '1px solid #1E1F2E' }}>
+        <div style={{ padding: 20 }}>
+          <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 16, display: 'block' }}>仿真类型</Text>
           <div className="space-y-2">
-            {SIM_TYPES.map(({ id, label, desc, Icon }) => {
-              const isActive = activeSim === id
+            {SIM_TYPES.map(({ key, label, desc, icon }) => {
+              const isActive = activeSim === key;
               return (
                 <div
-                  key={id}
-                  onClick={() => setActiveSim(id)}
+                  key={key}
+                  onClick={() => setActiveSim(key)}
                   className="rounded-xl p-3 cursor-pointer flex items-start gap-3 transition-colors"
                   style={{
                     backgroundColor: isActive ? 'rgba(76, 29, 149, 0.4)' : 'transparent',
                     border: isActive ? '1px solid rgba(139, 92, 246, 0.3)' : '1px solid transparent',
                   }}
                 >
-                  <Icon
-                    size={16}
-                    style={{ color: isActive ? '#C4B5FD' : 'rgba(255,255,255,0.4)', marginTop: 2 }}
-                  />
+                  <div style={{ color: isActive ? '#C4B5FD' : 'rgba(255,255,255,0.4)', marginTop: 2 }}>{icon}</div>
                   <div>
-                    <p className="font-medium text-sm" style={{ color: isActive ? '#E2E8F0' : 'rgba(255,255,255,0.65)' }}>
+                    <Text style={{ color: isActive ? '#E2E8F0' : 'rgba(255,255,255,0.65)', fontWeight: 500, fontSize: 14, display: 'block' }}>
                       {label}
-                    </p>
-                    <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{desc}</p>
+                    </Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 4, display: 'block' }}>{desc}</Text>
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         </div>
-      </div>
+      </Sider>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <Layout style={{ background: 'transparent' }}>
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-8 py-5 border-b"
-          style={{ borderColor: '#1E1F2E' }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}>
+        <Header style={{
+          background: 'transparent',
+          borderBottom: '1px solid #1E1F2E',
+          padding: '0 32px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          height: 80,
+          lineHeight: 'normal'
+        }}>
+          <Space size="middle">
+            <div style={{ width: 40, height: 40, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(139, 92, 246, 0.15)' }}>
               <Grid3X3 size={20} color="#A78BFA" />
             </div>
             <div>
-              <h2 className="font-medium text-base" style={{ color: '#F8FAFC' }}>电磁场仿真</h2>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>支持自定义 Python 代码与预设仿真</p>
+              <Title level={5} style={{ color: '#F8FAFC', margin: 0 }}>电磁场仿真</Title>
+              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>支持自定义 Python 代码与预设仿真</Text>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
+          </Space>
+          <Space size="middle">
+            <Button
+              type="primary"
               onClick={handleRun}
-              disabled={running}
-              className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-medium transition-opacity disabled:opacity-70"
+              loading={running}
+              icon={!running && <Play size={16} />}
               style={{
                 background: 'linear-gradient(90deg, #8B5CF6, #6D28D9)',
                 boxShadow: '0 4px 14px 0 rgba(139, 92, 246, 0.39)',
+                borderColor: 'transparent',
+                height: 40,
+                borderRadius: 8,
+                padding: '0 20px',
+                fontWeight: 500
               }}
             >
-              {running ? <Square size={16} /> : <Play size={16} />}
               {running ? '运行中...' : '运行'}
-            </button>
-            <button
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm"
-              style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#E2E8F0' }}
+            </Button>
+            <Button
+              icon={<MessageCircle size={16} />}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                borderColor: 'rgba(255,255,255,0.1)',
+                color: '#E2E8F0',
+                height: 40,
+                borderRadius: 8
+              }}
             >
-              <MessageCircle size={16} />
               AI 问答
-            </button>
-          </div>
-        </div>
+            </Button>
+          </Space>
+        </Header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-8 relative">
+        <Content style={{ padding: 32, overflowY: 'auto', position: 'relative' }}>
           {/* Code Block */}
-          <div className="rounded-xl overflow-hidden relative" style={{ backgroundColor: '#13141F', border: '1px solid #1E1F2E' }}>
-            <div className="flex justify-end p-3 border-b border-[#1E1F2E]">
+          <div style={{ borderRadius: 12, overflow: 'hidden', background: '#13141F', border: '1px solid #1E1F2E', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 12, borderBottom: '1px solid #1E1F2E' }}>
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-white text-xs font-medium cursor-pointer bg-[#6D28D9] hover:bg-[#7C3AED] transition-colors">
                 <Sparkles size={13} /> AI 助手
               </div>
             </div>
-            <div className="p-4 font-mono text-sm leading-relaxed overflow-x-auto" style={{ color: '#E2E8F0' }}>
-              <table className="w-full">
+            <div style={{ padding: 16, fontFamily: 'monospace', fontSize: 14, lineHeight: 1.6, overflowX: 'auto', color: '#E2E8F0' }}>
+              <table style={{ width: '100%' }}>
                 <tbody>
                   {CODE_LINES.map((line, idx) => (
                     <tr key={idx}>
-                      <td className="w-10 select-none text-right pr-4 align-top" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                      <td style={{ width: 40, userSelect: 'none', textAlign: 'right', paddingRight: 16, verticalAlign: 'top', color: 'rgba(255,255,255,0.3)' }}>
                         {idx + 1}
                       </td>
-                      <td className="whitespace-pre align-top" dangerouslySetInnerHTML={{ __html: highlightLine(line) }} />
+                      <td style={{ whiteSpace: 'pre', verticalAlign: 'top' }} dangerouslySetInnerHTML={{ __html: highlightLine(line) }} />
                     </tr>
                   ))}
                 </tbody>
@@ -209,8 +222,16 @@ export function WorkspacePage() {
             {/* Floating AI Input */}
             {modifyOpen && (
               <div
-                className="absolute left-[8%] bottom-6 z-10 flex items-center gap-3 p-2 rounded-xl"
                 style={{
+                  position: 'absolute',
+                  left: '8%',
+                  bottom: 24,
+                  zIndex: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 8,
+                  borderRadius: 12,
                   backgroundColor: '#0D0E15',
                   border: '1px solid #8B5CF6',
                   boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
@@ -220,43 +241,43 @@ export function WorkspacePage() {
                 <input
                   value={modifyInput}
                   onChange={e => setModifyInput(e.target.value)}
-                  className="flex-1 bg-transparent outline-none px-3 font-mono text-sm"
-                  style={{ color: '#F8FAFC' }}
+                  style={{ flex: 1, background: 'transparent', outline: 'none', padding: '0 12px', fontFamily: 'monospace', fontSize: 14, color: '#F8FAFC', border: 'none' }}
                 />
-                <button
+                <Button
+                  type="primary"
                   onClick={() => { handleRun(); setModifyOpen(false) }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-white text-sm font-medium"
-                  style={{ backgroundColor: '#8B5CF6' }}
+                  icon={<Sparkles size={14} />}
+                  style={{ backgroundColor: '#8B5CF6', borderColor: '#8B5CF6', borderRadius: 6 }}
                 >
-                  <Sparkles size={14} /> 修改代码
-                </button>
-                <button
+                  修改代码
+                </Button>
+                <Button
+                  type="text"
                   onClick={() => setModifyOpen(false)}
-                  className="px-3 py-1.5 rounded-md text-sm"
-                  style={{ color: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(255,255,255,0.1)' }}
+                  style={{ color: 'rgba(255,255,255,0.6)', background: 'rgba(255,255,255,0.1)', borderRadius: 6 }}
                 >
                   取消
-                </button>
+                </Button>
               </div>
             )}
           </div>
 
           {/* Output */}
-          <div className="mt-8 mb-4">
-            <span className="font-mono text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>&gt;_ 输出</span>
+          <div style={{ marginTop: 32, marginBottom: 16 }}>
+            <Text style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>&gt;_ 输出</Text>
           </div>
 
           {running && (
-            <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>正在运行...</p>
+            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>正在运行...</Text>
           )}
           {showResult && !running && (
-            <div className="space-y-4">
-              <p className="text-sm" style={{ color: '#10B981' }}>仿真完成！电场方向已可视化。</p>
+            <Space direction="vertical" size="middle">
+              <Text style={{ color: '#10B981', fontSize: 14 }}>仿真完成！电场方向已可视化。</Text>
               <SimFieldVisualization />
-            </div>
+            </Space>
           )}
-        </div>
-      </div>
-    </div>
-  )
+        </Content>
+      </Layout>
+    </Layout>
+  );
 }

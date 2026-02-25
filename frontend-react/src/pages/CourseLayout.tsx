@@ -1,147 +1,155 @@
-import { NavLink, Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { CourseProvider, useCourse } from '@/domains/course/useCourse';
 import {
     LayoutDashboard,
     MessageSquare,
-    BookOpen, // Use BookOpen for chapters
+    BookOpen,
     Atom,
     FileText,
     FolderOpen,
     ChevronLeft,
-    Loader2,
-    User,
+    User as UserIcon,
     ClipboardList,
-    Menu,
     PenLine,
     Megaphone,
     UserCheck,
 } from 'lucide-react';
-import { clsx } from 'clsx';
 import { authStore } from '@/lib/auth-store';
-import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { Layout, Menu, Button, Avatar, Spin, Typography, Dropdown } from 'antd';
+
+const { Header, Sider, Content } = Layout;
+const { Text } = Typography;
 
 const navItems = [
-    { path: 'overview', label: '课程概览', icon: LayoutDashboard },
-    { path: 'announcements', label: '公告', icon: Megaphone },
-    { path: 'chapters', label: '章节学习', icon: BookOpen },
-    { path: 'attendance', label: '考勤', icon: UserCheck },
-    { path: 'chat', label: 'AI 答疑', icon: MessageSquare },
-    { path: 'writing', label: '写作提交', icon: PenLine },
-    { path: 'simulation', label: '电磁仿真', icon: Atom },
-    { path: 'assignments', label: '作业', icon: FileText },
-    { path: 'quizzes', label: '测验', icon: ClipboardList },
-    { path: 'resources', label: '资料', icon: FolderOpen },
+    { key: 'overview', label: '课程概览', icon: <LayoutDashboard size={16} /> },
+    { key: 'announcements', label: '公告', icon: <Megaphone size={16} /> },
+    { key: 'chapters', label: '章节学习', icon: <BookOpen size={16} /> },
+    { key: 'attendance', label: '考勤', icon: <UserCheck size={16} /> },
+    { key: 'chat', label: 'AI 答疑', icon: <MessageSquare size={16} /> },
+    { key: 'writing', label: '写作提交', icon: <PenLine size={16} /> },
+    { key: 'simulation', label: '电磁仿真', icon: <Atom size={16} /> },
+    { key: 'assignments', label: '作业', icon: <FileText size={16} /> },
+    { key: 'quizzes', label: '测验', icon: <ClipboardList size={16} /> },
+    { key: 'resources', label: '资料', icon: <FolderOpen size={16} /> },
 ];
 
 function CourseLayoutInner() {
     const { course, isLoading } = useCourse();
     const user = authStore.getUser();
     const location = useLocation();
+    const navigate = useNavigate();
 
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(false);
 
-    useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIsMobileMenuOpen(false);
-    }, [location.pathname]);
+    // Determine selected key based on current path
+    const pathParts = location.pathname.split('/');
+    const currentKey = pathParts[pathParts.length - 1] || 'overview';
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            <div className="min-h-screen flex items-center justify-center bg-[#0D0E15]">
+                <Spin size="large" />
             </div>
         );
     }
 
+    const handleMenuClick = ({ key }: { key: string }) => {
+        navigate(key);
+    };
+
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col md:flex-row">
-            {/* Mobile Header */}
-            <div className="md:hidden flex items-center justify-between px-4 h-16 bg-gray-900/95 border-b border-gray-700/50 sticky top-0 z-40">
-                <button
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="p-2 -ml-2 text-gray-400 hover:text-white"
-                >
-                    <Menu className="w-6 h-6" />
-                </button>
-                <span className="font-semibold text-white">{course?.name}</span>
-                <Link to="/profile" className="p-2 -mr-2">
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                        <User className="w-4 h-4 text-white" />
-                    </div>
-                </Link>
-            </div>
-
-            {/* Mobile Overlay */}
-            {isMobileMenuOpen && (
-                <div
-                    className="fixed inset-0 bg-black/60 z-40 md:hidden"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                />
-            )}
-
+        <Layout style={{ minHeight: '100vh' }}>
             {/* Sidebar */}
-            <aside className={clsx(
-                "fixed inset-y-0 left-0 z-50 w-64 bg-gray-900/95 backdrop-blur-xl border-r border-gray-700/50 flex flex-col transition-transform duration-300 md:translate-x-0 md:static md:bg-gray-900/80",
-                isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-            )}>
-                {/* Back link + Profile */}
-                <div className="flex items-center justify-between px-4 h-16 border-b border-gray-700/50">
-                    <Link
-                        to="/courses"
-                        className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            <Sider
+                collapsible
+                collapsed={collapsed}
+                onCollapse={(value) => setCollapsed(value)}
+                breakpoint="lg"
+                theme="dark"
+                width={240}
+                style={{
+                    backgroundColor: '#13141F',
+                    borderRight: '1px solid #1E1F2E'
+                }}
+            >
+                {/* Back Link & Branding */}
+                <div style={{ padding: '16px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #1E1F2E' }}>
+                    <Button
+                        type="text"
+                        icon={<ChevronLeft size={20} />}
+                        onClick={() => navigate('/courses')}
+                        style={{ color: 'rgba(255,255,255,0.65)' }}
+                    />
+                    {!collapsed && (
+                        <Text strong style={{ color: '#F8FAFC', marginLeft: 8, fontSize: 16 }}>
+                            返回课程列表
+                        </Text>
+                    )}
+                </div>
+
+                {/* Course Metadata */}
+                {!collapsed && (
+                    <div style={{ padding: '24px 16px', borderBottom: '1px solid #1E1F2E' }}>
+                        <Text strong style={{ color: '#F8FAFC', display: 'block', fontSize: 16, marginBottom: 4 }} ellipsis>
+                            {course?.name || '课程'}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                            Teacher ID: {course?.teacher_id}
+                        </Text>
+                    </div>
+                )}
+
+                {/* Navigation Menu */}
+                <Menu
+                    theme="dark"
+                    mode="inline"
+                    selectedKeys={[currentKey]}
+                    onClick={handleMenuClick}
+                    items={navItems}
+                    style={{ backgroundColor: 'transparent', border: 'none', padding: '16px 8px' }}
+                />
+            </Sider>
+
+            <Layout>
+                {/* Header */}
+                <Header style={{
+                    padding: '0 24px',
+                    background: '#13141F',
+                    borderBottom: '1px solid #1E1F2E',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end'
+                }}>
+                    <Dropdown
+                        menu={{
+                            items: [
+                                { key: 'profile', label: <Link to="/profile">个人中心</Link> },
+                                { key: 'logout', label: '退出登录', onClick: () => { authStore.clearToken(); navigate('/login'); } }
+                            ]
+                        }}
+                        placement="bottomRight"
                     >
-                        <ChevronLeft className="w-5 h-5" />
-                        <span>返回</span>
-                    </Link>
-                    <Link
-                        to="/profile"
-                        className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-800 transition-colors"
-                        title="个人中心"
-                    >
-                        <span className="text-sm text-gray-400 hidden sm:inline">{user?.name}</span>
-                        <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-white" />
+                        <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 12 }}>
+                            <Text style={{ color: 'rgba(255,255,255,0.85)' }}>{user?.name}</Text>
+                            <Avatar size={36} style={{ background: 'linear-gradient(135deg, #60A5FA, #8B5CF6)' }}>
+                                <UserIcon size={18} />
+                            </Avatar>
                         </div>
-                    </Link>
-                </div>
+                    </Dropdown>
+                </Header>
 
-                {/* Course title */}
-                <div className="px-4 py-4 border-b border-gray-700/50">
-                    <h2 className="text-lg font-semibold text-white truncate">
-                        {course?.name || '课程'}
-                    </h2>
-                    <p className="text-sm text-gray-500 truncate">Teacher ID: {course?.teacher_id}</p>
-                </div>
-
-                {/* Navigation */}
-                <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                    {navItems.map((item) => (
-                        <NavLink
-                            key={item.path}
-                            to={item.path}
-                            className={({ isActive }) =>
-                                clsx(
-                                    'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
-                                    isActive
-                                        ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                                )
-                            }
-                            onClick={() => setIsMobileMenuOpen(false)}
-                        >
-                            <item.icon className="w-5 h-5" />
-                            {item.label}
-                        </NavLink>
-                    ))}
-                </nav>
-            </aside>
-
-            {/* Main content */}
-            <main className="flex-1 overflow-auto h-[calc(100vh-64px)] md:h-screen">
-                <Outlet />
-            </main>
-        </div>
+                {/* Main Content */}
+                <Content style={{
+                    margin: 0,
+                    height: 'calc(100vh - 64px)',
+                    overflowY: 'auto',
+                    backgroundColor: '#0D0E15',
+                }}>
+                    <Outlet />
+                </Content>
+            </Layout>
+        </Layout>
     );
 }
 
