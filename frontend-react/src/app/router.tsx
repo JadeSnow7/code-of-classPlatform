@@ -22,6 +22,7 @@ import { AnnouncementsPage } from '@/pages/AnnouncementsPage';
 import { AttendancePage } from '@/pages/AttendancePage';
 import WritingDetailPage from '@/pages/WritingDetailPage';
 import TeacherWritingDashboard from '@/pages/TeacherWritingDashboard';
+import { WorkspacePage } from '@/pages/Workspace';
 
 export function AppRouter() {
     return (
@@ -52,6 +53,8 @@ export function AppRouter() {
                             <Route path="writing" element={<WritingPage />} />
                             <Route path="writing/dashboard" element={<TeacherWritingDashboard />} />
                             <Route path="writing/:submissionId" element={<WritingDetailPage />} />
+                            {/* Electromagnetic simulation workspace */}
+                            <Route path="simulation" element={<WorkspacePage />} />
                         </Route>
                     </Route>
 
