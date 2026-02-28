@@ -3,10 +3,14 @@ name = "desktop-tauri"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+tauri-build = { version = "2" }
+
 [dependencies]
 router_core = { path = "../../rust-core/crates/router_core" }
 tauri = { version = "2", optional = true }
+eduedge-ai-tauri-plugin = { package = "tauri-plugin-eduedge-ai", path = "../../../eduedge-ai-sdk/bindings/tauri-plugin", optional = true }
 
 [features]
 default = []
-tauri-command = ["dep:tauri"]
+tauri-command = ["dep:tauri", "dep:eduedge-ai-tauri-plugin"]
