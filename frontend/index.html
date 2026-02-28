@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (() => {
+        const valid = new Set(['system', 'light', 'dark']);
+        let saved = null;
+        try {
+          saved = localStorage.getItem('theme-mode');
+        } catch {}
+
+        const mode = valid.has(saved) ? saved : 'system';
+        const resolved =
+          mode === 'system'
+            ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : mode;
+        const backgroundColor = resolved === 'dark' ? '#0F172A' : '#FFFFFF';
+
+        document.documentElement.classList.toggle('dark', resolved === 'dark');
+        document.documentElement.style.colorScheme = resolved;
+        document.documentElement.style.backgroundColor = backgroundColor;
+
+        if (document.body) {
+          document.body.style.backgroundColor = backgroundColor;
+        } else {
+          document.addEventListener(
+            'DOMContentLoaded',
+            () => {
+              document.body.style.backgroundColor = backgroundColor;
+            },
+            { once: true },
+          );
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

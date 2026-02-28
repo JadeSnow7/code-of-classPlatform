@@ -2,17 +2,23 @@
   "name": "llm-teaching-platform-workspace",
   "private": true,
   "workspaces": [
-    "frontend-react",
+    "frontend",
     "mobile",
     "shared"
   ],
   "scripts": {
     "build:shared": "npm -w shared run build",
     "test:shared": "npm -w shared run test",
-    "dev:web": "npm -w frontend-react run dev",
+    "dev:web": "npm -w frontend run dev",
     "dev:mobile": "npm -w mobile run start"
   },
   "dependencies": {
-    "lodash": "^4.17.23"
+    "lodash": "^4.17.23",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   }
 }
