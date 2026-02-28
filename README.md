@@ -4,7 +4,7 @@
 
 ## 目录结构
 
-- **[frontend-react/](./frontend-react/)** - Web 前端 (React + Vite)
+- **[frontend/](./frontend/)** - Web 前端（默认）(React + Vite)
 - **[backend/](./backend/)** - 后端代码 (Go)
 - **[ai_service/](./ai_service/)** - AI服务代码 (Python)
 - **[simulation/](./simulation/)** - 仿真服务代码 (Python) - 可选扩展模块
@@ -17,7 +17,7 @@
 
 1. 首次在 `code/` 根目录安装依赖（workspace）：`npm install --workspaces`
 2. 在 `code/` 下使用 `docker-compose.yml` 启动后端依赖服务（推荐先配置 `code/.env`）
-3. Web 前端：`npm -w frontend-react run dev`（Vite dev server）
+3. Web 前端（默认）：`npm -w frontend run dev`（Vite dev server）
 4. Mobile：`npm -w mobile run start`（Expo）
 5. 共享包：`@classplatform/shared` 会在安装时自动构建，如需手动更新运行 `npm -w shared run build`
 
