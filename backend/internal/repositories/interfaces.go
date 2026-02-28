@@ -21,6 +21,12 @@ type UserRepository interface {
 	CountByRole(ctx context.Context, role string) (int64, error)
 }
 
+// AIConfigRepository user AI config data access interface.
+type AIConfigRepository interface {
+	GetByUserID(ctx context.Context, userID uint) (*models.UserAIConfig, error)
+	UpsertByUserID(ctx context.Context, cfg *models.UserAIConfig) error
+}
+
 // CourseRepository 课程数据访问接口
 type CourseRepository interface {
 	FindByID(ctx context.Context, id uint) (*models.Course, error)

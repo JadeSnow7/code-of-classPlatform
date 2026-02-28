@@ -10,3 +10,7 @@ export * from './attendance';
 export * from './user';
 export * from './student-centric';
 export * from './inference';
+export * from './ai-config';
+export * from './dashboard';
+export * from './knowledge-base';
+export * from './workspace';

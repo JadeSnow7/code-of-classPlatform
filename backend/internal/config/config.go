@@ -11,7 +11,8 @@ type Config struct {
 	SecretsDir  string
 	CorsOrigins []string
 
-	DBDsn string
+	DBDsn         string
+	AllowDemoSeed bool
 
 	AIBaseURL            string
 	SimBaseURL           string
@@ -59,6 +60,7 @@ func Load() Config {
 
 	// MinIO config
 	minioUseSSL := getenv("MINIO_USE_SSL", "false") == "true"
+	allowDemoSeed := strings.EqualFold(strings.TrimSpace(getenv("ALLOW_DEMO_SEED", "false")), "true")
 
 	return Config{
 		HTTPAddr:             httpAddr,
@@ -66,6 +68,7 @@ func Load() Config {
 		SecretsDir:           secretsDir,
 		CorsOrigins:          corsOrigins,
 		DBDsn:                dbDsn,
+		AllowDemoSeed:        allowDemoSeed,
 		AIBaseURL:            aiBaseURL,
 		SimBaseURL:           simBaseURL,
 		AIGatewaySharedToken: getenv("AI_GATEWAY_SHARED_TOKEN", ""),

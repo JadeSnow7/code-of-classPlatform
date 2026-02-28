@@ -10,6 +10,7 @@ import (
 type RouterDeps struct {
 	AuthHandlers            routes.AuthHandlers
 	UserHandlers            routes.UserHandlers
+	AIConfigHandlers        routes.AIConfigHandlers
 	WecomHandlers           routes.WecomHandlers
 	CourseHandlers          routes.CourseHandlers
 	ChapterHandlers         routes.ChapterHandlers
@@ -21,6 +22,7 @@ type RouterDeps struct {
 	AnnouncementHandlers    routes.AnnouncementHandlers
 	AttendanceHandlers      routes.AttendanceHandlers
 	WritingHandlers         routes.WritingHandlers
+	WorkspaceHandlers       routes.WorkspaceHandlers
 	LearningProfileHandlers routes.LearningProfileHandlers
 	GlobalProfileHandlers   routes.GlobalProfileHandlers
 	AdminHandlers           routes.AdminHandlers

@@ -74,6 +74,7 @@ services:
       context: ../../backend
     environment:
       HTTP_ADDR: ${BACKEND_HTTP_ADDR:-:8080}
+      ALLOW_DEMO_SEED: "true"
       JWT_SECRET: ${BACKEND_JWT_SECRET:-dev-secret}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       DB_DSN: ${BACKEND_DB_DSN}
@@ -114,7 +115,7 @@ services:
   frontend:
     build:
       context: ../..
-      dockerfile: frontend-react/Dockerfile
+      dockerfile: frontend/Dockerfile
     ports:
       - "5173:80"
     depends_on:

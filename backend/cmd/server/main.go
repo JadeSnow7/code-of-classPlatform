@@ -14,6 +14,7 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/db"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/logger"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 )
 
 func main() {
@@ -29,13 +30,26 @@ func main() {
 		logger.Log.Error("db migrate failed", slog.Any("error", err))
 		os.Exit(1)
 	}
-	seeded, err := db.SeedDemoUsers(gormDB)
-	if err != nil {
-		logger.Log.Error("db seed failed", slog.Any("error", err))
-		os.Exit(1)
-	}
-	if seeded {
-		logger.Log.Warn("bootstrap demo users created", slog.String("note", "admin/admin123, teacher/teacher123, student/student123 (please change in production)"))
+	if cfg.AllowDemoSeed {
+		seeded, err := db.SeedDemoUsers(gormDB)
+		if err != nil {
+			logger.Log.Error("db seed failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		if seeded {
+			logger.Log.Warn("bootstrap demo users created", slog.String("note", "admin/admin123, teacher/teacher123, student/student123 (please change in production)"))
+		}
+	} else {
+		var userCount int64
+		if err := gormDB.Model(&models.User{}).Count(&userCount).Error; err != nil {
+			logger.Log.Warn("failed to inspect bootstrap users", slog.Any("error", err))
+		} else if userCount == 0 {
+			logger.Log.Warn(
+				"database has no users and demo seed is disabled",
+				slog.String("hint", "set ALLOW_DEMO_SEED=true for local or integration environments to create bootstrap accounts"),
+			)
+		}
+		logger.Log.Info("demo user seed disabled", slog.String("hint", "set ALLOW_DEMO_SEED=true to enable"))
 	}
 
 	aiClient := clients.NewAIClient(cfg.AIBaseURL, cfg.AIGatewaySharedToken)

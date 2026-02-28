@@ -22,6 +22,7 @@ type App struct {
 
 	// Repositories
 	UserRepo            repositories.UserRepository
+	AIConfigRepo        repositories.AIConfigRepository
 	CourseRepo          repositories.CourseRepository
 	AssignmentRepo      repositories.AssignmentRepository
 	QuizRepo            repositories.QuizRepository
@@ -35,6 +36,7 @@ type App struct {
 	// Services
 	AuthService            services.AuthService
 	UserService            services.UserService
+	AIConfigService        services.AIConfigService
 	AdminService           services.AdminService
 	AnnouncementService    services.AnnouncementService
 	AttendanceService      services.AttendanceService
@@ -63,6 +65,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 
 	// Repositories
 	app.UserRepo = repositories.NewUserRepository(db)
+	app.AIConfigRepo = repositories.NewAIConfigRepository(db)
 	app.CourseRepo = repositories.NewCourseRepository(db)
 	app.AssignmentRepo = repositories.NewAssignmentRepository(db)
 	app.QuizRepo = repositories.NewQuizRepository(db)
@@ -76,6 +79,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	// Services
 	app.AuthService = services.NewAuthService(app.UserRepo, cfg.JWTSecret)
 	app.UserService = services.NewUserService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo)
+	app.AIConfigService = services.NewAIConfigService(app.AIConfigRepo)
 	app.AdminService = services.NewAdminService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo, app.ResourceRepo)
 	app.AnnouncementService = services.NewAnnouncementService(app.AnnouncementRepo)
 	app.AttendanceService = services.NewAttendanceService(app.AttendanceRepo, app.UserRepo)
@@ -102,6 +106,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	routerDeps := httpapi.RouterDeps{
 		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret),
 		UserHandlers:            httpapi.NewUserHandlers(app.UserService),
+		AIConfigHandlers:        httpapi.NewAIConfigHandlers(app.AIConfigService),
 		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, cfg.JWTSecret),
 		CourseHandlers:          courseHandlers,
 		ChapterHandlers:         chapterHandlers,
@@ -113,6 +118,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		AnnouncementHandlers:    httpapi.NewAnnouncementHandlers(app.AnnouncementService),
 		AttendanceHandlers:      httpapi.NewAttendanceHandlers(app.AttendanceService),
 		WritingHandlers:         httpapi.NewWritingHandlers(app.WritingService),
+		WorkspaceHandlers:       httpapi.NewWorkspaceHandlers(),
 		LearningProfileHandlers: httpapi.NewLearningProfileHandlers(app.LearningProfileService),
 		GlobalProfileHandlers:   httpapi.NewGlobalProfileHandlers(app.GlobalProfileService),
 		AdminHandlers:           httpapi.NewAdminHandlers(app.AdminService),

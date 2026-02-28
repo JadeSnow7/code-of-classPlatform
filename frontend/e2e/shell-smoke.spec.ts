@@ -101,6 +101,6 @@ test.describe('Shell smoke', () => {
         await expect(page.getByText('仿真参数')).toBeVisible();
         await expect(page.getByText('实验仿真工作台')).toBeVisible();
         await expect(page.getByText('工作台助手')).toBeVisible();
-        await expect(page.getByRole('button', { name: /前往 Local AI \/ 课程问答/ })).toBeVisible();
+        await expect(page.getByRole('button', { name: '打开 AI 问答' })).toBeVisible();
     });
 });

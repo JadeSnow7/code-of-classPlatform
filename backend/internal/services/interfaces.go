@@ -60,6 +60,30 @@ type UserService interface {
 	GetTeacherStats(ctx context.Context, userID uint, role string) (TeacherStats, error)
 }
 
+// AIConfigProfile response payload for user AI config.
+type AIConfigProfile struct {
+	DefaultMode   string  `json:"default_mode"`
+	Provider      string  `json:"provider"`
+	CustomBaseURL string  `json:"custom_base_url"`
+	ServerURL     string  `json:"server_url"`
+	APIKeyMasked  *string `json:"api_key_masked,omitempty"`
+}
+
+// UpdateAIConfigRequest patch payload for user AI config.
+type UpdateAIConfigRequest struct {
+	DefaultMode   *string `json:"default_mode,omitempty"`
+	Provider      *string `json:"provider,omitempty"`
+	CustomBaseURL *string `json:"custom_base_url,omitempty"`
+	ServerURL     *string `json:"server_url,omitempty"`
+	APIKey        *string `json:"api_key,omitempty"`
+}
+
+// AIConfigService manages user AI config.
+type AIConfigService interface {
+	GetProfile(ctx context.Context, userID uint) (AIConfigProfile, error)
+	PatchProfile(ctx context.Context, userID uint, req UpdateAIConfigRequest) (AIConfigProfile, error)
+}
+
 // AdminSystemStats 系统统计
 type AdminSystemStats struct {
 	TotalUsers       int64            `json:"total_users"`

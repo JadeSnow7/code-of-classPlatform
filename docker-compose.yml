@@ -66,6 +66,7 @@ services:
       context: ./backend
     environment:
       HTTP_ADDR: ${BACKEND_HTTP_ADDR}
+      ALLOW_DEMO_SEED: "true"
       JWT_SECRET: ${BACKEND_JWT_SECRET}
       SECRETS_DIR: ${BACKEND_SECRETS_DIR}
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
