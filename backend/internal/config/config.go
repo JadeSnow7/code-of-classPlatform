@@ -14,9 +14,11 @@ type Config struct {
 	DBDsn         string
 	AllowDemoSeed bool
 
-	AIBaseURL            string
-	SimBaseURL           string
-	AIGatewaySharedToken string
+	AIBaseURL             string
+	MultiAgentBaseURL     string
+	AIOrchestratedEnabled bool
+	SimBaseURL            string
+	AIGatewaySharedToken  string
 
 	// WeChat Work (企业微信) configuration
 	WecomCorpID  string
@@ -51,6 +53,7 @@ func Load() Config {
 	dbDsn := getenv("DB_DSN", "root:root@tcp(127.0.0.1:3306)/emfield?charset=utf8mb4&parseTime=True&loc=Local")
 
 	aiBaseURL := strings.TrimRight(getenv("AI_BASE_URL", "http://127.0.0.1:8001"), "/")
+	multiAgentBaseURL := strings.TrimRight(getenv("MULTI_AGENT_BASE_URL", "http://127.0.0.1:8003"), "/")
 	simBaseURL := strings.TrimRight(getenv("SIM_BASE_URL", "http://127.0.0.1:8002"), "/")
 
 	// WeChat Work config (optional)
@@ -63,24 +66,26 @@ func Load() Config {
 	allowDemoSeed := strings.EqualFold(strings.TrimSpace(getenv("ALLOW_DEMO_SEED", "false")), "true")
 
 	return Config{
-		HTTPAddr:             httpAddr,
-		JWTSecret:            jwtSecret,
-		SecretsDir:           secretsDir,
-		CorsOrigins:          corsOrigins,
-		DBDsn:                dbDsn,
-		AllowDemoSeed:        allowDemoSeed,
-		AIBaseURL:            aiBaseURL,
-		SimBaseURL:           simBaseURL,
-		AIGatewaySharedToken: getenv("AI_GATEWAY_SHARED_TOKEN", ""),
-		WecomCorpID:          wecomCorpID,
-		WecomAgentID:         wecomAgentID,
-		WecomSecret:          wecomSecret,
-		MinioEndpoint:        getenv("MINIO_ENDPOINT", "localhost:9000"),
-		MinioAccessKey:       getenv("MINIO_ACCESS_KEY", "minioadmin"),
-		MinioSecretKey:       getenv("MINIO_SECRET_KEY", "minioadmin123"),
-		MinioBucket:          getenv("MINIO_BUCKET", "emfield-uploads"),
-		MinioUseSSL:          minioUseSSL,
-		MinioSignedURLExpiry: getenv("MINIO_SIGNED_URL_EXPIRY", "168h"),
+		HTTPAddr:              httpAddr,
+		JWTSecret:             jwtSecret,
+		SecretsDir:            secretsDir,
+		CorsOrigins:           corsOrigins,
+		DBDsn:                 dbDsn,
+		AllowDemoSeed:         allowDemoSeed,
+		AIBaseURL:             aiBaseURL,
+		MultiAgentBaseURL:     multiAgentBaseURL,
+		AIOrchestratedEnabled: strings.EqualFold(strings.TrimSpace(getenv("AI_ORCHESTRATED_ENABLED", "false")), "true"),
+		SimBaseURL:            simBaseURL,
+		AIGatewaySharedToken:  getenv("AI_GATEWAY_SHARED_TOKEN", ""),
+		WecomCorpID:           wecomCorpID,
+		WecomAgentID:          wecomAgentID,
+		WecomSecret:           wecomSecret,
+		MinioEndpoint:         getenv("MINIO_ENDPOINT", "localhost:9000"),
+		MinioAccessKey:        getenv("MINIO_ACCESS_KEY", "minioadmin"),
+		MinioSecretKey:        getenv("MINIO_SECRET_KEY", "minioadmin123"),
+		MinioBucket:           getenv("MINIO_BUCKET", "emfield-uploads"),
+		MinioUseSSL:           minioUseSSL,
+		MinioSignedURLExpiry:  getenv("MINIO_SIGNED_URL_EXPIRY", "168h"),
 	}
 }
 

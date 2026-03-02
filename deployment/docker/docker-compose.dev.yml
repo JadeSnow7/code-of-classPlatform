@@ -32,6 +32,8 @@ services:
       LLM_MODEL: ${LLM_MODEL}
       AI_MULTIMODAL_ENABLED: ${AI_MULTIMODAL_ENABLED:-false}
       RERANKER_ENABLED: ${RERANKER_ENABLED:-false}
+      AI_GATEWAY_SHARED_TOKEN: ${AI_GATEWAY_SHARED_TOKEN}
+      BACKEND_INTERNAL_BASE_URL: http://backend:8080
       LLM_BASE_URL_LOCAL_TEXT: ${LLM_BASE_URL_LOCAL_TEXT}
       LLM_API_KEY_LOCAL_TEXT: ${LLM_API_KEY_LOCAL_TEXT}
       LLM_MODEL_LOCAL_TEXT: ${LLM_MODEL_LOCAL_TEXT}
@@ -58,6 +60,22 @@ services:
       timeout: 5s
       retries: 10
 
+  multi-agent:
+    build:
+      context: ../../../multi-agent/cloud
+    environment:
+      MULTI_AGENT_HOST: 0.0.0.0
+      MULTI_AGENT_PORT: 8003
+      GRAPHRAGX_BASE_URL: ${GRAPHRAGX_BASE_URL:-http://graphragx:8080}
+      MULTI_AGENT_ENABLE_SANDBOX: ${MULTI_AGENT_ENABLE_SANDBOX:-false}
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   sim:
     build:
       context: ../../simulation
@@ -79,6 +97,9 @@ services:
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:5173}
       DB_DSN: ${BACKEND_DB_DSN}
       AI_BASE_URL: ${BACKEND_AI_BASE_URL:-http://ai:8001}
+      AI_GATEWAY_SHARED_TOKEN: ${AI_GATEWAY_SHARED_TOKEN}
+      MULTI_AGENT_BASE_URL: ${BACKEND_MULTI_AGENT_BASE_URL:-http://multi-agent:8003}
+      AI_ORCHESTRATED_ENABLED: ${BACKEND_AI_ORCHESTRATED_ENABLED:-true}
       SIM_BASE_URL: ${BACKEND_SIM_BASE_URL:-http://sim:8002}
       WECOM_CORPID: ${WECOM_CORPID}
       WECOM_AGENTID: ${WECOM_AGENTID}
@@ -94,6 +115,8 @@ services:
       mysql:
         condition: service_healthy
       ai:
+        condition: service_healthy
+      multi-agent:
         condition: service_healthy
       sim:
         condition: service_healthy

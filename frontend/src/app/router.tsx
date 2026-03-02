@@ -15,6 +15,7 @@ import { AISettingsPage } from '@/pages/AISettingsPage';
 import { CourseLayout } from '@/pages/CourseLayout';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { ChatPage } from '@/pages/ChatPage';
+import { MultiAgentChatPage } from '@/pages/MultiAgentChatPage';
 import { AssignmentsPage } from '@/pages/AssignmentsPage';
 import { AssignmentDetailPage } from '@/pages/AssignmentDetailPage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
@@ -115,6 +116,7 @@ export function AppRouter() {
                                 <Route path="detail" element={<Navigate to="../overview" replace />} />
                                 <Route path="overview" element={<OverviewPage />} />
                                 <Route path="chat" element={<ChatPage />} />
+                                <Route path="chat/experimental" element={<MultiAgentChatPage />} />
                                 <Route path="assignments" element={<AssignmentsPage />} />
                                 <Route path="assignments/:assignmentId" element={<AssignmentDetailPage />} />
                                 <Route path="resources" element={<ResourcesPage />} />

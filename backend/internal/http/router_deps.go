@@ -19,6 +19,7 @@ type RouterDeps struct {
 	ResourceHandlers        routes.ResourceHandlers
 	UploadHandlers          routes.UploadHandlers
 	AIHandlers              routes.AIHandlers
+	KnowledgeExportHandlers routes.KnowledgeExportHandlers
 	AnnouncementHandlers    routes.AnnouncementHandlers
 	AttendanceHandlers      routes.AttendanceHandlers
 	WritingHandlers         routes.WritingHandlers

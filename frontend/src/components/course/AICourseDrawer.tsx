@@ -9,10 +9,11 @@ const { Text } = Typography;
 interface AICourseDrawerProps {
     open: boolean;
     onClose: () => void;
+    courseId: string;
     isMobile?: boolean;
 }
 
-export function AICourseDrawer({ open, onClose, isMobile }: AICourseDrawerProps) {
+export function AICourseDrawer({ open, onClose, courseId, isMobile }: AICourseDrawerProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [aiMessages, setAiMessages] = useState<ChatMessage[]>([
         {
@@ -42,6 +43,7 @@ export function AICourseDrawer({ open, onClose, isMobile }: AICourseDrawerProps)
         try {
             await aiStreamClient.streamChat(history, {
                 mode: 'tutor_rag',
+                courseId,
                 onMessage: (token) => {
                     assistantText += token;
                     setAiMessages((prev) => {

@@ -38,6 +38,8 @@ type loginResponse struct {
 }
 
 func (h *authHandlers) Login(c *gin.Context) {
+	const loginTTL = 7 * 24 * time.Hour
+
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request")
@@ -51,13 +53,10 @@ func (h *authHandlers) Login(c *gin.Context) {
 		return
 	}
 
-	// Note: Service token has 7 days TTL, but we report 24h for backward compatibility
-	ttl := 24 * time.Hour
-
 	response.OK(c, loginResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",
-		ExpiresIn:   int64(ttl.Seconds()),
+		ExpiresIn:   int64(loginTTL.Seconds()),
 		UserID:      user.ID,
 		Username:    user.Username,
 		Role:        user.Role,

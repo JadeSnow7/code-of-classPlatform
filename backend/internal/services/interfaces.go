@@ -84,6 +84,33 @@ type AIConfigService interface {
 	PatchProfile(ctx context.Context, userID uint, req UpdateAIConfigRequest) (AIConfigProfile, error)
 }
 
+// KnowledgeExportItem is a canonical export record for AI knowledge sync.
+type KnowledgeExportItem struct {
+	Kind       string         `json:"kind"`
+	ID         string         `json:"id"`
+	SourceID   string         `json:"source_id"`
+	CourseID   string         `json:"course_id"`
+	Visibility string         `json:"visibility"`
+	Title      string         `json:"title"`
+	Content    string         `json:"content"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	Deleted    bool           `json:"deleted,omitempty"`
+}
+
+// KnowledgeExportBatch is the response envelope for knowledge export endpoints.
+type KnowledgeExportBatch struct {
+	Cursor string                `json:"cursor"`
+	Items  []KnowledgeExportItem `json:"items"`
+}
+
+// KnowledgeExportService exports backend canonical content for AI sync.
+type KnowledgeExportService interface {
+	Bootstrap(ctx context.Context, courseID *uint) (KnowledgeExportBatch, error)
+	Changes(ctx context.Context, cursor string, courseID *uint) (KnowledgeExportBatch, error)
+	Document(ctx context.Context, kind string, id uint) (*KnowledgeExportItem, error)
+}
+
 // AdminSystemStats 系统统计
 type AdminSystemStats struct {
 	TotalUsers       int64            `json:"total_users"`

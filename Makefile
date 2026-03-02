@@ -22,7 +22,7 @@ lint: lint-frontend lint-backend lint-python ## Run all linters
 
 lint-frontend: ## Lint frontend code
 	@echo "Linting frontend..."
-	cd frontend-react && npm run lint
+	cd frontend && npm run lint
 
 lint-backend: ## Lint backend code
 	@echo "Linting backend..."
@@ -38,7 +38,7 @@ format: format-frontend format-backend format-python ## Format all code
 
 format-frontend: ## Format frontend code
 	@echo "Formatting frontend..."
-	cd frontend-react && npm run lint -- --fix
+	cd frontend && npm run lint -- --fix
 
 format-backend: ## Format backend code
 	@echo "Formatting backend..."
@@ -55,7 +55,7 @@ test: test-frontend test-backend test-python ## Run all tests
 
 test-frontend: ## Run frontend tests
 	@echo "Running frontend tests..."
-	cd frontend-react && npm run test
+	cd frontend && npm run test
 
 test-backend: ## Run backend tests
 	@echo "Running backend tests..."
@@ -84,7 +84,7 @@ build: build-frontend build-backend ## Build all services
 
 build-frontend: ## Build frontend
 	@echo "Building frontend..."
-	cd frontend-react && npm run build
+	cd frontend && npm run build
 
 build-backend: ## Build backend
 	@echo "Building backend..."
@@ -115,8 +115,8 @@ dev-stop: ## Stop development environment
 # Cleaning
 clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
-	rm -rf frontend-react/dist
-	rm -rf frontend-react/node_modules/.cache
+	rm -rf frontend/dist
+	rm -rf frontend/node_modules/.cache
 	rm -rf backend/bin
 	rm -rf backend/coverage.out
 	rm -rf backend/coverage.html

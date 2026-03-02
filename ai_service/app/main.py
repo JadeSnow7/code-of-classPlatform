@@ -23,10 +23,26 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.graphrag.index import GraphRAGIndex
-from app.graphrag.retrieve import build_rag_context, build_rag_context_hybrid, RetrievalContext
+from app.graphrag.retrieve import build_rag_context, RetrievalContext
 from app.graphrag.embedding import get_embedding_provider, EmbeddingProvider
 from app.graphrag.vector_store import get_vector_store, VectorStore
 from app.graphrag.updater import IndexUpdater, Document
+from app.graphrag_neo4j import (
+    BackendKnowledgeExportClient,
+    DerivationExecutor,
+    DerivationFormatter,
+    DerivationPlanner,
+    DerivationVerifier,
+    KnowledgeSyncService,
+    Neo4jDerivationRetriever,
+    Neo4jGraphRAGClient,
+    ProblemParser,
+)
+from app.graphrag_neo4j.types import (
+    DerivationResponse as Neo4jDerivationResponse,
+    DeriveGraphRAGRequest as Neo4jDeriveGraphRAGRequest,
+    SyncResult,
+)
 from app.model_router import (
     ModelFamily,
     normalize_requested_model_family,
@@ -35,6 +51,8 @@ from app.model_router import (
     to_openai_content,
     validate_message_parts,
 )
+from app.services.graphrag.retriever import GraphRAGRetriever, RetrievalBundle
+from app.services.router import EdgeIntentRouter, IntentLabel, IntentRouterContext
 
 app = FastAPI(title="AI Service", version="0.2.0")
 
@@ -42,8 +60,12 @@ app = FastAPI(title="AI Service", version="0.2.0")
 _embedding_providers: dict[str, EmbeddingProvider] = {}
 _vector_stores: dict[str, VectorStore] = {}
 _index_updater: IndexUpdater | None = None
+_intent_router: EdgeIntentRouter | None = None
+_structured_graphrag_retriever: GraphRAGRetriever | None = None
+_neo4j_graphrag_client: Neo4jGraphRAGClient | None = None
 
 _audit_logger = logging.getLogger("ai_service.audit")
+_logger = logging.getLogger("ai_service.main")
 
 PrivacyLevel = Literal["private", "public"]
 RouteLevel = Literal["local", "cloud", "auto"]
@@ -78,6 +100,9 @@ class ChatRequest(BaseModel):
     mode: str | None = None
     messages: list[ChatMessage] = Field(min_length=1)
     stream: bool = False
+    course_id: str | None = None
+    user_id: str | None = None
+    user_role: str | None = None
     privacy: PrivacyLevel | None = None
     route: RouteLevel | None = None
 
@@ -906,11 +931,230 @@ def _get_index_updater(index: GraphRAGIndex) -> IndexUpdater:
     return _index_updater
 
 
+def _get_intent_router() -> EdgeIntentRouter:
+    """Get or create the edge intent router."""
+    global _intent_router
+    if _intent_router is None:
+        _intent_router = EdgeIntentRouter()
+    return _intent_router
+
+
+def _get_graphrag_retriever() -> GraphRAGRetriever:
+    """Get or create the structured GraphRAG retriever."""
+    global _structured_graphrag_retriever
+    if _structured_graphrag_retriever is None:
+        _structured_graphrag_retriever = GraphRAGRetriever()
+    return _structured_graphrag_retriever
+
+
+def _get_neo4j_graphrag_client() -> Neo4jGraphRAGClient:
+    """Get or create the Neo4j GraphRAG client."""
+    global _neo4j_graphrag_client
+    if _neo4j_graphrag_client is None:
+        _neo4j_graphrag_client = Neo4jGraphRAGClient()
+    return _neo4j_graphrag_client
+
+
+def _get_problem_parser() -> ProblemParser:
+    return ProblemParser()
+
+
+def _get_derivation_planner() -> DerivationPlanner:
+    return DerivationPlanner()
+
+
+def _get_derivation_executor() -> DerivationExecutor:
+    return DerivationExecutor()
+
+
+def _get_derivation_verifier() -> DerivationVerifier:
+    return DerivationVerifier()
+
+
+def _get_derivation_formatter() -> DerivationFormatter:
+    return DerivationFormatter()
+
+
+async def _retrieve_structured_graphrag_bundle(
+    *,
+    index: GraphRAGIndex,
+    query: str,
+    decision: RoutingDecision,
+    course_id: str | None,
+    user_id: str | None,
+    user_role: str | None,
+) -> RetrievalBundle | None:
+    """Retrieve structured GraphRAG context with local/cloud embedding fallback."""
+    normalized_query = query.strip()
+    if not normalized_query:
+        return None
+
+    retriever = _get_graphrag_retriever()
+    kwargs = {
+        "index": index,
+        "query": normalized_query,
+        "course_id": course_id,
+        "user_id": user_id,
+        "user_role": user_role,
+        "seed_top_k": _get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
+        "expand_hops": _get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
+        "final_top_k": _get_int_env("GRAPH_RAG_FINAL_TOP_K", default=6),
+        "max_chars": _get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+    }
+
+    embedding_upstream = _embedding_route(decision.route_resolved)
+    try:
+        bundle = await retriever.retrieve(
+            vector_store=_get_vector_store(embedding_upstream),
+            embedding=_get_embedding(embedding_upstream),
+            **kwargs,
+        )
+        return bundle if bundle.assembled_context.strip() else None
+    except Exception as exc:
+        if embedding_upstream == "local" and _can_cloud_fallback(decision):
+            _audit_event(
+                event="cloud_fallback",
+                request_id=decision.request_id,
+                request_id_source=decision.request_id_source,
+                endpoint=decision.endpoint,
+                mode=decision.mode,
+                privacy_input=decision.privacy_input,
+                route_input=decision.route_input,
+                privacy_resolved=decision.privacy_resolved,
+                route_resolved=decision.route_resolved,
+                caller_trusted=decision.caller_trusted,
+                final_upstream="cloud",
+                fallback_reason=f"embedding_local_error:{type(exc).__name__}",
+                status_code=200,
+                latency_ms=0,
+            )
+            try:
+                bundle = await retriever.retrieve(
+                    vector_store=_get_vector_store("cloud"),
+                    embedding=_get_embedding("cloud"),
+                    **kwargs,
+                )
+                return bundle if bundle.assembled_context.strip() else None
+            except Exception as cloud_exc:
+                _logger.warning("cloud GraphRAG retrieval failed: %s", cloud_exc)
+                return None
+        _logger.warning("structured GraphRAG retrieval failed: %s", exc)
+        return None
+
+
+def _course_scoped_index(index: GraphRAGIndex, course_id: str | None) -> GraphRAGIndex:
+    normalized_course_id = (course_id or "").strip()
+    if not normalized_course_id:
+        return index
+
+    scoped_chunks = {
+        chunk_id: chunk
+        for chunk_id, chunk in index.chunks.items()
+        if (chunk.metadata or {}).get("course_id") == normalized_course_id
+    }
+    scoped_chunk_ids = set(scoped_chunks.keys())
+
+    return GraphRAGIndex.from_dict(
+        {
+            "nodes": [
+                {
+                    "id": node.id,
+                    "title": node.title,
+                    "chunk_ids": [chunk_id for chunk_id in node.chunk_ids if chunk_id in scoped_chunk_ids],
+                }
+                for node in index.nodes.values()
+            ],
+            "chunks": [
+                {
+                    "id": chunk.id,
+                    "text": chunk.text,
+                    "source": chunk.source,
+                    "section": chunk.section,
+                    "metadata": chunk.metadata,
+                }
+                for chunk in scoped_chunks.values()
+            ],
+            "edges": [
+                {
+                    "source": edge.source,
+                    "target": edge.target,
+                    "relation": edge.relation,
+                }
+                for edge in index.edges
+            ],
+        }
+    )
+
+
+def _build_keyword_rag_fallback_context(
+    index: GraphRAGIndex,
+    query: str,
+    course_id: str | None,
+) -> str:
+    normalized_query = query.strip()
+    if not normalized_query:
+        return ""
+
+    return build_rag_context(
+        _course_scoped_index(index, course_id),
+        normalized_query,
+        seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
+        expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
+        final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=6),
+        max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+    )
+
+
+async def _resolve_graphrag_context_with_fallback(
+    *,
+    index: GraphRAGIndex,
+    query: str,
+    decision: RoutingDecision,
+    course_id: str | None,
+    user_id: str | None,
+    user_role: str | None,
+    endpoint: str,
+) -> str:
+    normalized_query = query.strip()
+    if not normalized_query:
+        return ""
+
+    bundle: RetrievalBundle | None = None
+    try:
+        bundle = await _retrieve_structured_graphrag_bundle(
+            index=index,
+            query=normalized_query,
+            decision=decision,
+            course_id=course_id,
+            user_id=user_id,
+            user_role=user_role,
+        )
+    except Exception as exc:
+        _logger.warning("%s structured GraphRAG raised unexpectedly, falling back to keyword RAG: %s", endpoint, exc)
+
+    if bundle and bundle.assembled_context.strip():
+        return bundle.assembled_context
+
+    if bundle is None:
+        _logger.warning("%s structured GraphRAG returned no context, falling back to keyword RAG", endpoint)
+    else:
+        _logger.warning("%s structured GraphRAG produced empty context, falling back to keyword RAG", endpoint)
+
+    try:
+        return _build_keyword_rag_fallback_context(index, normalized_query, course_id)
+    except Exception as exc:
+        _logger.warning("%s keyword RAG fallback failed: %s", endpoint, exc)
+        return ""
+
+
 def invalidate_graphrag_cache():
     """Invalidate all GraphRAG caches for hot reload."""
-    global _index_updater
+    global _index_updater, _intent_router, _structured_graphrag_retriever, _neo4j_graphrag_client
     _load_graphrag_index.cache_clear()
     _index_updater = None
+    _intent_router = None
+    _structured_graphrag_retriever = None
+    _neo4j_graphrag_client = None
     _embedding_providers.clear()
     _vector_stores.clear()
 
@@ -961,38 +1205,43 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         messages.append({"role": "system", "content": system})
     messages.extend([m.model_dump() for m in req.messages])
 
+    course_id = req.course_id or request.headers.get("X-Course-Id")
+    user_id = req.user_id or request.headers.get("X-User-Id")
+    user_role = req.user_role or request.headers.get("X-User-Role")
     latest_user_query = _latest_user_query(req.messages)
-    if _edge_complex_requires_cloud_hint(req.mode, latest_user_query):
-        _audit_request_complete(
-            decision,
-            status_code=200,
-            final_upstream="local",
-            fallback_reason="edge_complex_cloud_hint",
-            started_at=started_at,
+    intent_decision = await _get_intent_router().classify(
+        IntentRouterContext(
+            mode=req.mode,
+            latest_user_query=latest_user_query,
+            message_history=[m.model_dump() for m in req.messages],
+            course_id=course_id,
+            user_id=user_id,
+            user_role=user_role,
         )
-        return ChatResponse(reply=EDGE_COMPLEX_CLOUD_HINT, model="edge-local-router")
-
-    _, rag_requested = _parse_mode(req.mode)
-    if rag_requested and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+    )
+    if intent_decision.label == IntentLabel.COMPLEX_REASONING:
+        if not _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+            _logger.warning("GraphRAG disabled for complex reasoning request")
         index_path = _get_env("GRAPH_RAG_INDEX_PATH") or "app/data/graphrag_index.json"
         index = _load_graphrag_index(index_path)
-        if index:
-            query = ""
-            for message in reversed(req.messages):
-                if message.role == "user":
-                    query = message.content
-                    break
-            context = build_rag_context(
-                index,
-                query,
-                seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
-                expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
-                final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
-                max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+        if not index and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+            _logger.warning("GraphRAG index unavailable at %s", index_path)
+        if index and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+            context = await _resolve_graphrag_context_with_fallback(
+                index=index,
+                query=latest_user_query,
+                decision=decision,
+                course_id=course_id,
+                user_id=user_id,
+                user_role=user_role,
+                endpoint="/v1/chat",
             )
             if context:
                 insert_at = 1 if system else 0
-                messages.insert(insert_at, {"role": "system", "content": _build_graphrag_system_message(context)})
+                messages.insert(
+                    insert_at,
+                    {"role": "system", "content": _build_graphrag_system_message(context)},
+                )
 
     payload: dict[str, Any] = {
         "messages": messages,
@@ -1641,6 +1890,175 @@ async def chat_with_tools(req: ChatWithToolsRequest, request: Request, response:
 
 
 # ============================================================================
+# Neo4j Derivation GraphRAG Endpoints
+# ============================================================================
+
+
+class GraphRAGSyncRequest(BaseModel):
+    course_id: str | None = None
+
+
+class GraphRAGRebuildDocumentRequest(BaseModel):
+    kind: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+
+
+def _build_sync_service(route: RouteLevel | Literal["local", "cloud"] = "local") -> KnowledgeSyncService:
+    upstream = _embedding_route(route)
+    return KnowledgeSyncService(
+        backend_client=BackendKnowledgeExportClient(),
+        graph_client=_get_neo4j_graphrag_client(),
+        embedding=_get_embedding(upstream),
+    )
+
+
+def _assign_citation_ids(steps: list[Any], citations: list[Any]) -> None:
+    citation_id_map = {citation.node_id: citation.id for citation in citations if citation.id}
+    for step in steps:
+        for citation in step.citations:
+            if citation.node_id in citation_id_map:
+                citation.id = citation_id_map[citation.node_id]
+
+
+@app.post("/v1/derive/graphrag", response_model=Neo4jDerivationResponse)
+async def derive_graphrag(
+    req: Neo4jDeriveGraphRAGRequest,
+    request: Request,
+    response: Response,
+) -> Neo4jDerivationResponse:
+    """Run the dedicated Neo4j GraphRAG derivation pipeline."""
+    started_at = time.monotonic()
+    decision = _build_routing_decision(
+        request,
+        endpoint="/v1/derive/graphrag",
+        mode=req.mode,
+        body_privacy=req.privacy,
+        body_route=req.route,
+    )
+    response.headers["X-Request-ID"] = decision.request_id
+
+    graph_client = _get_neo4j_graphrag_client()
+    if not graph_client.configured:
+        _audit_request_complete(decision, status_code=503, final_upstream="none", fallback_reason="neo4j_unconfigured", started_at=started_at)
+        _raise_api_error(503, "GRAPHRAG_UNAVAILABLE", "Neo4j GraphRAG is not configured", decision.request_id)
+
+    try:
+        embedding = _get_embedding(_embedding_route(decision.route_resolved))
+        await graph_client.ensure_schema(embedding.dimension)
+        await graph_client.seed_domain_catalog()
+
+        problem_frame = _get_problem_parser().parse(req.problem_text, course_id=req.course_id)
+        retriever = Neo4jDerivationRetriever(client=graph_client, embedding=embedding)
+        anchors, subgraph, retrieval_debug = await retriever.retrieve(
+            query=req.problem_text,
+            problem_frame=problem_frame,
+            user_role=req.user_role,
+        )
+
+        planner = _get_derivation_planner()
+        executor = _get_derivation_executor()
+        verifier = _get_derivation_verifier()
+        formatter = _get_derivation_formatter()
+
+        if not anchors or not subgraph.nodes:
+            response_payload = Neo4jDerivationResponse(
+                status="insufficient_context",
+                trace_id=decision.request_id,
+                problem_frame=problem_frame,
+                steps=[],
+                final_answer=formatter.format(
+                    problem_text=req.problem_text,
+                    problem_frame=problem_frame,
+                    steps=[],
+                    checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
+                    citations=[],
+                ),
+                checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
+                citations=[],
+                retrieval_debug=retrieval_debug,
+            )
+            _audit_request_complete(decision, status_code=200, final_upstream="neo4j", fallback_reason="insufficient_context", started_at=started_at)
+            return response_payload
+
+        plan = planner.plan(problem_frame=problem_frame, subgraph=subgraph)
+        steps = executor.execute(problem_text=req.problem_text, problem_frame=problem_frame, plan=plan, subgraph=subgraph)
+        steps, checks, final_status = verifier.verify(problem_frame=problem_frame, steps=steps, subgraph=subgraph)
+        citations = formatter.collect_citations(steps)
+        _assign_citation_ids(steps, citations)
+        final_answer = formatter.format(
+            problem_text=req.problem_text,
+            problem_frame=problem_frame,
+            steps=steps,
+            checks=checks,
+            citations=citations,
+        )
+
+        result = Neo4jDerivationResponse(
+            status=final_status,
+            trace_id=decision.request_id,
+            problem_frame=problem_frame,
+            steps=steps,
+            final_answer=final_answer,
+            checks=checks,
+            citations=citations,
+            retrieval_debug=retrieval_debug,
+        )
+        _audit_request_complete(decision, status_code=200, final_upstream="neo4j", fallback_reason="", started_at=started_at)
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _logger.exception("derive_graphrag failed: %s", exc)
+        _audit_request_complete(decision, status_code=500, final_upstream="neo4j", fallback_reason=type(exc).__name__, started_at=started_at)
+        _raise_api_error(500, "DERIVATION_PIPELINE_FAILED", str(exc), decision.request_id)
+
+
+@app.post("/v1/graphrag/sync/bootstrap", response_model=SyncResult)
+async def graphrag_sync_bootstrap(
+    req: GraphRAGSyncRequest,
+    request: Request,
+    response: Response,
+) -> SyncResult:
+    """Bootstrap Neo4j GraphRAG from backend content exports."""
+    request_id, _ = _resolve_request_id(request)
+    response.headers["X-Request-ID"] = request_id
+    if not _is_trusted_gateway(request):
+        _raise_api_error(403, "ROUTING_FORBIDDEN", "sync endpoints require trusted gateway", request_id)
+    service = _build_sync_service()
+    return await service.bootstrap(course_id=req.course_id)
+
+
+@app.post("/v1/graphrag/sync/pull", response_model=SyncResult)
+async def graphrag_sync_pull(
+    req: GraphRAGSyncRequest,
+    request: Request,
+    response: Response,
+) -> SyncResult:
+    """Pull incremental content changes from the backend."""
+    request_id, _ = _resolve_request_id(request)
+    response.headers["X-Request-ID"] = request_id
+    if not _is_trusted_gateway(request):
+        _raise_api_error(403, "ROUTING_FORBIDDEN", "sync endpoints require trusted gateway", request_id)
+    service = _build_sync_service()
+    return await service.pull(course_id=req.course_id)
+
+
+@app.post("/v1/graphrag/sync/rebuild-document", response_model=SyncResult)
+async def graphrag_sync_rebuild_document(
+    req: GraphRAGRebuildDocumentRequest,
+    request: Request,
+    response: Response,
+) -> SyncResult:
+    """Rebuild a single source document in Neo4j."""
+    request_id, _ = _resolve_request_id(request)
+    response.headers["X-Request-ID"] = request_id
+    if not _is_trusted_gateway(request):
+        _raise_api_error(403, "ROUTING_FORBIDDEN", "sync endpoints require trusted gateway", request_id)
+    service = _build_sync_service()
+    return await service.rebuild_document(req.kind, req.id)
+
+
+# ============================================================================
 # GraphRAG Index Management Endpoints
 # ============================================================================
 
@@ -1809,83 +2227,30 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
         messages.append({"role": "system", "content": system})
     messages.extend([m.model_dump() for m in req.messages])
 
-    _, rag_requested = _parse_mode(req.mode)
-    if rag_requested and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+    if not _get_bool_env("GRAPH_RAG_ENABLED", default=False):
+        _logger.warning("GraphRAG disabled for /v1/chat/hybrid request")
+    else:
         index_path = _get_env("GRAPH_RAG_INDEX_PATH") or "app/data/graphrag_index.json"
         index = _load_graphrag_index(index_path)
+        if not index:
+            _logger.warning("GraphRAG index unavailable at %s", index_path)
         if index:
-            query = ""
-            for m in reversed(req.messages):
-                if m.role == "user":
-                    query = m.content
-                    break
-
-            # Use hybrid retrieval with ACL
-            ctx = RetrievalContext(
+            query = _latest_user_query(req.messages)
+            context = await _resolve_graphrag_context_with_fallback(
+                index=index,
                 query=query,
+                decision=decision,
                 course_id=course_id,
                 user_id=user_id,
                 user_role=user_role,
+                endpoint="/v1/chat/hybrid",
             )
-            
-            context = ""
-            embedding_upstream = _embedding_route(decision.route_resolved)
-            try:
-                context = await build_rag_context_hybrid(
-                    index,
-                    ctx,
-                    _get_vector_store(embedding_upstream),
-                    _get_embedding(embedding_upstream),
-                    seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
-                    expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
-                    final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
-                    max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
-                )
-            except Exception as exc:
-                if embedding_upstream == "local" and _can_cloud_fallback(decision):
-                    _audit_event(
-                        event="cloud_fallback",
-                        request_id=decision.request_id,
-                        request_id_source=decision.request_id_source,
-                        endpoint=decision.endpoint,
-                        mode=decision.mode,
-                        privacy_input=decision.privacy_input,
-                        route_input=decision.route_input,
-                        privacy_resolved=decision.privacy_resolved,
-                        route_resolved=decision.route_resolved,
-                        caller_trusted=decision.caller_trusted,
-                        final_upstream="cloud",
-                        fallback_reason=f"embedding_local_error:{type(exc).__name__}",
-                        status_code=200,
-                        latency_ms=0,
-                    )
-                    try:
-                        context = await build_rag_context_hybrid(
-                            index,
-                            ctx,
-                            _get_vector_store("cloud"),
-                            _get_embedding("cloud"),
-                            seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
-                            expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
-                            final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
-                            max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
-                        )
-                    except Exception:
-                        context = ""
-
-            if not context:
-                context = build_rag_context(
-                    index,
-                    query,
-                    seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
-                    expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
-                    final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
-                    max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
-                )
-
             if context:
                 insert_at = 1 if system else 0
-                messages.insert(insert_at, {"role": "system", "content": _build_graphrag_system_message(context)})
+                messages.insert(
+                    insert_at,
+                    {"role": "system", "content": _build_graphrag_system_message(context)},
+                )
 
     payload: dict[str, Any] = {
         "messages": messages,

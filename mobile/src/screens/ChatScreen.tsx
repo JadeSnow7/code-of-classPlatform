@@ -3,6 +3,7 @@ import {
     ActivityIndicator,
     FlatList,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     Pressable,
     StyleSheet,
@@ -11,10 +12,10 @@ import {
     View,
 } from 'react-native';
 
-import { chat } from '../api';
+import { chat, getCourses } from '../api';
 import { DEFAULT_CHAT_MODE, EDGE_ROUTER_ENGINE, MAX_CONTEXT_MESSAGES } from '../config';
 import { decideRouteWithRust } from '../rustBridge';
-import type { AuthSession, ChatMessage } from '../types';
+import type { AuthSession, ChatMessage, Course } from '../types';
 import MessageBubble from '../components/MessageBubble';
 import { appStyles, palette, radius, spacing } from '../theme';
 
@@ -44,6 +45,10 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
     const [mode, setMode] = useState(DEFAULT_CHAT_MODE);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [courses, setCourses] = useState<Course[]>([]);
+    const [coursePickerVisible, setCoursePickerVisible] = useState(false);
+    const [courseLoading, setCourseLoading] = useState(true);
+    const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
     const listRef = useRef<FlatList<ChatMessage>>(null);
     const abortRef = useRef<AbortController | null>(null);
     const requestIdRef = useRef(0);
@@ -63,7 +68,35 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
         return () => clearTimeout(timeoutId);
     }, [messages.length]);
 
-    const canSend = input.trim().length > 0 && !loading;
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadCourses = async () => {
+            setCourseLoading(true);
+            try {
+                const data = await getCourses(session.token, session.tokenType);
+                if (!cancelled) {
+                    setCourses(data);
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setError(err instanceof Error ? err.message : 'Failed to load courses');
+                }
+            } finally {
+                if (!cancelled) {
+                    setCourseLoading(false);
+                }
+            }
+        };
+
+        void loadCourses();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [session.token, session.tokenType]);
+
+    const canSend = input.trim().length > 0 && !loading && !!selectedCourse;
 
     const handleStop = () => {
         abortRef.current?.abort();
@@ -71,7 +104,17 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
         setLoading(false);
     };
 
+    const handleSelectCourse = (course: Course) => {
+        setSelectedCourse(course);
+        setCoursePickerVisible(false);
+        setError(null);
+    };
+
     const handleSend = async () => {
+        if (!selectedCourse) {
+            setError('请先选择课程后再提问');
+            return;
+        }
         if (!canSend) {
             return;
         }
@@ -125,7 +168,8 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                 {
                     privacy: 'private',
                     route,
-                }
+                },
+                selectedCourse.ID
             );
 
             if (!mountedRef.current || requestId !== requestIdRef.current) {
@@ -181,6 +225,36 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                         </Pressable>
                     );
                 })}
+            </View>
+
+            <View style={styles.courseSelectorWrap}>
+                <Pressable
+                    style={({ pressed }) => [
+                        styles.courseSelector,
+                        pressed && styles.courseSelectorPressed,
+                    ]}
+                    onPress={() => setCoursePickerVisible(true)}
+                >
+                    <View style={styles.courseSelectorCopy}>
+                        <Text style={styles.courseSelectorLabel}>当前课程</Text>
+                        <Text
+                            style={[
+                                styles.courseSelectorValue,
+                                !selectedCourse && styles.courseSelectorValueMuted,
+                            ]}
+                        >
+                            {courseLoading ? '加载课程中...' : selectedCourse ? selectedCourse.name : '请选择课程'}
+                        </Text>
+                    </View>
+                    {courseLoading ? (
+                        <ActivityIndicator size="small" color={palette.primary} />
+                    ) : (
+                        <Text style={styles.courseSelectorAction}>{selectedCourse ? '切换' : '选择'}</Text>
+                    )}
+                </Pressable>
+                {!selectedCourse && !courseLoading ? (
+                    <Text style={styles.courseHint}>未选择课程前不能发送消息。</Text>
+                ) : null}
             </View>
 
             {error ? (
@@ -248,6 +322,53 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                     )}
                 </View>
             </KeyboardAvoidingView>
+
+            <Modal
+                visible={coursePickerVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setCoursePickerVisible(false)}
+            >
+                <View style={styles.modalBackdrop}>
+                    <Pressable style={styles.modalDismissArea} onPress={() => setCoursePickerVisible(false)} />
+                    <View style={styles.modalCard}>
+                        <Text style={styles.modalTitle}>选择课程</Text>
+                        {courseLoading ? (
+                            <View style={styles.modalLoadingState}>
+                                <ActivityIndicator size="small" color={palette.primary} />
+                                <Text style={styles.modalInfoText}>课程列表加载中...</Text>
+                            </View>
+                        ) : courses.length === 0 ? (
+                            <Text style={styles.modalInfoText}>暂无可用课程</Text>
+                        ) : (
+                            <View style={styles.courseOptionList}>
+                                {courses.map((course) => {
+                                    const isActive = selectedCourse?.ID === course.ID;
+                                    return (
+                                        <Pressable
+                                            key={course.ID}
+                                            onPress={() => handleSelectCourse(course)}
+                                            style={({ pressed }) => [
+                                                styles.courseOption,
+                                                isActive && styles.courseOptionActive,
+                                                pressed && styles.courseOptionPressed,
+                                            ]}
+                                        >
+                                            <Text style={styles.courseOptionTitle}>{course.name}</Text>
+                                            <Text style={styles.courseOptionMeta}>
+                                                {course.teacher_name || `教师 #${course.teacher_id}`}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
+                        )}
+                        <Pressable style={styles.modalCloseButton} onPress={() => setCoursePickerVisible(false)}>
+                            <Text style={styles.modalCloseButtonText}>关闭</Text>
+                        </Pressable>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 }
@@ -291,6 +412,51 @@ const styles = StyleSheet.create({
     },
     modeTextActive: {
         color: palette.textPrimary,
+    },
+    courseSelectorWrap: {
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.xs,
+    },
+    courseSelector: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.md,
+        backgroundColor: palette.backgroundPanel,
+        borderWidth: 1,
+        borderColor: palette.border,
+    },
+    courseSelectorPressed: {
+        opacity: 0.9,
+    },
+    courseSelectorCopy: {
+        flex: 1,
+        marginRight: spacing.sm,
+    },
+    courseSelectorLabel: {
+        color: palette.textMuted,
+        fontSize: 12,
+        marginBottom: 2,
+    },
+    courseSelectorValue: {
+        color: palette.textPrimary,
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    courseSelectorValueMuted: {
+        color: palette.textMuted,
+    },
+    courseSelectorAction: {
+        color: palette.primary,
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    courseHint: {
+        marginTop: 6,
+        color: palette.textMuted,
+        fontSize: 12,
     },
     errorBanner: {
         marginHorizontal: spacing.md,
@@ -402,6 +568,75 @@ const styles = StyleSheet.create({
     stopButtonText: {
         color: palette.textPrimary,
         fontSize: 14,
+        fontWeight: '700',
+    },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(2, 6, 23, 0.72)',
+        justifyContent: 'center',
+        padding: spacing.lg,
+    },
+    modalDismissArea: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    modalCard: {
+        backgroundColor: palette.backgroundPanel,
+        borderRadius: radius.lg,
+        borderWidth: 1,
+        borderColor: palette.border,
+        padding: spacing.md,
+        gap: spacing.sm,
+    },
+    modalTitle: {
+        color: palette.textPrimary,
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    modalLoadingState: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.xs,
+    },
+    modalInfoText: {
+        color: palette.textMuted,
+        fontSize: 13,
+    },
+    courseOptionList: {
+        gap: spacing.xs,
+    },
+    courseOption: {
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: palette.border,
+        backgroundColor: palette.backgroundMuted,
+    },
+    courseOptionActive: {
+        borderColor: palette.primary,
+        backgroundColor: palette.primaryMuted,
+    },
+    courseOptionPressed: {
+        opacity: 0.88,
+    },
+    courseOptionTitle: {
+        color: palette.textPrimary,
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    courseOptionMeta: {
+        color: palette.textMuted,
+        fontSize: 12,
+        marginTop: 4,
+    },
+    modalCloseButton: {
+        alignSelf: 'flex-end',
+        paddingHorizontal: spacing.sm,
+        paddingVertical: spacing.xs,
+    },
+    modalCloseButtonText: {
+        color: palette.primary,
+        fontSize: 13,
         fontWeight: '700',
     },
 });

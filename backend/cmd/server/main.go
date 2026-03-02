@@ -52,7 +52,12 @@ func main() {
 		logger.Log.Info("demo user seed disabled", slog.String("hint", "set ALLOW_DEMO_SEED=true to enable"))
 	}
 
-	aiClient := clients.NewAIClient(cfg.AIBaseURL, cfg.AIGatewaySharedToken)
+	aiClient := clients.NewAIClient(
+		cfg.AIBaseURL,
+		cfg.AIGatewaySharedToken,
+		clients.WithOrchestratedBaseURL(cfg.MultiAgentBaseURL),
+		clients.WithOrchestratedEnabled(cfg.AIOrchestratedEnabled),
+	)
 
 	// Initialize MinIO client
 	signedURLExpiry, err := time.ParseDuration(cfg.MinioSignedURLExpiry)

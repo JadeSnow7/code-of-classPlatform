@@ -82,6 +82,7 @@ func TestLogin_Success(t *testing.T) {
 	assert.True(t, resp.Success)
 	assert.NotEmpty(t, resp.Data.AccessToken)
 	assert.Equal(t, "Bearer", resp.Data.TokenType)
+	assert.Equal(t, int64(7*24*3600), resp.Data.ExpiresIn)
 	assert.Equal(t, "alice", resp.Data.Username)
 	assert.Equal(t, "teacher", resp.Data.Role)
 }

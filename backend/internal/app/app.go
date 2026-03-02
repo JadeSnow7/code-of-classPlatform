@@ -43,6 +43,7 @@ type App struct {
 	ResourceService        services.ResourceService
 	UploadService          services.UploadService
 	WritingService         services.WritingService
+	KnowledgeExportService services.KnowledgeExportService
 	LearningProfileService services.LearningProfileService
 	GlobalProfileService   services.GlobalProfileService
 }
@@ -85,6 +86,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	app.AttendanceService = services.NewAttendanceService(app.AttendanceRepo, app.UserRepo)
 	app.ResourceService = services.NewResourceService(app.ResourceRepo)
 	app.WritingService = services.NewWritingService(app.WritingRepo, app.AIClient)
+	app.KnowledgeExportService = services.NewKnowledgeExportService(db)
 	app.LearningProfileService = services.NewLearningProfileService(app.LearningProfileRepo)
 	app.GlobalProfileService = services.NewGlobalProfileService(app.GlobalProfileRepo)
 	app.UploadService = services.NewUploadService(app.MinIOClient, app.AssignmentRepo, app.CourseRepo)
@@ -115,6 +117,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		ResourceHandlers:        httpapi.NewResourceHandlers(app.ResourceService),
 		UploadHandlers:          httpapi.NewUploadHandlers(app.UploadService),
 		AIHandlers:              aiHandlers,
+		KnowledgeExportHandlers: httpapi.NewKnowledgeExportHandlers(app.KnowledgeExportService),
 		AnnouncementHandlers:    httpapi.NewAnnouncementHandlers(app.AnnouncementService),
 		AttendanceHandlers:      httpapi.NewAttendanceHandlers(app.AttendanceService),
 		WritingHandlers:         httpapi.NewWritingHandlers(app.WritingService),

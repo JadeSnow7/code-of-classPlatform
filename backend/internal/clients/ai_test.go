@@ -45,6 +45,15 @@ func TestChatPropagatesHeadersAndRoutingFields(t *testing.T) {
 			if got := payload["route"]; got != "auto" {
 				t.Fatalf("unexpected route: %#v", got)
 			}
+			if got := payload["course_id"]; got != "em-101" {
+				t.Fatalf("unexpected course_id: %#v", got)
+			}
+			if got := payload["user_id"]; got != "student-1" {
+				t.Fatalf("unexpected user_id: %#v", got)
+			}
+			if got := payload["user_role"]; got != "student" {
+				t.Fatalf("unexpected user_role: %#v", got)
+			}
 
 			resp := &http.Response{
 				StatusCode: http.StatusOK,
@@ -63,12 +72,74 @@ func TestChatPropagatesHeadersAndRoutingFields(t *testing.T) {
 		Messages: []ChatMessage{
 			{Role: "user", Content: "hello"},
 		},
-		Privacy: "public",
-		Route:   "auto",
+		CourseID: "em-101",
+		UserID:   "student-1",
+		UserRole: "student",
+		Privacy:  "public",
+		Route:    "auto",
 	})
 	if err != nil {
 		t.Fatalf("chat failed: %v", err)
 	}
+}
+
+func TestStreamChatPropagatesACLFields(t *testing.T) {
+	t.Parallel()
+
+	client := NewAIClient("http://ai.local", "gateway-token")
+	client.streamHTTPClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/v1/chat" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if got := r.Header.Get("X-Request-ID"); got != "req-stream-123" {
+				t.Fatalf("unexpected X-Request-ID: %q", got)
+			}
+
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body failed: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("unmarshal body failed: %v", err)
+			}
+			if got := payload["stream"]; got != true {
+				t.Fatalf("unexpected stream flag: %#v", got)
+			}
+			if got := payload["course_id"]; got != "em-202" {
+				t.Fatalf("unexpected course_id: %#v", got)
+			}
+			if got := payload["user_id"]; got != "teacher-7" {
+				t.Fatalf("unexpected user_id: %#v", got)
+			}
+			if got := payload["user_role"]; got != "teacher" {
+				t.Fatalf("unexpected user_role: %#v", got)
+			}
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"done\"}\n\n")),
+				Header:     make(http.Header),
+				Request:    r,
+			}
+			resp.Header.Set("Content-Type", "text/event-stream")
+			return resp, nil
+		}),
+	}
+
+	ctx := WithRequestID(context.Background(), "req-stream-123")
+	body, err := client.StreamChat(ctx, ChatRequest{
+		Mode:     "tutor",
+		Messages: []ChatMessage{{Role: "user", Content: "stream me"}},
+		CourseID: "em-202",
+		UserID:   "teacher-7",
+		UserRole: "teacher",
+	})
+	if err != nil {
+		t.Fatalf("stream chat failed: %v", err)
+	}
+	defer body.Close()
 }
 
 func TestChatMultimodalPropagatesHeadersAndBody(t *testing.T) {
@@ -186,4 +257,58 @@ func TestAnalyzeWritingPropagatesHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze writing failed: %v", err)
 	}
+}
+
+func TestStreamOrchestratedChatUsesMultiAgentBaseURL(t *testing.T) {
+	t.Parallel()
+
+	client := NewAIClient(
+		"http://ai.local",
+		"gateway-token",
+		WithOrchestratedBaseURL("http://multi-agent.local"),
+		WithOrchestratedEnabled(true),
+	)
+	client.streamHTTPClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.String() != "http://multi-agent.local/v1/chat/orchestrated" {
+				t.Fatalf("unexpected url: %s", r.URL.String())
+			}
+			if got := r.Header.Get("X-Request-ID"); got != "req-orchestrated" {
+				t.Fatalf("unexpected X-Request-ID: %q", got)
+			}
+			if got := r.Header.Get("X-AI-Gateway-Token"); got != "gateway-token" {
+				t.Fatalf("unexpected X-AI-Gateway-Token: %q", got)
+			}
+
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body failed: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("unmarshal body failed: %v", err)
+			}
+			if got := payload["stream"]; got != true {
+				t.Fatalf("unexpected stream flag: %#v", got)
+			}
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"start\",\"request_id\":\"req-orchestrated\"}\n\n")),
+				Header:     make(http.Header),
+				Request:    r,
+			}
+			resp.Header.Set("Content-Type", "text/event-stream")
+			return resp, nil
+		}),
+	}
+
+	ctx := WithRequestID(context.Background(), "req-orchestrated")
+	body, err := client.StreamOrchestratedChat(ctx, OrchestratedChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatalf("stream orchestrated chat failed: %v", err)
+	}
+	defer body.Close()
 }

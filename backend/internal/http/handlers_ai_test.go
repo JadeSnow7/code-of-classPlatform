@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -34,6 +35,120 @@ func (m *MockAIClient) ChatGuided(req clients.GuidedChatRequest) (clients.Guided
 		ProgressPercentage: 20,
 		WeakPoints:         []string{},
 	}, nil
+}
+
+func TestChat_OmitsUserIDForTutorMode(t *testing.T) {
+	t.Parallel()
+
+	var forwardedPayload map[string]any
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat" {
+			t.Fatalf("unexpected downstream path: %s", r.URL.Path)
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read downstream body failed: %v", err)
+		}
+		if err := json.Unmarshal(body, &forwardedPayload); err != nil {
+			t.Fatalf("unmarshal downstream body failed: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"reply":"ok","model":"local-model"}`))
+	}))
+	defer downstream.Close()
+
+	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"))
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("user", middleware.UserContext{ID: 123, Role: "student"})
+		c.Next()
+	})
+	r.POST("/ai/chat", handler.Chat)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/ai/chat",
+		bytes.NewReader([]byte(`{"mode":"tutor","messages":[{"role":"user","content":"hello"}],"course_id":42}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "42", forwardedPayload["course_id"])
+	assert.Equal(t, "student", forwardedPayload["user_role"])
+	_, hasUserID := forwardedPayload["user_id"]
+	assert.False(t, hasUserID)
+}
+
+func TestChat_ForwardsUserIDForPrivateArtifactMode(t *testing.T) {
+	t.Parallel()
+
+	var forwardedPayload map[string]any
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat" {
+			t.Fatalf("unexpected downstream path: %s", r.URL.Path)
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read downstream body failed: %v", err)
+		}
+		if err := json.Unmarshal(body, &forwardedPayload); err != nil {
+			t.Fatalf("unmarshal downstream body failed: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"reply":"ok","model":"local-model"}`))
+	}))
+	defer downstream.Close()
+
+	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"))
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("user", middleware.UserContext{ID: 123, Role: "student"})
+		c.Next()
+	})
+	r.POST("/ai/chat", handler.Chat)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/ai/chat",
+		bytes.NewReader([]byte(`{"mode":" user_artifact_rag ","messages":[{"role":"user","content":"hello"}],"course_id":42}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "42", forwardedPayload["course_id"])
+	assert.Equal(t, "123", forwardedPayload["user_id"])
+	assert.Equal(t, "student", forwardedPayload["user_role"])
+}
+
+func TestChat_RejectsMissingUserContext(t *testing.T) {
+	t.Parallel()
+
+	handler := newAIHandlers(clients.NewAIClient("http://ai.local", "gateway-token"))
+	r := gin.New()
+	r.POST("/ai/chat", handler.Chat)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/ai/chat",
+		bytes.NewReader([]byte(`{"messages":[{"role":"user","content":"hello"}],"course_id":"em"}`)),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	assert.Contains(t, w.Body.String(), "user not found in context")
 }
 
 func TestChatGuided_Success(t *testing.T) {

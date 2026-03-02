@@ -41,7 +41,7 @@ interface ChatStoreState {
     clearHistory: () => void;
 
     // Message actions
-    sendMessage: (prompt: string) => Promise<void>;
+    sendMessage: (prompt: string, courseId?: string) => Promise<void>;
     appendToken: (token: string) => void;
     stop: () => void;
     setError: (error: string | null) => void;
@@ -137,7 +137,7 @@ export const useChatStore = create<ChatStoreState>()(
             },
 
             // Send message - async action
-            sendMessage: async (prompt: string) => {
+            sendMessage: async (prompt: string, courseId?: string) => {
                 const { mode, rag, currentConversationId: initialConversationId } = get();
                 let currentConversationId = initialConversationId;
 
@@ -194,6 +194,7 @@ export const useChatStore = create<ChatStoreState>()(
                 try {
                     await aiStreamClient.streamChat(filteredMessages, {
                         mode: effectiveMode,
+                        courseId,
                         signal: abortController.signal,
                         onMessage: (token: string) => get().appendToken(token),
                         onFinish: () => get().finishStreaming(),

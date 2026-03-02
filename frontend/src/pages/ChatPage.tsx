@@ -2,8 +2,12 @@ import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useChatStore } from '@/domains/chat/useChatStore';
 import { Send, Square, Bot, User, Plus, Trash2, MessageSquare } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Link, useParams } from 'react-router-dom';
+
+const MULTI_AGENT_ENABLED = import.meta.env.VITE_MULTI_AGENT_EXPERIMENTAL === 'true';
 
 export function ChatPage() {
+    const { courseId } = useParams();
     const {
         status,
         error,
@@ -29,7 +33,7 @@ export function ChatPage() {
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         if (!input.trim() || status === 'streaming') return;
-        sendMessage(input.trim());
+        sendMessage(input.trim(), courseId);
         setInput('');
     };
 
@@ -119,13 +123,25 @@ export function ChatPage() {
             <div className="flex-1 flex flex-col">
                 {/* Header */}
                 <header className="px-6 py-4 border-b border-gray-700/50 bg-gray-900/50 backdrop-blur-sm">
-                    <h1 className="text-xl font-semibold text-white flex items-center gap-2">
-                        <Bot className="w-6 h-6 text-blue-400" />
-                        AI 智能答疑
-                    </h1>
-                    <p className="text-sm text-gray-400 mt-1">
-                        向 AI 助手提问课程相关问题
-                    </p>
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <h1 className="text-xl font-semibold text-white flex items-center gap-2">
+                                <Bot className="w-6 h-6 text-blue-400" />
+                                AI 智能答疑
+                            </h1>
+                            <p className="text-sm text-gray-400 mt-1">
+                                向 AI 助手提问课程相关问题
+                            </p>
+                        </div>
+                        {MULTI_AGENT_ENABLED && (
+                            <Link
+                                to={`/courses/${courseId}/chat/experimental`}
+                                className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-200 transition hover:bg-cyan-500/20"
+                            >
+                                打开 Multi-Agent 实验版
+                            </Link>
+                        )}
+                    </div>
                 </header>
 
                 {/* Messages */}
@@ -238,4 +254,3 @@ export function ChatPage() {
         </div>
     );
 }
-

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -52,8 +53,42 @@ type ChatRequest struct {
 	Mode     string        `json:"mode"`
 	Messages []ChatMessage `json:"messages"`
 	Stream   bool          `json:"stream"`
+	CourseID string        `json:"course_id,omitempty"`
+	UserID   string        `json:"user_id,omitempty"`
+	UserRole string        `json:"user_role,omitempty"`
 	Privacy  string        `json:"privacy,omitempty"`
 	Route    string        `json:"route,omitempty"`
+}
+
+type TaskAttachment struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	MimeType string `json:"mime_type"`
+	URI      string `json:"uri,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+type WorkspaceSnippet struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type WorkspaceContext struct {
+	Cwd              string             `json:"cwd,omitempty"`
+	OpenFiles        []string           `json:"open_files,omitempty"`
+	SelectedSnippets []WorkspaceSnippet `json:"selected_snippets,omitempty"`
+}
+
+type OrchestratedChatRequest struct {
+	Messages         []ChatMessage     `json:"messages"`
+	Attachments      []TaskAttachment  `json:"attachments,omitempty"`
+	WorkspaceContext *WorkspaceContext `json:"workspace_context,omitempty"`
+	SessionID        string            `json:"session_id,omitempty"`
+	CourseID         string            `json:"course_id,omitempty"`
+	UserID           string            `json:"user_id,omitempty"`
+	Privacy          string            `json:"privacy,omitempty"`
+	Route            string            `json:"route,omitempty"`
+	Stream           bool              `json:"stream"`
 }
 
 type ChatResponse struct {
@@ -77,21 +112,38 @@ type AIClientInterface interface {
 	StreamChat(ctx context.Context, req ChatRequest) (io.ReadCloser, error)
 	ChatWithTools(ctx context.Context, req ChatWithToolsRequest) (ChatWithToolsResponse, error)
 	ChatGuided(ctx context.Context, req GuidedChatRequest) (GuidedChatResponse, error)
+	DeriveGraphRAG(ctx context.Context, req DeriveGraphRAGRequest) (map[string]interface{}, error)
 	AnalyzeWriting(ctx context.Context, req WritingAnalysisRequest) (WritingAnalysisResponse, error)
 }
 
 type AIClient struct {
-	baseURL          string
-	gatewayToken     string
-	httpClient       *http.Client
-	streamHTTPClient *http.Client
+	baseURL             string
+	orchestratedBaseURL string
+	gatewayToken        string
+	orchestratedEnabled bool
+	httpClient          *http.Client
+	streamHTTPClient    *http.Client
 }
 
 // Ensure *AIClient implements AIClientInterface
 var _ AIClientInterface = (*AIClient)(nil)
 
-func NewAIClient(baseURL string, gatewayToken string) *AIClient {
-	return &AIClient{
+type AIClientOption func(*AIClient)
+
+func WithOrchestratedBaseURL(baseURL string) AIClientOption {
+	return func(client *AIClient) {
+		client.orchestratedBaseURL = strings.TrimRight(baseURL, "/")
+	}
+}
+
+func WithOrchestratedEnabled(enabled bool) AIClientOption {
+	return func(client *AIClient) {
+		client.orchestratedEnabled = enabled
+	}
+}
+
+func NewAIClient(baseURL string, gatewayToken string, opts ...AIClientOption) *AIClient {
+	client := &AIClient{
 		baseURL:      baseURL,
 		gatewayToken: gatewayToken,
 		httpClient: &http.Client{
@@ -105,6 +157,14 @@ func NewAIClient(baseURL string, gatewayToken string) *AIClient {
 			},
 		},
 	}
+	for _, opt := range opts {
+		opt(client)
+	}
+	return client
+}
+
+func (c *AIClient) SupportsOrchestrated() bool {
+	return c.orchestratedEnabled && c.orchestratedBaseURL != ""
 }
 
 func (c *AIClient) setCommonHeaders(httpReq *http.Request) {
@@ -115,6 +175,28 @@ func (c *AIClient) setCommonHeaders(httpReq *http.Request) {
 	if c.gatewayToken != "" {
 		httpReq.Header.Set("X-AI-Gateway-Token", c.gatewayToken)
 	}
+}
+
+func (c *AIClient) streamRequest(ctx context.Context, url string, body []byte) (io.ReadCloser, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	c.setCommonHeaders(httpReq)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.streamHTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		return nil, fmt.Errorf("ai service error: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	return resp.Body, nil
 }
 
 func (c *AIClient) Chat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
@@ -201,26 +283,20 @@ func (c *AIClient) StreamChat(ctx context.Context, req ChatRequest) (io.ReadClos
 	if err != nil {
 		return nil, err
 	}
+	return c.streamRequest(ctx, fmt.Sprintf("%s/v1/chat", c.baseURL), body)
+}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/v1/chat", c.baseURL), bytes.NewReader(body))
+func (c *AIClient) StreamOrchestratedChat(ctx context.Context, req OrchestratedChatRequest) (io.ReadCloser, error) {
+	if !c.SupportsOrchestrated() {
+		return nil, errors.New("orchestrated ai service is disabled")
+	}
+
+	req.Stream = true
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	c.setCommonHeaders(httpReq)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.streamHTTPClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
-		return nil, fmt.Errorf("ai service error: status=%d body=%s", resp.StatusCode, string(body))
-	}
-
-	return resp.Body, nil
+	return c.streamRequest(ctx, fmt.Sprintf("%s/v1/chat/orchestrated", c.orchestratedBaseURL), body)
 }
 
 type ToolCall struct {
@@ -313,6 +389,19 @@ type GuidedChatResponse struct {
 	LearningPath       []map[string]interface{} `json:"learning_path"`
 }
 
+// DeriveGraphRAGRequest represents a structured derivation request.
+type DeriveGraphRAGRequest struct {
+	ProblemText      string `json:"problem_text"`
+	CourseID         string `json:"course_id,omitempty"`
+	UserID           string `json:"user_id,omitempty"`
+	UserRole         string `json:"user_role,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	ResponseStyle    string `json:"response_style,omitempty"`
+	VerificationMode string `json:"verification_mode,omitempty"`
+	Privacy          string `json:"privacy,omitempty"`
+	Route            string `json:"route,omitempty"`
+}
+
 // ChatGuided sends a request to the guided learning endpoint.
 func (c *AIClient) ChatGuided(ctx context.Context, req GuidedChatRequest) (GuidedChatResponse, error) {
 	if c.baseURL == "" {
@@ -346,6 +435,43 @@ func (c *AIClient) ChatGuided(ctx context.Context, req GuidedChatRequest) (Guide
 	var out GuidedChatResponse
 	if err := json.Unmarshal(b, &out); err != nil {
 		return GuidedChatResponse{}, err
+	}
+	return out, nil
+}
+
+// DeriveGraphRAG sends a derivation request to the dedicated GraphRAG endpoint.
+func (c *AIClient) DeriveGraphRAG(ctx context.Context, req DeriveGraphRAGRequest) (map[string]interface{}, error) {
+	if c.baseURL == "" {
+		return nil, errors.New("AI base url is empty")
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/v1/derive/graphrag", c.baseURL), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	c.setCommonHeaders(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 5<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ai service error: status=%d body=%s", resp.StatusCode, string(b))
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

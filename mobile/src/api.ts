@@ -105,7 +105,8 @@ export async function chat(
   routing?: {
     privacy?: 'private' | 'public';
     route?: 'local' | 'cloud' | 'auto';
-  }
+  },
+  courseId?: number | string
 ): Promise<string> {
   const api = authedApi(token, tokenType);
   const headers: Record<string, string> = {};
@@ -122,6 +123,7 @@ export async function chat(
       mode,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       stream: false,
+      course_id: courseId,
       privacy: routing?.privacy,
       route: routing?.route,
     },

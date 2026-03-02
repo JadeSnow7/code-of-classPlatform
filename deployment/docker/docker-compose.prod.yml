@@ -32,6 +32,8 @@ services:
       LLM_MODEL: ${LLM_MODEL}
       AI_MULTIMODAL_ENABLED: ${AI_MULTIMODAL_ENABLED:-false}
       RERANKER_ENABLED: ${RERANKER_ENABLED:-false}
+      AI_GATEWAY_SHARED_TOKEN: ${AI_GATEWAY_SHARED_TOKEN}
+      BACKEND_INTERNAL_BASE_URL: http://backend:8080
       LLM_BASE_URL_LOCAL_TEXT: ${LLM_BASE_URL_LOCAL_TEXT}
       LLM_API_KEY_LOCAL_TEXT: ${LLM_API_KEY_LOCAL_TEXT}
       LLM_MODEL_LOCAL_TEXT: ${LLM_MODEL_LOCAL_TEXT}
@@ -52,6 +54,18 @@ services:
       GRAPH_RAG_MAX_CONTEXT_CHARS: ${GRAPH_RAG_MAX_CONTEXT_CHARS}
     ports:
       - "8001:8001"
+
+  multi-agent:
+    build:
+      context: ../../../multi-agent/cloud
+    restart: always
+    environment:
+      MULTI_AGENT_HOST: 0.0.0.0
+      MULTI_AGENT_PORT: 8003
+      GRAPHRAGX_BASE_URL: ${GRAPHRAGX_BASE_URL:-http://graphragx:8080}
+      MULTI_AGENT_ENABLE_SANDBOX: ${MULTI_AGENT_ENABLE_SANDBOX:-false}
+    ports:
+      - "8003:8003"
 
   sim:
     build:
@@ -83,6 +97,8 @@ services:
       CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost}
       DB_DSN: ${BACKEND_DB_DSN}
       AI_BASE_URL: ${BACKEND_AI_BASE_URL:-http://ai:8001}
+      MULTI_AGENT_BASE_URL: ${BACKEND_MULTI_AGENT_BASE_URL:-http://multi-agent:8003}
+      AI_ORCHESTRATED_ENABLED: ${BACKEND_AI_ORCHESTRATED_ENABLED:-true}
       SIM_BASE_URL: ${BACKEND_SIM_BASE_URL:-http://sim:8002}
       WECOM_CORPID: ${WECOM_CORPID}
       WECOM_AGENTID: ${WECOM_AGENTID}
@@ -99,6 +115,8 @@ services:
         condition: service_healthy
       ai:
         condition: service_started
+      multi-agent:
+        condition: service_started
       sim:
         condition: service_started
       minio:
@@ -107,7 +125,7 @@ services:
   frontend:
     build:
       context: ../..
-      dockerfile: frontend-react/Dockerfile
+      dockerfile: frontend/Dockerfile
     restart: always
 
   nginx:

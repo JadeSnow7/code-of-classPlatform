@@ -56,6 +56,9 @@ func NewRouter(cfg config.Config, deps RouterDeps) *gin.Engine {
 	routes.RegisterGlobalProfileRoutes(api, cfg.JWTSecret, deps.GlobalProfileHandlers)
 	routes.RegisterAdminRoutes(api, cfg.JWTSecret, deps.AdminHandlers)
 
+	internal := r.Group("/internal")
+	routes.RegisterKnowledgeExportRoutes(internal, cfg.AIGatewaySharedToken, deps.KnowledgeExportHandlers)
+
 	return r
 }
 

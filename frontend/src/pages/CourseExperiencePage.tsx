@@ -270,7 +270,7 @@ export function CourseExperiencePage() {
                     </Button>
                 </div>
 
-                <AICourseDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} isMobile />
+                <AICourseDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} courseId={courseId ?? ''} isMobile />
             </div>
         );
     }
@@ -311,7 +311,7 @@ export function CourseExperiencePage() {
 
             <Tabs items={tabItems} style={{ padding: '0 32px' }} tabBarStyle={{ color: 'var(--text-muted)' }} />
 
-            <AICourseDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} />
+            <AICourseDrawer open={aiDrawerOpen} onClose={() => setAiDrawerOpen(false)} courseId={courseId ?? ''} />
         </div>
     );
 }
