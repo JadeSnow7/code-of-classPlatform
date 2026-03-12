@@ -1,10 +1,14 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useChatStore } from '@/domains/chat/useChatStore';
 import { Send, Square, Bot, User, Plus, Trash2, MessageSquare } from 'lucide-react';
+import { Layout, Button, Input, Typography, Avatar, Space, Drawer } from 'antd';
 import { clsx } from 'clsx';
 import { Link, useParams } from 'react-router-dom';
 
 const MULTI_AGENT_ENABLED = import.meta.env.VITE_MULTI_AGENT_EXPERIMENTAL === 'true';
+
+const { Sider, Content, Header } = Layout;
+const { Title, Text, Paragraph } = Typography;
 
 export function ChatPage() {
     const { courseId } = useParams();
@@ -24,6 +28,7 @@ export function ChatPage() {
     const messages = getMessages();
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -39,21 +44,23 @@ export function ChatPage() {
 
     const isStreaming = status === 'streaming';
 
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-    return (
-        <div className="h-screen flex flex-col md:flex-row relative">
-            {/* Mobile Header Toggle */}
-            <div className="md:hidden flex items-center justify-between px-4 h-14 bg-gray-900 border-b border-gray-800 shrink-0">
-                <button
-                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                    className="p-2 -ml-2 text-gray-400 hover:text-white"
+    const renderSidebarContent = () => (
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: 16, borderBottom: '1px solid #1E1F2E' }}>
+                <Button
+                    type="primary"
+                    block
+                    icon={<Plus size={16} />}
+                    onClick={() => {
+                        newConversation();
+                        setIsSidebarOpen(false);
+                    }}
+                    style={{ backgroundColor: '#2563EB', height: 40, borderRadius: 8 }}
                 >
-                    <MessageSquare className="w-6 h-6" />
-                </button>
-                <span className="font-semibold text-white">AI 智能答疑</span>
-                <div className="w-8" /> {/* Spacer */}
+                    新对话
+                </Button>
             </div>
+<<<<<<< HEAD:frontend/src/pages/ChatPage.tsx
 
             {/* Mobile Overlay */}
             {isSidebarOpen && (
@@ -248,9 +255,282 @@ export function ChatPage() {
                                 发送
                             </button>
                         )}
+=======
+            <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+                {conversations.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: '#6B7280', padding: '32px 0', fontSize: 14 }}>
+                        暂无历史记录
+>>>>>>> origin/main:frontend-react/src/pages/ChatPage.tsx
                     </div>
-                </form>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {conversations.map((conv) => (
+                            <div
+                                key={conv.id}
+                                className={clsx(
+                                    'group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors'
+                                )}
+                                style={{
+                                    backgroundColor: conv.id === currentConversationId ? 'rgba(37, 99, 235, 0.2)' : 'transparent',
+                                    color: conv.id === currentConversationId ? '#93C5FD' : '#9CA3AF',
+                                }}
+                                onClick={() => {
+                                    selectConversation(conv.id);
+                                    setIsSidebarOpen(false);
+                                }}
+                            >
+                                <Space style={{ overflow: 'hidden', flex: 1 }}>
+                                    <MessageSquare size={16} />
+                                    <Text
+                                        ellipsis
+                                        style={{
+                                            color: conv.id === currentConversationId ? '#93C5FD' : '#9CA3AF',
+                                            fontSize: 14,
+                                            margin: 0
+                                        }}
+                                    >
+                                        {conv.title}
+                                    </Text>
+                                </Space>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteConversation(conv.id);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-all"
+                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                    <Trash2 size={14} className="text-red-400" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
+    );
+
+    return (
+        <Layout style={{ height: '100vh', background: '#0D0E15' }}>
+            {/* Desktop Sidebar */}
+            <Sider
+                width={260}
+                style={{ background: '#111827', borderRight: '1px solid #1F2937' }}
+                breakpoint="md"
+                collapsedWidth="0"
+                trigger={null}
+                className="hidden md:block" // Utilizing tailwind for responsive display logic
+            >
+                {renderSidebarContent()}
+            </Sider>
+
+            {/* Mobile Drawer */}
+            <Drawer
+                placement="left"
+                closable={false}
+                onClose={() => setIsSidebarOpen(false)}
+                open={isSidebarOpen}
+                bodyStyle={{ padding: 0, background: '#111827' }}
+                width={260}
+            >
+                {renderSidebarContent()}
+            </Drawer>
+
+            <Layout style={{ background: 'transparent' }}>
+                {/* Mobile Header */}
+                <Header
+                    className="md:hidden"
+                    style={{
+                        background: '#111827',
+                        padding: '0 16px',
+                        borderBottom: '1px solid #1F2937',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        height: 56,
+                        lineHeight: 'normal'
+                    }}
+                >
+                    <button
+                        onClick={() => setIsSidebarOpen(true)}
+                        style={{ border: 'none', background: 'transparent', color: '#9CA3AF', cursor: 'pointer', padding: 8 }}
+                    >
+                        <MessageSquare size={24} />
+                    </button>
+                    <Title level={5} style={{ color: '#F3F4F6', margin: 0 }}>AI 智能答疑</Title>
+                    <div style={{ width: 40 }} /> {/* Spacer */}
+                </Header>
+
+                {/* Main Content Area */}
+                <Header className="hidden md:flex" style={{
+                    background: 'rgba(17, 24, 39, 0.5)',
+                    padding: '0 24px',
+                    borderBottom: '1px solid rgba(255,255,255,0.05)',
+                    backdropFilter: 'blur(8px)',
+                    alignItems: 'center',
+                    height: 72,
+                    lineHeight: 'normal'
+                }}>
+                    <Space size="middle">
+                        <Bot size={28} color="#60A5FA" />
+                        <div>
+                            <Title level={4} style={{ color: '#F3F4F6', margin: 0 }}>AI 智能答疑</Title>
+                            <Text style={{ color: '#9CA3AF', fontSize: 13 }}>向 AI 助手提问有关电磁学的问题</Text>
+                        </div>
+                    </Space>
+                </Header>
+
+                <Content style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                    {/* Messages */}
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                        {messages.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '64px 0', color: '#6B7280' }}>
+                                <Bot size={48} style={{ opacity: 0.5, marginBottom: 16 }} />
+                                <Paragraph style={{ color: '#6B7280' }}>开始提问吧！例如："请解释高斯定律"</Paragraph>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 800, margin: '0 auto' }}>
+                            {messages.map((msg, idx) => (
+                                <div
+                                    key={idx}
+                                    style={{
+                                        display: 'flex',
+                                        gap: 16,
+                                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                                    }}
+                                >
+                                    {msg.role === 'assistant' && (
+                                        <Avatar
+                                            size={36}
+                                            icon={<Bot size={20} />}
+                                            style={{ backgroundColor: 'rgba(37, 99, 235, 0.2)', color: '#60A5FA', flexShrink: 0 }}
+                                        />
+                                    )}
+                                    <div
+                                        style={{
+                                            maxWidth: '75%',
+                                            padding: '12px 16px',
+                                            borderRadius: 16,
+                                            borderTopLeftRadius: msg.role === 'assistant' ? 4 : 16,
+                                            borderTopRightRadius: msg.role === 'user' ? 4 : 16,
+                                            backgroundColor: msg.role === 'user' ? '#2563EB' : '#1F2937',
+                                            border: msg.role === 'user' ? 'none' : '1px solid #374151',
+                                            color: '#F3F4F6',
+                                            fontSize: 15,
+                                            lineHeight: 1.6
+                                        }}
+                                    >
+                                        <div style={{ whiteSpace: 'pre-wrap' }}>
+                                            {msg.content}
+                                            {msg.role === 'assistant' && isStreaming && idx === messages.length - 1 && (
+                                                <span className="inline-block w-2 h-4 bg-blue-400 ml-1 animate-pulse" />
+                                            )}
+                                        </div>
+                                    </div>
+                                    {msg.role === 'user' && (
+                                        <Avatar
+                                            size={36}
+                                            icon={<User size={20} />}
+                                            style={{ backgroundColor: '#374151', color: '#D1D5DB', flexShrink: 0 }}
+                                        />
+                                    )}
+                                </div>
+                            ))}
+
+                            {/* Thinking indicator */}
+                            {isStreaming && (messages.length === 0 || messages[messages.length - 1]?.role === 'user') && (
+                                <div style={{ display: 'flex', gap: 16, justifyContent: 'flex-start' }}>
+                                    <Avatar
+                                        size={36}
+                                        icon={<Bot size={20} />}
+                                        style={{ backgroundColor: 'rgba(37, 99, 235, 0.2)', color: '#60A5FA', flexShrink: 0 }}
+                                    />
+                                    <div
+                                        style={{
+                                            padding: '12px 16px',
+                                            borderRadius: 16,
+                                            borderTopLeftRadius: 4,
+                                            backgroundColor: '#1F2937',
+                                            border: '1px solid #374151',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 12
+                                        }}
+                                    >
+                                        <div className="flex gap-1">
+                                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                        </div>
+                                        <Text style={{ color: '#9CA3AF', fontSize: 14 }}>AI 正在思考...</Text>
+                                    </div>
+                                </div>
+                            )}
+
+                            {error && (
+                                <div style={{ textAlign: 'center' }}>
+                                    <Text type="danger">出错了: {error}</Text>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+                    </div>
+
+                    {/* Input Area */}
+                    <div style={{
+                        padding: '16px 24px',
+                        background: 'rgba(17, 24, 39, 0.5)',
+                        borderTop: '1px solid rgba(255,255,255,0.05)',
+                        backdropFilter: 'blur(8px)'
+                    }}>
+                        <form onSubmit={handleSubmit} style={{ maxWidth: 800, margin: '0 auto', display: 'flex', gap: 12 }}>
+                            <Input
+                                size="large"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder="输入你的问题..."
+                                disabled={isStreaming}
+                                style={{
+                                    backgroundColor: '#1F2937',
+                                    borderColor: '#374151',
+                                    color: '#F3F4F6',
+                                    borderRadius: 12,
+                                    padding: '12px 16px'
+                                }}
+                            />
+                            {isStreaming ? (
+                                <Button
+                                    size="large"
+                                    type="primary"
+                                    danger
+                                    onClick={stop}
+                                    icon={<Square size={18} />}
+                                    style={{ borderRadius: 12, height: 'auto', padding: '0 24px' }}
+                                >
+                                    停止
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="large"
+                                    type="primary"
+                                    htmlType="submit"
+                                    disabled={!input.trim()}
+                                    icon={<Send size={18} />}
+                                    style={{
+                                        borderRadius: 12,
+                                        height: 'auto',
+                                        padding: '0 24px',
+                                        backgroundColor: input.trim() ? '#2563EB' : undefined
+                                    }}
+                                >
+                                    发送
+                                </Button>
+                            )}
+                        </form>
+                    </div>
+                </Content>
+            </Layout>
+        </Layout>
     );
 }
