@@ -6,7 +6,10 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:  # pragma: no cover - optional in lean runtime images
+    nx = None
 
 from app.graphrag.embedding import EmbeddingProvider
 from app.graphrag.index import Chunk, GraphRAGIndex
@@ -346,6 +349,8 @@ class GraphRAGRetriever:
         subgraph_node_limit: int,
         expand_hops: int,
     ) -> CommunitySubgraph:
+        if nx is None:
+            return CommunitySubgraph(community_ids=[], nodes=[], edges=[])
         graph = self._to_networkx_graph(index)
         if graph.number_of_nodes() == 0:
             return CommunitySubgraph(community_ids=[], nodes=[], edges=[])

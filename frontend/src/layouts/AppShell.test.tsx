@@ -1,9 +1,17 @@
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider } from '@/ThemeProvider';
 import { useAiConfigStore } from '@/domains/ai/useAiConfigStore';
 import { AppShell } from '@/layouts/AppShell';
+
+vi.mock('@/hooks/useCloudAiHealth', () => ({
+    useCloudAiHealth: () => ({
+        status: 'ready',
+        title: '云端 AI 可用',
+        detail: '云端 AI 与模型上游链路正常。',
+    }),
+}));
 
 function renderShell(initialEntry: string) {
     return render(
@@ -42,7 +50,7 @@ describe('AppShell', () => {
     it('renders the light shell with paired sidebar and content backgrounds', () => {
         renderShell('/local-ai');
 
-        expect(screen.getByText('云端在线')).toBeTruthy();
+        expect(screen.getByText('云端 AI 可用')).toBeTruthy();
         expect(screen.getByText('本地 NPU 就绪')).toBeTruthy();
 
         const sidebar = screen.getByTestId('app-shell-sidebar');

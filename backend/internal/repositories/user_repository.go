@@ -90,3 +90,81 @@ func (r *userRepository) CountByRole(ctx context.Context, role string) (int64, e
 	}
 	return count, nil
 }
+
+func (r *userRepository) CreateActivationToken(ctx context.Context, token *models.ActivationToken) error {
+	return r.db.WithContext(ctx).Create(token).Error
+}
+
+func (r *userRepository) FindActivationTokenByHash(ctx context.Context, tokenHash string) (*models.ActivationToken, error) {
+	var token models.ActivationToken
+	if err := r.db.WithContext(ctx).Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error; err != nil {
+		return nil, err
+	}
+	return &token, nil
+}
+
+func (r *userRepository) MarkActivationTokenUsed(ctx context.Context, id uint, usedAt int64) error {
+	return r.db.WithContext(ctx).Model(&models.ActivationToken{}).Where("id = ?", id).Update("used_at", usedAt).Error
+}
+
+func (r *userRepository) ConsumeActivationTokenByHash(ctx context.Context, tokenHash string, usedAt int64) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.ActivationToken{}).
+		Where("token_hash = ? AND used_at IS NULL AND expires_at >= ?", tokenHash, usedAt).
+		Update("used_at", usedAt)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
+}
+
+func (r *userRepository) RevokeActivationTokensByUser(ctx context.Context, userID uint, usedAt int64) error {
+	return r.db.WithContext(ctx).
+		Model(&models.ActivationToken{}).
+		Where("user_id = ? AND used_at IS NULL", userID).
+		Update("used_at", usedAt).Error
+}
+
+func (r *userRepository) CreateRefreshSession(ctx context.Context, session *models.RefreshSession) error {
+	return r.db.WithContext(ctx).Create(session).Error
+}
+
+func (r *userRepository) FindRefreshSessionByHash(ctx context.Context, tokenHash string) (*models.RefreshSession, error) {
+	var session models.RefreshSession
+	if err := r.db.WithContext(ctx).Preload("User").Where("token_hash = ?", tokenHash).First(&session).Error; err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *userRepository) RevokeRefreshSessionByHash(ctx context.Context, tokenHash string, revokedAt int64) error {
+	return r.db.WithContext(ctx).
+		Model(&models.RefreshSession{}).
+		Where("token_hash = ? AND revoked_at IS NULL", tokenHash).
+		Update("revoked_at", revokedAt).Error
+}
+
+func (r *userRepository) ConsumeRefreshSessionByHash(ctx context.Context, tokenHash string, consumedAt int64) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.RefreshSession{}).
+		Where("token_hash = ? AND revoked_at IS NULL AND expires_at >= ?", tokenHash, consumedAt).
+		Updates(map[string]any{
+			"revoked_at":   consumedAt,
+			"last_used_at": consumedAt,
+		})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
+}
+
+func (r *userRepository) RevokeRefreshSessionsByUser(ctx context.Context, userID uint, revokedAt int64) error {
+	return r.db.WithContext(ctx).
+		Model(&models.RefreshSession{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update("revoked_at", revokedAt).Error
+}
+
+func (r *userRepository) TouchRefreshSession(ctx context.Context, id uint, lastUsedAt int64) error {
+	return r.db.WithContext(ctx).Model(&models.RefreshSession{}).Where("id = ?", id).Update("last_used_at", lastUsedAt).Error
+}

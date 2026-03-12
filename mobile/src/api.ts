@@ -60,8 +60,10 @@ export async function login(username: string, password: string): Promise<AuthSes
   const data = await baseApi.auth.login(username, password);
   return {
     token: data.access_token,
+    refreshToken: data.refresh_token,
     tokenType: data.token_type ?? 'Bearer',
     expiresIn: data.expires_in,
+    refreshExpiresIn: data.refresh_expires_in,
     user: {
       id: data.user_id,
       username: data.username,
@@ -74,8 +76,26 @@ export async function wecomLogin(code: string): Promise<AuthSession> {
   const data = await baseApi.auth.wecomLogin(code);
   return {
     token: data.access_token,
+    refreshToken: data.refresh_token,
     tokenType: data.token_type ?? 'Bearer',
     expiresIn: data.expires_in,
+    refreshExpiresIn: data.refresh_expires_in,
+    user: {
+      id: data.user_id,
+      username: data.username,
+      role: data.role,
+    },
+  };
+}
+
+export async function refreshAuthSession(refreshToken: string): Promise<AuthSession> {
+  const data = await baseApi.auth.refresh(refreshToken);
+  return {
+    token: data.access_token,
+    refreshToken: data.refresh_token,
+    tokenType: data.token_type ?? 'Bearer',
+    expiresIn: data.expires_in,
+    refreshExpiresIn: data.refresh_expires_in,
     user: {
       id: data.user_id,
       username: data.username,

@@ -10,6 +10,26 @@ from app.graphrag_neo4j.types import DerivationStepResult, ProblemFrame, StepCit
 class DerivationFormatter:
     """Render the final structured derivation answer."""
 
+    def format_degraded(
+        self,
+        *,
+        problem_text: str,
+        reason: str,
+        checks: dict[str, str],
+    ) -> str:
+        lines = [
+            "### 题目理解",
+            problem_text.strip(),
+            "",
+            "### 最小结论声明",
+            reason,
+            "",
+            "### 检查",
+        ]
+        for key, value in checks.items():
+            lines.append(f"- {key}: {value}")
+        return "\n".join(lines).strip()
+
     def format(
         self,
         *,

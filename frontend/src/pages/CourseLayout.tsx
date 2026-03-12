@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { authStore } from '@/lib/auth-store';
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 
 const navItems = [
@@ -33,6 +33,17 @@ const navItems = [
     { path: 'quizzes', label: '测验', icon: ClipboardList },
     { path: 'resources', label: '资料', icon: FolderOpen },
 ];
+
+function CourseOutletFallback() {
+    return (
+        <div className="flex min-h-[32vh] items-center justify-center px-4 py-10">
+            <div className="flex items-center gap-3 rounded-2xl border border-gray-700/50 bg-gray-900/90 px-4 py-3 text-sm text-gray-200 shadow-sm">
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-500" />
+                正在加载课程页面...
+            </div>
+        </div>
+    );
+}
 
 function CourseLayoutInner() {
     const { course, isLoading } = useCourse();
@@ -139,7 +150,9 @@ function CourseLayoutInner() {
 
             {/* Main content */}
             <main className="flex-1 overflow-auto h-[calc(100vh-64px)] md:h-screen">
-                <Outlet />
+                <Suspense fallback={<CourseOutletFallback />}>
+                    <Outlet />
+                </Suspense>
             </main>
         </div>
     );

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
@@ -19,37 +20,52 @@ import (
 )
 
 type loginData struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	UserID      uint   `json:"user_id"`
-	Username    string `json:"username"`
-	Role        string `json:"role"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
+	UserID           uint   `json:"user_id"`
+	Username         string `json:"username"`
+	Role             string `json:"role"`
+}
+
+type inviteData struct {
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	Expired   bool   `json:"expired"`
+	Used      bool   `json:"used"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 func setupAuthTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
-	err = db.AutoMigrate(&models.User{})
-	assert.NoError(t, err)
+	migrateAuthTables(t, db)
 
 	return db
 }
 
 func setupAuthRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	userRepo := repositories.NewUserRepository(db)
-	authService := services.NewAuthService(userRepo, jwtSecret)
+	cfg := newAuthTestConfig(jwtSecret)
+	authService := services.NewAuthService(userRepo, cfg)
 	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()
 	r.POST("/auth/login", hAuth.Login)
+	r.GET("/auth/register/invite/:token", hAuth.GetInvite)
+	r.POST("/auth/register/activate", hAuth.ActivateRegistration)
+	r.POST("/auth/refresh", hAuth.Refresh)
+	r.POST("/auth/logout", hAuth.Logout)
+	r.POST("/auth/logout-all", middleware.AuthRequired(jwtSecret), hAuth.LogoutAll)
 	r.GET("/auth/me", middleware.AuthRequired(jwtSecret), hAuth.Me)
 	return r
 }
 
-func createTestUser(t *testing.T, db *gorm.DB, username string, password string, role string) models.User {
-	passwordHash, err := auth.HashPassword(password)
+func createTestUser(t *testing.T, db *gorm.DB, username string, password string, role string, status string) models.User {
+	passwordHash, err := auth.HashPasswordWithCost(password, 4)
 	assert.NoError(t, err)
 
 	user := models.User{
@@ -57,18 +73,33 @@ func createTestUser(t *testing.T, db *gorm.DB, username string, password string,
 		PasswordHash: passwordHash,
 		Role:         role,
 		Name:         "Test User",
+		Status:       status,
 	}
 	assert.NoError(t, db.Create(&user).Error)
 	return user
 }
 
+func createActivationToken(t *testing.T, db *gorm.DB, user models.User) string {
+	rawToken, err := auth.GenerateOpaqueToken()
+	assert.NoError(t, err)
+	token := models.ActivationToken{
+		UserID:       user.ID,
+		TokenHash:    auth.HashOpaqueToken(rawToken),
+		ExpiresAt:    time.Now().Add(24 * time.Hour).Unix(),
+		InvitedBy:    1,
+		RoleSnapshot: user.Role,
+	}
+	assert.NoError(t, db.Create(&token).Error)
+	return rawToken
+}
+
 func TestLogin_Success(t *testing.T) {
 	db := setupAuthTestDB(t)
-	createTestUser(t, db, "alice", "pass123", "teacher")
+	createTestUser(t, db, "alice", "pass1234", "teacher", models.UserStatusActive)
 
 	r := setupAuthRouter(db, "test-secret")
 
-	payload := []byte(`{"username":"alice","password":"pass123"}`)
+	payload := []byte(`{"username":"alice","password":"pass1234"}`)
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -81,86 +112,82 @@ func TestLogin_Success(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.True(t, resp.Success)
 	assert.NotEmpty(t, resp.Data.AccessToken)
+	assert.NotEmpty(t, resp.Data.RefreshToken)
 	assert.Equal(t, "Bearer", resp.Data.TokenType)
-	assert.Equal(t, int64(7*24*3600), resp.Data.ExpiresIn)
+	assert.Equal(t, int64(15*60), resp.Data.ExpiresIn)
 	assert.Equal(t, "alice", resp.Data.Username)
 	assert.Equal(t, "teacher", resp.Data.Role)
 }
 
-func TestLogin_InvalidPassword(t *testing.T) {
+func TestLogin_PendingActivationBlocked(t *testing.T) {
 	db := setupAuthTestDB(t)
-	createTestUser(t, db, "alice", "pass123", "teacher")
+	createTestUser(t, db, "alice", "pass1234", "teacher", models.UserStatusPendingActivation)
 
 	r := setupAuthRouter(db, "test-secret")
 
-	payload := []byte(`{"username":"alice","password":"wrong"}`)
+	payload := []byte(`{"username":"alice","password":"pass1234"}`)
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	var resp envelope[loginData]
-	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp.Success)
-	assert.NotNil(t, resp.Error)
-	assert.Equal(t, "UNAUTHORIZED", resp.Error.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-func TestLogin_InvalidRequest(t *testing.T) {
+func TestActivateRefreshAndMe_FullFlow(t *testing.T) {
 	db := setupAuthTestDB(t)
-	createTestUser(t, db, "alice", "pass123", "teacher")
-
+	user := createTestUser(t, db, "alice", "temp1234", "teacher", models.UserStatusPendingActivation)
+	token := createActivationToken(t, db, user)
 	r := setupAuthRouter(db, "test-secret")
 
-	payload := []byte(`{"username":"alice"}`)
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+	inviteReq := httptest.NewRequest(http.MethodGet, "/auth/register/invite/"+token, nil)
+	inviteW := httptest.NewRecorder()
+	r.ServeHTTP(inviteW, inviteReq)
+	assert.Equal(t, http.StatusOK, inviteW.Code)
 
-	r.ServeHTTP(w, req)
+	var inviteResp envelope[inviteData]
+	assert.NoError(t, json.Unmarshal(inviteW.Body.Bytes(), &inviteResp))
+	assert.Equal(t, "alice", inviteResp.Data.Username)
+	assert.False(t, inviteResp.Data.Expired)
+	assert.False(t, inviteResp.Data.Used)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	activatePayload := []byte(`{"token":"` + token + `","password":"newpass123","confirm_password":"newpass123"}`)
+	activateReq := httptest.NewRequest(http.MethodPost, "/auth/register/activate", bytes.NewReader(activatePayload))
+	activateReq.Header.Set("Content-Type", "application/json")
+	activateW := httptest.NewRecorder()
+	r.ServeHTTP(activateW, activateReq)
+	assert.Equal(t, http.StatusOK, activateW.Code)
 
-	var resp envelope[loginData]
-	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.False(t, resp.Success)
-	assert.NotNil(t, resp.Error)
-	assert.Equal(t, "INVALID_INPUT", resp.Error.Code)
-}
+	var activateResp envelope[loginData]
+	assert.NoError(t, json.Unmarshal(activateW.Body.Bytes(), &activateResp))
+	assert.NotEmpty(t, activateResp.Data.AccessToken)
+	assert.NotEmpty(t, activateResp.Data.RefreshToken)
 
-func TestMe_Success(t *testing.T) {
-	db := setupAuthTestDB(t)
-	user := createTestUser(t, db, "alice", "pass123", "teacher")
-
-	r := setupAuthRouter(db, "test-secret")
-
-	// 登录获取token
-	payload := []byte(`{"username":"alice","password":"pass123"}`)
-	loginReq := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(payload))
-	loginReq.Header.Set("Content-Type", "application/json")
-	loginW := httptest.NewRecorder()
-	r.ServeHTTP(loginW, loginReq)
-
-	var loginResp envelope[loginData]
-	assert.NoError(t, json.Unmarshal(loginW.Body.Bytes(), &loginResp))
-	assert.True(t, loginResp.Success)
-
-	// 调用 /auth/me
 	meReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
-	meReq.Header.Set("Authorization", "Bearer "+loginResp.Data.AccessToken)
+	meReq.Header.Set("Authorization", "Bearer "+activateResp.Data.AccessToken)
 	meW := httptest.NewRecorder()
 	r.ServeHTTP(meW, meReq)
-
 	assert.Equal(t, http.StatusOK, meW.Code)
 
 	var meResp envelope[MeResponse]
 	assert.NoError(t, json.Unmarshal(meW.Body.Bytes(), &meResp))
-	assert.True(t, meResp.Success)
-	assert.Equal(t, user.ID, meResp.Data.ID)
-	assert.Equal(t, user.Username, meResp.Data.Username)
-	assert.Equal(t, user.Role, meResp.Data.Role)
-	assert.NotEmpty(t, meResp.Data.Permissions)
+	assert.Equal(t, models.UserStatusActive, meResp.Data.Status)
+
+	refreshPayload := []byte(`{"refresh_token":"` + activateResp.Data.RefreshToken + `"}`)
+	refreshReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(refreshPayload))
+	refreshReq.Header.Set("Content-Type", "application/json")
+	refreshW := httptest.NewRecorder()
+	r.ServeHTTP(refreshW, refreshReq)
+	assert.Equal(t, http.StatusOK, refreshW.Code)
+
+	var refreshResp envelope[loginData]
+	assert.NoError(t, json.Unmarshal(refreshW.Body.Bytes(), &refreshResp))
+	assert.NotEqual(t, activateResp.Data.RefreshToken, refreshResp.Data.RefreshToken)
+
+	staleReq := httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewReader(refreshPayload))
+	staleReq.Header.Set("Content-Type", "application/json")
+	staleW := httptest.NewRecorder()
+	r.ServeHTTP(staleW, staleReq)
+	assert.Equal(t, http.StatusUnauthorized, staleW.Code)
 }

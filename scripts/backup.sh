@@ -15,6 +15,23 @@ NC='\033[0m' # No Color
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backup"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+COMPOSE_FILE="$PROJECT_ROOT/deployment/docker/docker-compose.prod.yml"
+
+if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+else
+    COMPOSE_CMD=(docker compose)
+fi
+
+compose_service_running() {
+    [ -n "$("${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps -q "$1" 2>/dev/null)" ]
+}
+
+run_compose_exec() {
+    local service="$1"
+    shift
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T "$service" "$@"
+}
 
 echo -e "${BLUE}💾 开始数据备份...${NC}"
 
@@ -36,13 +53,13 @@ backup_mysql() {
     local backup_file="$BACKUP_DIR/mysql_backup_$TIMESTAMP.sql"
     
     # Check if MySQL container is running
-    if ! docker ps | grep -q mysql; then
+    if ! compose_service_running mysql; then
         echo -e "${YELLOW}⚠ MySQL 容器未运行，跳过数据库备份${NC}"
         return
     fi
     
     # Create database backup
-    docker exec mysql mysqldump \
+    run_compose_exec mysql mysqldump \
         -u"$MYSQL_USER" \
         -p"$MYSQL_PASSWORD" \
         --single-transaction \
@@ -69,13 +86,13 @@ backup_ai_data() {
     local backup_file="$BACKUP_DIR/ai_data_backup_$TIMESTAMP.tar.gz"
     
     # Check if AI container is running
-    if ! docker ps | grep -q ai; then
+    if ! compose_service_running ai; then
         echo -e "${YELLOW}⚠ AI 服务容器未运行，跳过 AI 数据备份${NC}"
         return
     fi
     
     # Create AI data backup
-    docker exec ai tar -czf - /app/data 2>/dev/null > "$backup_file"
+    run_compose_exec ai tar -czf - /app/app/data 2>/dev/null > "$backup_file"
     
     if [ $? -eq 0 ] && [ -s "$backup_file" ]; then
         echo -e "${GREEN}✓ AI 数据备份完成: $backup_file${NC}"

@@ -36,7 +36,7 @@ describe('authStore', () => {
         expect(user?.role).toBe('teacher');
     });
 
-    it('clears token when expired', () => {
+    it('preserves session when access token is expired', () => {
         const token = createToken({
             uid: 123,
             username: 'alice',
@@ -44,11 +44,24 @@ describe('authStore', () => {
             exp: Math.floor(Date.now() / 1000) - 10,
             iat: Math.floor(Date.now() / 1000) - 100,
         });
-        authStore.setToken(token);
+        authStore.setSession({
+            accessToken: token,
+            refreshToken: 'refresh-token',
+            tokenType: 'Bearer',
+            expiresIn: 900,
+            refreshExpiresIn: 1209600,
+        });
 
         const user = authStore.getUser();
         expect(user).toBeNull();
-        expect(authStore.getToken()).toBeNull();
+        expect(authStore.getSession()).toEqual({
+            accessToken: token,
+            refreshToken: 'refresh-token',
+            tokenType: 'Bearer',
+            expiresIn: 900,
+            refreshExpiresIn: 1209600,
+        });
+        expect(authStore.getRefreshToken()).toBe('refresh-token');
     });
 
     it('isAuthenticated reflects token validity', () => {

@@ -17,7 +17,7 @@ import httpx
 if TYPE_CHECKING:
     pass
 
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=max(4, int(os.getenv("GRAPH_RAG_EXECUTOR_WORKERS", "8"))))
 
 
 class EmbeddingProvider(ABC):

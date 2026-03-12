@@ -14,6 +14,23 @@ NC='\033[0m' # No Color
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backup"
+COMPOSE_FILE="$PROJECT_ROOT/deployment/docker/docker-compose.prod.yml"
+
+if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+else
+    COMPOSE_CMD=(docker compose)
+fi
+
+compose_service_running() {
+    [ -n "$("${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps -q "$1" 2>/dev/null)" ]
+}
+
+run_compose_exec() {
+    local service="$1"
+    shift
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T "$service" "$@"
+}
 
 echo -e "${BLUE}🔄 数据恢复脚本${NC}"
 
@@ -76,7 +93,7 @@ restore_mysql() {
     echo -e "${BLUE}恢复 MySQL 数据库...${NC}"
     
     # Check if MySQL container is running
-    if ! docker ps | grep -q mysql; then
+    if ! compose_service_running mysql; then
         echo -e "${RED}✗ MySQL 容器未运行${NC}"
         echo -e "${YELLOW}请先启动 MySQL 服务${NC}"
         return 1
@@ -87,7 +104,7 @@ restore_mysql() {
     sleep 5
     
     # Restore database
-    gunzip -c "$backup_file" | docker exec -i mysql mysql \
+    gunzip -c "$backup_file" | "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T mysql mysql \
         -u"$MYSQL_USER" \
         -p"$MYSQL_PASSWORD" \
         "$MYSQL_DATABASE"
@@ -112,14 +129,14 @@ restore_ai_data() {
     echo -e "${BLUE}恢复 AI 服务数据...${NC}"
     
     # Check if AI container is running
-    if ! docker ps | grep -q ai; then
+    if ! compose_service_running ai; then
         echo -e "${RED}✗ AI 服务容器未运行${NC}"
         echo -e "${YELLOW}请先启动 AI 服务${NC}"
         return 1
     fi
     
     # Restore AI data
-    docker exec -i ai sh -c 'rm -rf /app/data/* && tar -xzf - -C /' < "$backup_file"
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T ai sh -c 'mkdir -p /app/app/data && find /app/app/data -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar -xzf - -C /' < "$backup_file"
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ AI 服务数据恢复完成${NC}"
@@ -169,29 +186,50 @@ verify_restore() {
     echo -e "${BLUE}验证恢复结果...${NC}"
     
     # Check if services are responding
-    local services=("mysql:3306" "backend:8080" "ai:8001" "sim:8002")
+    local services=("mysql" "backend" "ai" "sim" "multi-agent")
     local failed_services=()
     
     for service in "${services[@]}"; do
-        local container=${service%:*}
-        local port=${service#*:}
-        
-        if docker ps | grep -q "$container"; then
-            if [ "$container" = "mysql" ]; then
-                if docker exec mysql mysqladmin ping -h localhost > /dev/null 2>&1; then
-                    echo -e "${GREEN}✓ $container 服务正常${NC}"
-                else
-                    failed_services+=("$container")
-                fi
-            else
-                if docker exec "$container" curl -f "http://localhost:$port/health" > /dev/null 2>&1; then
-                    echo -e "${GREEN}✓ $container 服务正常${NC}"
-                else
-                    failed_services+=("$container")
-                fi
-            fi
+        if compose_service_running "$service"; then
+            case "$service" in
+                mysql)
+                    if run_compose_exec mysql mysqladmin ping -h localhost > /dev/null 2>&1; then
+                        echo -e "${GREEN}✓ mysql 服务正常${NC}"
+                    else
+                        failed_services+=("mysql")
+                    fi
+                    ;;
+                backend)
+                    if run_compose_exec backend wget -q -O /dev/null http://127.0.0.1:8080/health; then
+                        echo -e "${GREEN}✓ backend 服务正常${NC}"
+                    else
+                        failed_services+=("backend")
+                    fi
+                    ;;
+                ai)
+                    if run_compose_exec ai python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/healthz').read()"; then
+                        echo -e "${GREEN}✓ ai 服务正常${NC}"
+                    else
+                        failed_services+=("ai")
+                    fi
+                    ;;
+                sim)
+                    if run_compose_exec sim python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/healthz').read()"; then
+                        echo -e "${GREEN}✓ sim 服务正常${NC}"
+                    else
+                        failed_services+=("sim")
+                    fi
+                    ;;
+                multi-agent)
+                    if run_compose_exec multi-agent python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/healthz').read()"; then
+                        echo -e "${GREEN}✓ multi-agent 服务正常${NC}"
+                    else
+                        failed_services+=("multi-agent")
+                    fi
+                    ;;
+            esac
         else
-            echo -e "${YELLOW}⚠ $container 容器未运行${NC}"
+            echo -e "${YELLOW}⚠ $service 容器未运行${NC}"
         fi
     done
     
@@ -217,7 +255,7 @@ main() {
     echo
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         # Determine which environment to restart
-        if docker ps | grep -q nginx; then
+        if compose_service_running nginx; then
             echo -e "${BLUE}重启生产环境...${NC}"
             "$PROJECT_ROOT/scripts/prod-down.sh" && "$PROJECT_ROOT/scripts/prod-up.sh"
         else

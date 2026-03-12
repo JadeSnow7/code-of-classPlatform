@@ -33,6 +33,13 @@ cd code/deployment/docker
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
+说明：
+
+- 当前临时生产 Compose 仅对宿主机开放 `80`
+- Nginx 为唯一公网入口
+- `backend`、`ai`、`sim`、`multi-agent`、`minio` 全部只在 Docker 内网可达
+- 当前版本为无证书 HTTP-only 部署
+
 ### 监控服务
 
 ```bash

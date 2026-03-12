@@ -1,8 +1,7 @@
 import { jwtDecode } from 'jwt-decode';
-import { createTokenStore } from '@classplatform/shared';
 import { logger } from '@/lib/logger';
 
-const TOKEN_KEY = 'auth_token';
+const SESSION_KEY = 'auth_session';
 const PROFILE_KEY = 'auth_profile';
 
 /**
@@ -34,14 +33,13 @@ type StoredProfile = {
     permissions: string[];
 };
 
-const tokenStore = createTokenStore(
-    {
-        getItem: (key) => localStorage.getItem(key),
-        setItem: (key, value) => localStorage.setItem(key, value),
-        removeItem: (key) => localStorage.removeItem(key),
-    },
-    TOKEN_KEY
-);
+type StoredSession = {
+    accessToken: string;
+    refreshToken?: string;
+    tokenType: string;
+    expiresIn?: number;
+    refreshExpiresIn?: number;
+};
 
 function normalizeRole(role: string): User['role'] {
     if (role === 'admin' || role === 'teacher' || role === 'assistant' || role === 'student') {
@@ -50,38 +48,79 @@ function normalizeRole(role: string): User['role'] {
     return 'student';
 }
 
+function readSession(): StoredSession | null {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as Partial<StoredSession>;
+        if (!parsed.accessToken || !parsed.tokenType) {
+            return null;
+        }
+        return {
+            accessToken: parsed.accessToken,
+            refreshToken: parsed.refreshToken,
+            tokenType: parsed.tokenType,
+            expiresIn: parsed.expiresIn,
+            refreshExpiresIn: parsed.refreshExpiresIn,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function writeSession(session: StoredSession | null) {
+    if (!session) {
+        localStorage.removeItem(SESSION_KEY);
+        return;
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+}
+
 export const authStore = {
-    /**
-     * Persist a JWT in storage.
-     *
-     * @param token JWT string.
-     */
+    setSession(session: StoredSession) {
+        writeSession(session);
+    },
+
+    getSession(): StoredSession | null {
+        return readSession();
+    },
+
     setToken(token: string) {
-        tokenStore.setToken(token);
+        const existing = this.getSession();
+        writeSession({
+            accessToken: token,
+            refreshToken: existing?.refreshToken,
+            tokenType: existing?.tokenType ?? 'Bearer',
+            expiresIn: existing?.expiresIn,
+            refreshExpiresIn: existing?.refreshExpiresIn,
+        });
     },
 
-    /**
-     * Retrieve the stored JWT.
-     *
-     * @returns The token or null if missing.
-     */
     getToken(): string | null {
-        return tokenStore.getToken();
+        return this.getSession()?.accessToken ?? null;
     },
 
-    /**
-     * Remove the stored JWT.
-     */
+    getRefreshToken(): string | null {
+        return this.getSession()?.refreshToken ?? null;
+    },
+
+    updateAccessToken(accessToken: string, expiresIn?: number) {
+        const existing = this.getSession();
+        if (!existing) {
+            return;
+        }
+        writeSession({
+            ...existing,
+            accessToken,
+            expiresIn,
+        });
+    },
+
     clearToken() {
-        tokenStore.clearToken();
+        writeSession(null);
         localStorage.removeItem(PROFILE_KEY);
     },
 
-    /**
-     * Persist user profile fields from backend /auth/me.
-     *
-     * @param profile Authenticated profile with server-authoritative permissions.
-     */
     setProfile(profile: User) {
         const stored: StoredProfile = {
             id: profile.id,
@@ -111,21 +150,13 @@ export const authStore = {
         }
     },
 
-    /**
-     * Decode the JWT and return the user profile.
-     *
-     * @returns The user info or null if unauthenticated.
-     */
     getUser(): User | null {
         const token = this.getToken();
         if (!token) return null;
 
         try {
             const decoded = jwtDecode<JWTPayload>(token);
-
-            // Basic expiry check (exp is in seconds)
             if (decoded.exp * 1000 < Date.now()) {
-                this.clearToken();
                 return null;
             }
 
@@ -137,7 +168,6 @@ export const authStore = {
                 id: decodedId,
                 name: profileMatchesToken ? profile.name : decoded.username,
                 role: profileMatchesToken ? profile.role : normalizeRole(decoded.role),
-                // Use server-authoritative permissions when profile is available.
                 permissions: profileMatchesToken ? profile.permissions : [],
             };
         } catch (e) {
@@ -147,11 +177,6 @@ export const authStore = {
         }
     },
 
-    /**
-     * Check whether a valid user is available.
-     *
-     * @returns True when authenticated.
-     */
     isAuthenticated(): boolean {
         return !!this.getUser();
     }

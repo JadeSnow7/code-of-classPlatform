@@ -18,7 +18,13 @@ async function mockAuthenticatedSession(page: Page) {
     const token = createTestToken();
 
     await page.addInitScript((value: string) => {
-        localStorage.setItem('auth_token', value);
+        localStorage.setItem(
+            'auth_session',
+            JSON.stringify({
+                accessToken: value,
+                tokenType: 'Bearer',
+            }),
+        );
     }, token);
 
     await page.route('**/api/v1/**', async (route) => {
@@ -92,15 +98,15 @@ test.describe('Shell smoke', () => {
         await expect(page.getByText('Local AI 会话')).toBeVisible();
     });
 
-    test('workspace renders parameter rail, code panel, and ai rail', async ({ page }) => {
+    test('workspace renders the academic writing review layout', async ({ page }) => {
         await mockAuthenticatedSession(page);
         await page.emulateMedia({ colorScheme: 'dark' });
 
         await page.goto('/courses/1/simulation');
 
-        await expect(page.getByText('仿真参数')).toBeVisible();
-        await expect(page.getByText('实验仿真工作台')).toBeVisible();
-        await expect(page.getByText('工作台助手')).toBeVisible();
-        await expect(page.getByRole('button', { name: '打开 AI 问答' })).toBeVisible();
+        await expect(page.getByText('写作辅导与审查配置')).toBeVisible();
+        await expect(page.getByText('GraphRAG 知识网络')).toBeVisible();
+        await expect(page.getByText('AI 学术助教')).toBeVisible();
+        await expect(page.getByRole('button', { name: /运行全文智能审查 \(Multi-Agent\)/ })).toBeVisible();
     });
 });

@@ -1,4 +1,7 @@
 node_modules
+deployment/docker/nginx/certs/*.pem
+deployment/docker/nginx/certs/*.key
+deployment/docker/nginx/certs/*.crt
 
 # Large files
 ai_service/.venv/

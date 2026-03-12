@@ -83,6 +83,43 @@ func TestChatPropagatesHeadersAndRoutingFields(t *testing.T) {
 	}
 }
 
+func TestHealthCallsUpstreamProbeEndpoint(t *testing.T) {
+	t.Parallel()
+
+	client := NewAIClient("http://ai.local", "gateway-token")
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/v1/upstream/health" {
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+			if got := r.Header.Get("X-Request-ID"); got != "req-health-123" {
+				t.Fatalf("unexpected X-Request-ID: %q", got)
+			}
+			if got := r.Header.Get("X-AI-Gateway-Token"); got != "gateway-token" {
+				t.Fatalf("unexpected X-AI-Gateway-Token: %q", got)
+			}
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ready","model":"qwen3.5-9b"}`)),
+				Header:     make(http.Header),
+				Request:    r,
+			}
+			resp.Header.Set("Content-Type", "application/json")
+			return resp, nil
+		}),
+	}
+
+	ctx := WithRequestID(context.Background(), "req-health-123")
+	payload, err := client.Health(ctx)
+	if err != nil {
+		t.Fatalf("health failed: %v", err)
+	}
+	if got := payload["status"]; got != "ready" {
+		t.Fatalf("unexpected health status: %#v", got)
+	}
+}
+
 func TestStreamChatPropagatesACLFields(t *testing.T) {
 	t.Parallel()
 

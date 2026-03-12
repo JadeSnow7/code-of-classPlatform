@@ -537,16 +537,7 @@ def test_streaming_complex_route_preserves_sse_contract(monkeypatch: pytest.Monk
             yield 'data: [DONE]'
 
     class FakeAsyncClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-        def stream(self, method, url, json, headers):
+        def stream(self, method, url, json, headers, timeout=None):
             return FakeStreamResponse()
 
     monkeypatch.setattr(main, "_get_intent_router", lambda: _ComplexIntentRouter())
@@ -554,7 +545,7 @@ def test_streaming_complex_route_preserves_sse_contract(monkeypatch: pytest.Monk
     monkeypatch.setattr(main, "_load_graphrag_index", lambda _path: object())
     monkeypatch.setattr(main, "_get_vector_store", lambda route="local": object())
     monkeypatch.setattr(main, "_get_embedding", lambda route="local": object())
-    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(main, "_get_http_client", lambda upstream: FakeAsyncClient())
     monkeypatch.setattr(main, "_upstream_config", lambda upstream, model_family="qwen3": {"base_url": "https://local.example.com", "api_key": "key", "model": "local-model"})
 
     with TestClient(main.app) as test_client:
@@ -569,8 +560,49 @@ def test_streaming_complex_route_preserves_sse_contract(monkeypatch: pytest.Monk
 
     assert resp.status_code == 200
     assert '"type": "start"' in resp.text
-    assert '"content": "\\u7532"' in resp.text
+    assert '"content": "甲"' in resp.text
     assert '"type": "done"' in resp.text
+
+
+def test_chat_runtime_failure_returns_mock_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEMO_HARD_FALLBACK", "true")
+    monkeypatch.setattr(main, "_get_intent_router", lambda: _SimpleIntentRouter())
+
+    async def fail_once(payload: dict, decision: main.RoutingDecision):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "_post_chat_completions_with_routing", fail_once)
+
+    with TestClient(main.app, raise_server_exceptions=False) as test_client:
+        resp = test_client.post(
+            "/v1/chat",
+            json={"messages": [{"role": "user", "content": "请帮我看第二章引文格式"}]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.headers["X-AI-Fallback"] == "mock"
+    assert "引文格式" in resp.json()["reply"]
+
+
+def test_derive_graphrag_unconfigured_returns_degraded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEMO_HARD_FALLBACK", "true")
+
+    with TestClient(main.app) as test_client:
+        resp = test_client.post(
+            "/v1/derive/graphrag",
+            json={"problem_text": "推导真空中静电场的高斯定律微分形式"},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert resp.headers["X-AI-Fallback"] == "mock"
+    assert "最小结论声明" in body["final_answer"]
+
+
+def test_hard_fallback_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEMO_HARD_FALLBACK", raising=False)
+    assert main._hard_fallback_enabled() is False
 
 
 

@@ -16,8 +16,8 @@
     "build-storybook": "storybook build",
     "electron:dev": "npm run electron:compile && concurrently -k \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "electron:compile": "tsc -p electron/tsconfig.json",
-    "electron:build": "npm run build && npm run electron:compile && electron-builder",
-    "electron:pack": "npm run electron:compile && electron-builder --dir"
+    "electron:build": "cross-env VITE_DESKTOP_BUILD=true npm run build && npm run electron:compile && electron-builder",
+    "electron:pack": "cross-env VITE_DESKTOP_BUILD=true npm run build && npm run electron:compile && electron-builder --dir"
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.0",

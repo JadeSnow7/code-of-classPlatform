@@ -68,7 +68,7 @@ interface AuthContextValue {
     error: string | null;
     login: (username: string, password: string) => Promise<void>;
     wecomLogin: (code: string) => Promise<void>;
-    logout: () => void;
+    logout: () => Promise<void>;
     hasPermission: (permission: string) => boolean;
 }
 
@@ -129,8 +129,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const logout = useCallback(() => {
-        authApi.logout();
+    const logout = useCallback(async () => {
+        await authApi.logout();
         dispatch({ type: 'LOGOUT' });
     }, []);
 

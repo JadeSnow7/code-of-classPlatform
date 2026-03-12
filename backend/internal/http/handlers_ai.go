@@ -111,6 +111,33 @@ func (h *aiHandlers) Chat(c *gin.Context) {
 	response.OK(c, resp)
 }
 
+func (h *aiHandlers) Health(c *gin.Context) {
+	if h.ai == nil {
+		response.OK(c, gin.H{
+			"status": "offline",
+			"detail": "ai client is not configured",
+		})
+		return
+	}
+
+	ctx := clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c))
+	payload, err := h.ai.Health(ctx)
+	if err != nil {
+		response.OK(c, gin.H{
+			"status": "degraded",
+			"detail": err.Error(),
+		})
+		return
+	}
+
+	status, _ := payload["status"].(string)
+	if status == "" {
+		status = "ready"
+	}
+	payload["status"] = status
+	response.OK(c, payload)
+}
+
 func (h *aiHandlers) streamChat(c *gin.Context, req chatRequest) {
 	forwardedReq, ok := buildForwardedChatRequest(c, req)
 	if !ok {

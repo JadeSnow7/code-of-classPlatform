@@ -14,6 +14,13 @@ NC='\033[0m' # No Color
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/deployment/docker/docker-compose.prod.yml"
+DATA_ROOT="$PROJECT_ROOT/deployment/docker/data"
+
+if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+else
+    COMPOSE_CMD=(docker compose)
+fi
 
 echo -e "${BLUE}🛑 停止生产环境...${NC}"
 
@@ -45,18 +52,21 @@ fi
 
 # Stop services gracefully
 echo -e "${BLUE}优雅停止服务...${NC}"
-docker-compose -f "$COMPOSE_FILE" stop
+"${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" stop
 
 # Remove containers
 echo -e "${BLUE}移除容器...${NC}"
-docker-compose -f "$COMPOSE_FILE" down
+"${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" down
 
-# Ask if user wants to remove volumes
-read -p "是否要删除数据卷? 这将清除所有数据 (y/N): " -n 1 -r
+# Ask if user wants to remove persistent data
+read -p "是否要删除持久化数据目录? 这将清除 MySQL/MinIO/AI 数据 (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${RED}删除数据卷...${NC}"
-    docker-compose -f "$COMPOSE_FILE" down -v
+    echo -e "${RED}删除持久化数据目录...${NC}"
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" down -v
+    find "$DATA_ROOT/mysql" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    find "$DATA_ROOT/minio" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    find "$DATA_ROOT/ai-service" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
     echo -e "${RED}⚠ 所有数据已被清除${NC}"
 fi
 

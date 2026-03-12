@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { BackendName, InitResult } from '@jadesnow7/edge-ai-sdk';
+import { EduEdgeAI as LocalAI, type BackendName } from '@jadesnow7/edge-ai-sdk';
 
 type SdkState = 'idle' | 'loading' | 'ready' | 'error';
 
-type LocalAISdk = {
-    init(modelPath: string): Promise<InitResult>;
-    streamChat(prompt: string, onToken: (token: string) => void): Promise<void>;
-};
-
 const DEBUG_MODEL_PATH = import.meta.env.VITE_LOCAL_AI_DEBUG_MODEL_PATH || 'debug-model-path';
-
-let sdkPromise: Promise<LocalAISdk> | null = null;
 
 function errorToMessage(error: unknown): string {
     if (error instanceof Error) {
@@ -26,24 +19,6 @@ function errorToMessage(error: unknown): string {
     }
 }
 
-async function loadLocalAISdk(): Promise<LocalAISdk> {
-    if (!sdkPromise) {
-        sdkPromise = import('@jadesnow7/edge-ai-sdk')
-            .then((mod) => {
-                const sdk = mod.EduEdgeAI;
-                if (!sdk || typeof sdk.init !== 'function' || typeof sdk.streamChat !== 'function') {
-                    throw new Error('`@jadesnow7/edge-ai-sdk` 未导出可用的 EduEdgeAI。');
-                }
-                return sdk;
-            })
-            .catch((error) => {
-                sdkPromise = null;
-                throw error;
-            });
-    }
-    return sdkPromise;
-}
-
 export function LocalAIDebugPage() {
     const [sdkState, setSdkState] = useState<SdkState>('idle');
     const [backend, setBackend] = useState<BackendName | null>(null);
@@ -56,8 +31,7 @@ export function LocalAIDebugPage() {
         setSdkState('loading');
         setErrorText(null);
         try {
-            const sdk = await loadLocalAISdk();
-            const result = await sdk.init(DEBUG_MODEL_PATH);
+            const result = await LocalAI.init(DEBUG_MODEL_PATH);
             setBackend(result.backend);
             setSdkState('ready');
         } catch (error) {
@@ -86,8 +60,7 @@ export function LocalAIDebugPage() {
         setResponseText('');
 
         try {
-            const sdk = await loadLocalAISdk();
-            await sdk.streamChat(trimmedPrompt, (token) => {
+            await LocalAI.streamChat(trimmedPrompt, (token) => {
                 setResponseText((prev) => prev + token);
             });
         } catch (error) {

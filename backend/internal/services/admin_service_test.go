@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +42,78 @@ func (f *fakeAdminUserRepo) Update(_ context.Context, user *models.User) error {
 func (f *fakeAdminUserRepo) Delete(_ context.Context, id uint) error {
 	f.deletedIDs = append(f.deletedIDs, id)
 	return nil
+}
+func (f *fakeAdminUserRepo) CreateActivationToken(context.Context, *models.ActivationToken) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) FindActivationTokenByHash(context.Context, string) (*models.ActivationToken, error) {
+	return nil, nil
+}
+func (f *fakeAdminUserRepo) MarkActivationTokenUsed(context.Context, uint, int64) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) ConsumeActivationTokenByHash(context.Context, string, int64) (bool, error) {
+	return false, nil
+}
+func (f *fakeAdminUserRepo) RevokeActivationTokensByUser(context.Context, uint, int64) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) CreateRefreshSession(context.Context, *models.RefreshSession) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) FindRefreshSessionByHash(context.Context, string) (*models.RefreshSession, error) {
+	return nil, nil
+}
+func (f *fakeAdminUserRepo) RevokeRefreshSessionByHash(context.Context, string, int64) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) ConsumeRefreshSessionByHash(context.Context, string, int64) (bool, error) {
+	return false, nil
+}
+func (f *fakeAdminUserRepo) RevokeRefreshSessionsByUser(context.Context, uint, int64) error {
+	return nil
+}
+func (f *fakeAdminUserRepo) TouchRefreshSession(context.Context, uint, int64) error {
+	return nil
+}
+
+type fakeAuthService struct{}
+
+func (f *fakeAuthService) Login(context.Context, string, string, AuthSessionMeta) (AuthSessionBundle, error) {
+	return AuthSessionBundle{}, nil
+}
+func (f *fakeAuthService) IssueSession(context.Context, *models.User, AuthSessionMeta) (AuthSessionBundle, error) {
+	return AuthSessionBundle{}, nil
+}
+func (f *fakeAuthService) GetUserByID(context.Context, uint) (*models.User, error) {
+	return nil, nil
+}
+func (f *fakeAuthService) GetInvitePreview(context.Context, string) (InvitePreview, error) {
+	return InvitePreview{}, nil
+}
+func (f *fakeAuthService) ActivateRegistration(context.Context, string, string, string, AuthSessionMeta) (AuthSessionBundle, error) {
+	return AuthSessionBundle{}, nil
+}
+func (f *fakeAuthService) Refresh(context.Context, string, AuthSessionMeta) (AuthSessionBundle, error) {
+	return AuthSessionBundle{}, nil
+}
+func (f *fakeAuthService) Logout(context.Context, string) error {
+	return nil
+}
+func (f *fakeAuthService) LogoutAll(context.Context, uint) error {
+	return nil
+}
+func (f *fakeAuthService) CreateActivationInvite(_ context.Context, _ *models.User, _ uint, ttl time.Duration) (ActivationInvite, error) {
+	return ActivationInvite{Token: "invite-token", ExpiresAt: time.Now().Add(ttl).Unix()}, nil
+}
+func (f *fakeAuthService) BuildInviteURL(token string) string {
+	return "http://localhost:5173/register/activate?token=" + token
+}
+func (f *fakeAuthService) AccessTokenTTL() time.Duration {
+	return 15 * time.Minute
+}
+func (f *fakeAuthService) RefreshTokenTTL() time.Duration {
+	return 14 * 24 * time.Hour
 }
 
 type fakeCountCourseRepo struct {
@@ -90,6 +164,8 @@ func TestAdminService_GetSystemStats(t *testing.T) {
 		&fakeCountAssignmentRepo{count: 8, submissionCount: 20},
 		&fakeCountQuizRepo{count: 5},
 		&fakeCountResourceRepo{count: 7},
+		&fakeAuthService{},
+		config.Config{ActivationTokenTTL: 72 * time.Hour, AuthBcryptCost: 10},
 	)
 
 	stats, err := svc.GetSystemStats(context.Background())
@@ -105,9 +181,9 @@ func TestAdminService_GetSystemStats(t *testing.T) {
 
 func TestAdminService_CreateUser_DuplicateUsername(t *testing.T) {
 	userRepo := &fakeAdminUserRepo{exists: true}
-	svc := NewAdminService(userRepo, &fakeCountCourseRepo{}, &fakeCountAssignmentRepo{}, &fakeCountQuizRepo{}, &fakeCountResourceRepo{})
+	svc := NewAdminService(userRepo, &fakeCountCourseRepo{}, &fakeCountAssignmentRepo{}, &fakeCountQuizRepo{}, &fakeCountResourceRepo{}, &fakeAuthService{}, config.Config{ActivationTokenTTL: 72 * time.Hour, AuthBcryptCost: 10})
 
-	err := svc.CreateUser(context.Background(), &models.User{Username: "alice"}, "password123")
+	_, err := svc.CreateUser(context.Background(), &models.User{Username: "alice"}, "password123", AdminCreateUserOptions{SendInvite: false})
 	assert.ErrorIs(t, err, ErrUsernameExists)
 }
 
@@ -119,7 +195,7 @@ func TestAdminService_UpdateUser_Success(t *testing.T) {
 	}
 	userRepo.usersByID[1].ID = 1
 
-	svc := NewAdminService(userRepo, &fakeCountCourseRepo{}, &fakeCountAssignmentRepo{}, &fakeCountQuizRepo{}, &fakeCountResourceRepo{})
+	svc := NewAdminService(userRepo, &fakeCountCourseRepo{}, &fakeCountAssignmentRepo{}, &fakeCountQuizRepo{}, &fakeCountResourceRepo{}, &fakeAuthService{}, config.Config{ActivationTokenTTL: 72 * time.Hour, AuthBcryptCost: 10})
 	updated, err := svc.UpdateUser(context.Background(), 1, map[string]interface{}{
 		"name":          "Alice Updated",
 		"role":          "teacher",

@@ -2,14 +2,22 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	HTTPAddr    string
-	JWTSecret   string
-	SecretsDir  string
-	CorsOrigins []string
+	HTTPAddr         string
+	JWTSecret        string
+	SecretsDir       string
+	CorsOrigins      []string
+	PublicWebBaseURL string
+
+	AccessTokenTTL     time.Duration
+	RefreshTokenTTL    time.Duration
+	ActivationTokenTTL time.Duration
+	AuthBcryptCost     int
 
 	DBDsn         string
 	AllowDemoSeed bool
@@ -51,6 +59,14 @@ func Load() Config {
 	}
 
 	dbDsn := getenv("DB_DSN", "root:root@tcp(127.0.0.1:3306)/emfield?charset=utf8mb4&parseTime=True&loc=Local")
+	publicWebBaseURL := strings.TrimRight(getenv("PUBLIC_WEB_BASE_URL", "http://localhost:5173"), "/")
+	accessTokenTTL := parseDurationEnv("ACCESS_TOKEN_TTL", 15*time.Minute)
+	refreshTokenTTL := parseDurationEnv("REFRESH_TOKEN_TTL", 14*24*time.Hour)
+	activationTokenTTL := parseDurationEnv("ACTIVATION_TOKEN_TTL", 72*time.Hour)
+	authBcryptCost := parseIntEnv("AUTH_BCRYPT_COST", 10)
+	if authBcryptCost < 4 {
+		authBcryptCost = 10
+	}
 
 	aiBaseURL := strings.TrimRight(getenv("AI_BASE_URL", "http://127.0.0.1:8001"), "/")
 	multiAgentBaseURL := strings.TrimRight(getenv("MULTI_AGENT_BASE_URL", "http://127.0.0.1:8003"), "/")
@@ -70,6 +86,11 @@ func Load() Config {
 		JWTSecret:             jwtSecret,
 		SecretsDir:            secretsDir,
 		CorsOrigins:           corsOrigins,
+		PublicWebBaseURL:      publicWebBaseURL,
+		AccessTokenTTL:        accessTokenTTL,
+		RefreshTokenTTL:       refreshTokenTTL,
+		ActivationTokenTTL:    activationTokenTTL,
+		AuthBcryptCost:        authBcryptCost,
 		DBDsn:                 dbDsn,
 		AllowDemoSeed:         allowDemoSeed,
 		AIBaseURL:             aiBaseURL,
@@ -111,4 +132,28 @@ func splitComma(raw string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(getenv(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func parseIntEnv(key string, fallback int) int {
+	raw := strings.TrimSpace(getenv(key, ""))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

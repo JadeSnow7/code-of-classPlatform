@@ -22,8 +22,8 @@ func setupQuizTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
+	migrateAuthTables(t, db)
 	err = db.AutoMigrate(
-		&models.User{},
 		&models.Course{},
 		&models.CourseEnrollment{},
 		&models.Quiz{},
@@ -38,7 +38,7 @@ func setupQuizTestDB(t *testing.T) *gorm.DB {
 func setupQuizRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	hQuiz := newQuizHandlers(db)
 	userRepo := repositories.NewUserRepository(db)
-	authService := services.NewAuthService(userRepo, jwtSecret)
+	authService := services.NewAuthService(userRepo, newAuthTestConfig(jwtSecret))
 	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()

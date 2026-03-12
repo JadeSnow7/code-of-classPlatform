@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-_executor = ThreadPoolExecutor(max_workers=2)
+_executor = ThreadPoolExecutor(max_workers=max(4, int(os.getenv("GRAPH_RAG_EXECUTOR_WORKERS", "8"))))
 
 
 @dataclass

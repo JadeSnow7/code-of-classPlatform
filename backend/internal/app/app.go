@@ -78,10 +78,10 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	app.GlobalProfileRepo = repositories.NewGlobalProfileRepository(db)
 
 	// Services
-	app.AuthService = services.NewAuthService(app.UserRepo, cfg.JWTSecret)
+	app.AuthService = services.NewAuthService(app.UserRepo, cfg)
 	app.UserService = services.NewUserService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo)
 	app.AIConfigService = services.NewAIConfigService(app.AIConfigRepo)
-	app.AdminService = services.NewAdminService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo, app.ResourceRepo)
+	app.AdminService = services.NewAdminService(app.UserRepo, app.CourseRepo, app.AssignmentRepo, app.QuizRepo, app.ResourceRepo, app.AuthService, cfg)
 	app.AnnouncementService = services.NewAnnouncementService(app.AnnouncementRepo)
 	app.AttendanceService = services.NewAttendanceService(app.AttendanceRepo, app.UserRepo)
 	app.ResourceService = services.NewResourceService(app.ResourceRepo)
@@ -109,7 +109,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret),
 		UserHandlers:            httpapi.NewUserHandlers(app.UserService),
 		AIConfigHandlers:        httpapi.NewAIConfigHandlers(app.AIConfigService),
-		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, cfg.JWTSecret),
+		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, app.AuthService),
 		CourseHandlers:          courseHandlers,
 		ChapterHandlers:         chapterHandlers,
 		AssignmentHandlers:      assignmentHandlers,

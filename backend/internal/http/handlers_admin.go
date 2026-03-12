@@ -41,6 +41,7 @@ type UserListItem struct {
 	Username  string `json:"username"`
 	Role      string `json:"role"`
 	Name      string `json:"name"`
+	Status    string `json:"status"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -72,6 +73,7 @@ func (h *adminHandlers) ListUsers(c *gin.Context) {
 			Username:  u.Username,
 			Role:      u.Role,
 			Name:      u.Name,
+			Status:    u.Status,
 			CreatedAt: u.CreatedAt.Format("2006-01-02 15:04"),
 		}
 	}
@@ -81,10 +83,12 @@ func (h *adminHandlers) ListUsers(c *gin.Context) {
 
 // CreateUserRequest is the request body for creating a user
 type CreateUserRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required,min=6"`
-	Role     string `json:"role" binding:"required,oneof=admin teacher assistant student"`
-	Name     string `json:"name" binding:"required"`
+	Username           string `json:"username" binding:"required"`
+	Password           string `json:"password,omitempty"`
+	Role               string `json:"role" binding:"required,oneof=admin teacher assistant student"`
+	Name               string `json:"name" binding:"required"`
+	SendInvite         *bool  `json:"send_invite,omitempty"`
+	ActivationTTLHours *int   `json:"activation_ttl_hours,omitempty"`
 }
 
 // CreateUser creates a new user
@@ -101,7 +105,22 @@ func (h *adminHandlers) CreateUser(c *gin.Context) {
 		Name:     req.Name,
 	}
 
-	if err := h.service.CreateUser(c.Request.Context(), user, req.Password); err != nil {
+	currentUser, _ := middleware.GetUser(c)
+	sendInvite := true
+	if req.SendInvite != nil {
+		sendInvite = *req.SendInvite
+	}
+	if !sendInvite && req.Password == "" {
+		response.BadRequest(c, "password is required when send_invite is false")
+		return
+	}
+
+	result, err := h.service.CreateUser(c.Request.Context(), user, req.Password, services.AdminCreateUserOptions{
+		SendInvite:         sendInvite,
+		ActivationTTLHours: valueOrZero(req.ActivationTTLHours),
+		InvitedBy:          currentUser.ID,
+	})
+	if err != nil {
 		if errors.Is(err, services.ErrUsernameExists) {
 			response.Error(c, err)
 			return
@@ -111,10 +130,13 @@ func (h *adminHandlers) CreateUser(c *gin.Context) {
 	}
 
 	response.Created(c, gin.H{
-		"id":       user.ID,
-		"username": user.Username,
-		"role":     user.Role,
-		"name":     user.Name,
+		"id":         result.User.ID,
+		"username":   result.User.Username,
+		"role":       result.User.Role,
+		"name":       result.User.Name,
+		"status":     result.User.Status,
+		"invite":     result.Invite,
+		"invite_url": result.InviteURL,
 	})
 }
 
@@ -123,6 +145,7 @@ type UpdateUserRequest struct {
 	Password string `json:"password,omitempty"`
 	Role     string `json:"role,omitempty"`
 	Name     string `json:"name,omitempty"`
+	Status   string `json:"status,omitempty"`
 }
 
 // UpdateUser updates an existing user
@@ -162,6 +185,13 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 	if req.Name != "" {
 		updates["name"] = req.Name
 	}
+	if req.Status != "" {
+		if req.Status != models.UserStatusPendingActivation && req.Status != models.UserStatusActive && req.Status != models.UserStatusDisabled {
+			response.BadRequest(c, "Invalid status")
+			return
+		}
+		updates["status"] = req.Status
+	}
 
 	updated, err := h.service.UpdateUser(c.Request.Context(), id, updates)
 	if err != nil {
@@ -174,6 +204,7 @@ func (h *adminHandlers) UpdateUser(c *gin.Context) {
 		"username": updated.Username,
 		"role":     updated.Role,
 		"name":     updated.Name,
+		"status":   updated.Status,
 	})
 }
 
@@ -199,4 +230,11 @@ func (h *adminHandlers) DeleteUser(c *gin.Context) {
 	}
 
 	response.OK(c, gin.H{"message": "user deleted"})
+}
+
+func valueOrZero(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }

@@ -1,0 +1,20 @@
+serverAddr = "47.121.194.134"
+serverPort = 7000
+
+[auth]
+method = "token"
+token = "frp-autodl-20260310"
+
+[[proxies]]
+name = "autodl-web-tester"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 7860
+remotePort = 17860
+
+[[proxies]]
+name = "autodl-vllm-openai"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8000
+remotePort = 18000

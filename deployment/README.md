@@ -32,6 +32,12 @@ cd code/deployment/docker
 docker-compose -f docker-compose.prod.yml up -d
 ```
 
+说明：
+
+- 当前临时生产环境只由 Nginx 暴露 `80`
+- Backend / AI / Sim / Multi-Agent / MinIO 仅允许 Docker 内网访问
+- 宿主机级运维请使用 `docker compose exec`
+
 ### 监控服务
 
 ```bash

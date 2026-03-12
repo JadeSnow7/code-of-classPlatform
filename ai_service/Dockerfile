@@ -17,7 +17,10 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
+COPY requirements.lock.txt ./
+RUN pip install --no-cache-dir /wheels/* \
+    && pip install --no-cache-dir -r requirements.lock.txt \
+    && rm -rf /wheels requirements.lock.txt
 COPY app ./app
 
 EXPOSE 8001

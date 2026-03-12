@@ -3,7 +3,7 @@
  */
 import { api } from '@/lib/api-client';
 import { authStore, type User } from '@/lib/auth-store';
-import type { MeResponse } from '@classplatform/shared';
+import type { InvitePreview, LoginResponse, MeResponse } from '@classplatform/shared';
 
 function normalizeRole(role: string): User['role'] {
     if (role === 'admin' || role === 'teacher' || role === 'assistant' || role === 'student') {
@@ -21,29 +21,55 @@ function toUser(profile: MeResponse): User {
     };
 }
 
+function persistSession(data: LoginResponse) {
+    authStore.setSession({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        tokenType: data.token_type ?? 'Bearer',
+        expiresIn: data.expires_in,
+        refreshExpiresIn: data.refresh_expires_in,
+    });
+}
+
 export const authApi = {
-    /**
-     * Authenticate with username and password.
-     *
-     * @param username Username or account identifier.
-     * @param password Plain text password.
-     * @returns The authenticated user.
-     */
     async login(username: string, password: string): Promise<User> {
         authStore.clearToken();
         const data = await api.auth.login(username, password);
-        authStore.setToken(data.access_token);
+        persistSession(data);
         const profile = await api.auth.me();
         const user = toUser(profile);
         authStore.setProfile(user);
         return user;
     },
 
-    /**
-     * Fetch the current user from the API and local storage.
-     *
-     * @returns The authenticated user.
-     */
+    async activateRegistration(token: string, password: string, confirmPassword: string): Promise<User> {
+        authStore.clearToken();
+        const data = await api.auth.activateRegistration({
+            token,
+            password,
+            confirm_password: confirmPassword,
+        });
+        persistSession(data);
+        const profile = await api.auth.me();
+        const user = toUser(profile);
+        authStore.setProfile(user);
+        return user;
+    },
+
+    async getInvite(token: string): Promise<InvitePreview> {
+        return api.auth.getInvite(token);
+    },
+
+    async refresh(): Promise<string | null> {
+        const refreshToken = authStore.getRefreshToken();
+        if (!refreshToken) {
+            return null;
+        }
+        const data = await api.auth.refresh(refreshToken);
+        persistSession(data);
+        return data.access_token;
+    },
+
     async me(): Promise<User> {
         const profile = await api.auth.me();
         const user = toUser(profile);
@@ -51,26 +77,24 @@ export const authApi = {
         return user;
     },
 
-    /**
-     * Authenticate via WeChat Work authorization code.
-     *
-     * @param code WeChat Work login code.
-     * @returns The authenticated user.
-     */
     async wecomLogin(code: string): Promise<User> {
         authStore.clearToken();
         const data = await api.auth.wecomLogin(code);
-        authStore.setToken(data.access_token);
+        persistSession(data);
         const profile = await api.auth.me();
         const user = toUser(profile);
         authStore.setProfile(user);
         return user;
     },
 
-    /**
-     * Clear local authentication state.
-     */
-    logout() {
-        authStore.clearToken();
+    async logout(): Promise<void> {
+        const refreshToken = authStore.getRefreshToken();
+        try {
+            if (refreshToken) {
+                await api.auth.logout(refreshToken);
+            }
+        } finally {
+            authStore.clearToken();
+        }
     }
 };

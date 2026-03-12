@@ -9,8 +9,49 @@ import (
 
 // AuthService 认证服务接口
 type AuthService interface {
-	Login(ctx context.Context, username, password string) (*models.User, string, error)
+	Login(ctx context.Context, username, password string, meta AuthSessionMeta) (AuthSessionBundle, error)
+	IssueSession(ctx context.Context, user *models.User, meta AuthSessionMeta) (AuthSessionBundle, error)
 	GetUserByID(ctx context.Context, userID uint) (*models.User, error)
+	GetInvitePreview(ctx context.Context, token string) (InvitePreview, error)
+	ActivateRegistration(ctx context.Context, token, password, confirmPassword string, meta AuthSessionMeta) (AuthSessionBundle, error)
+	Refresh(ctx context.Context, refreshToken string, meta AuthSessionMeta) (AuthSessionBundle, error)
+	Logout(ctx context.Context, refreshToken string) error
+	LogoutAll(ctx context.Context, userID uint) error
+	CreateActivationInvite(ctx context.Context, user *models.User, invitedBy uint, ttl time.Duration) (ActivationInvite, error)
+	BuildInviteURL(token string) string
+	AccessTokenTTL() time.Duration
+	RefreshTokenTTL() time.Duration
+}
+
+type AuthSessionMeta struct {
+	ClientType  string
+	DeviceLabel string
+	IP          string
+	UserAgent   string
+}
+
+type AuthSessionBundle struct {
+	User             *models.User `json:"user"`
+	AccessToken      string       `json:"access_token"`
+	RefreshToken     string       `json:"refresh_token"`
+	TokenType        string       `json:"token_type"`
+	ExpiresIn        int64        `json:"expires_in"`
+	RefreshExpiresIn int64        `json:"refresh_expires_in"`
+}
+
+type InvitePreview struct {
+	Username  string `json:"username"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	Expired   bool   `json:"expired"`
+	Used      bool   `json:"used"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+type ActivationInvite struct {
+	Token     string `json:"token"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 // Activity 用户最近活动项
@@ -126,9 +167,21 @@ type AdminSystemStats struct {
 type AdminService interface {
 	GetSystemStats(ctx context.Context) (AdminSystemStats, error)
 	ListUsers(ctx context.Context, roleFilter string) ([]*models.User, error)
-	CreateUser(ctx context.Context, user *models.User, password string) error
+	CreateUser(ctx context.Context, user *models.User, password string, opts AdminCreateUserOptions) (AdminCreateUserResult, error)
 	UpdateUser(ctx context.Context, id uint, updates map[string]interface{}) (*models.User, error)
 	DeleteUser(ctx context.Context, id uint) error
+}
+
+type AdminCreateUserOptions struct {
+	SendInvite         bool
+	ActivationTTLHours int
+	InvitedBy          uint
+}
+
+type AdminCreateUserResult struct {
+	User      *models.User      `json:"user"`
+	Invite    *ActivationInvite `json:"invite,omitempty"`
+	InviteURL string            `json:"invite_url,omitempty"`
 }
 
 // AnnouncementLatestInfo 公告摘要中的最新公告

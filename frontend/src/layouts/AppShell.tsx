@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, useMemo, type ReactNode } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar, Badge, Typography } from 'antd';
 import {
@@ -12,6 +12,7 @@ import clsx from 'clsx';
 import { Brain } from 'lucide-react';
 import { useTheme } from '@/ThemeProvider';
 import { useAiConfigStore } from '@/domains/ai/useAiConfigStore';
+import { useCloudAiHealth } from '@/hooks/useCloudAiHealth';
 import { useMobile } from '@/hooks/useMobile';
 
 const { Text } = Typography;
@@ -56,26 +57,24 @@ function ShellIconButton({
     );
 }
 
+function ShellOutletFallback() {
+    return (
+        <div className="flex min-h-[32vh] items-center justify-center px-4 py-10">
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/92 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/92 dark:text-slate-200">
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-600 dark:bg-blue-300" />
+                正在加载内容...
+            </div>
+        </div>
+    );
+}
+
 export function AppShell() {
     const location = useLocation();
     const navigate = useNavigate();
     const isMobile = useMobile();
     const { resolvedTheme } = useTheme();
     const localModelStatus = useAiConfigStore((state) => state.localModelStatus);
-    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
-
-    useEffect(() => {
-        const handleOnline = () => setIsOnline(true);
-        const handleOffline = () => setIsOnline(false);
-
-        window.addEventListener('online', handleOnline);
-        window.addEventListener('offline', handleOffline);
-
-        return () => {
-            window.removeEventListener('online', handleOnline);
-            window.removeEventListener('offline', handleOffline);
-        };
-    }, []);
+    const cloudHealth = useCloudAiHealth();
 
     const currentKey = useMemo(
         () =>
@@ -89,7 +88,12 @@ export function AppShell() {
 
     const currentLabel = navItems.find((item) => item.key === currentKey)?.label ?? '学习';
     const isDarkTheme = resolvedTheme === 'dark';
-    const cloudStatusText = isOnline ? '云端在线' : '云端离线';
+    const cloudStatusDotClass =
+        cloudHealth.status === 'ready'
+            ? 'bg-emerald-500'
+            : cloudHealth.status === 'checking'
+              ? 'bg-amber-400'
+              : 'bg-rose-500';
 
     if (isMobile) {
         return (
@@ -127,7 +131,9 @@ export function AppShell() {
                 </header>
 
                 <main className="min-h-screen bg-white pb-20 pt-16 dark:bg-slate-900">
-                    <Outlet />
+                    <Suspense fallback={<ShellOutletFallback />}>
+                        <Outlet />
+                    </Suspense>
                 </main>
 
                 <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-slate-50/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95">
@@ -235,14 +241,11 @@ export function AppShell() {
                         <div className="space-y-3 rounded-3xl bg-white/75 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/80 backdrop-blur dark:bg-slate-900/75 dark:ring-slate-800">
                             <div className="flex items-center gap-3 text-sm">
                                 <span
-                                    className={clsx(
-                                        'h-2.5 w-2.5 rounded-full',
-                                        isOnline ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-slate-500',
-                                    )}
+                                    className={clsx('h-2.5 w-2.5 rounded-full', cloudStatusDotClass)}
                                 />
                                 <div className="min-w-0">
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">{cloudStatusText}</p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">平台服务链路状态</p>
+                                    <p className="font-medium text-slate-900 dark:text-slate-100">{cloudHealth.title}</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">{cloudHealth.detail}</p>
                                 </div>
                             </div>
 
@@ -252,7 +255,7 @@ export function AppShell() {
                                     <p className="font-medium text-slate-900 dark:text-slate-100">
                                         {localStatusText[localModelStatus]}
                                     </p>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">本地推理设备状态</p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">桌面端本地推理设备状态</p>
                                 </div>
                             </div>
                         </div>
@@ -278,7 +281,9 @@ export function AppShell() {
                     )}
                 >
                     <main className="h-full overflow-auto bg-white dark:bg-slate-900">
-                        <Outlet />
+                        <Suspense fallback={<ShellOutletFallback />}>
+                            <Outlet />
+                        </Suspense>
                     </main>
                 </div>
             </div>

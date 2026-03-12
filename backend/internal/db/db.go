@@ -54,6 +54,8 @@ func Open(dsn string) (*gorm.DB, error) {
 func AutoMigrate(gormDB *gorm.DB) error {
 	return gormDB.AutoMigrate(
 		&models.User{},
+		&models.ActivationToken{},
+		&models.RefreshSession{},
 		&models.UserAIConfig{},
 		&models.Course{},
 		&models.CourseEnrollment{},

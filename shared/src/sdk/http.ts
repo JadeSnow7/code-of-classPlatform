@@ -25,7 +25,7 @@ export type ApiClientConfig = {
   baseUrl: string;
   getAccessToken?: () => string | null | undefined;
   getTokenType?: () => string | null | undefined;
-  onUnauthorized?: (info: { url: string; status: number }) => void;
+  onUnauthorized?: (info: { url: string; status: number }) => void | boolean | Promise<void | boolean>;
   timeoutMs?: number;
   fetchFn?: typeof fetch;
   uploadFn?: UploadFn;
@@ -134,6 +134,10 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   };
 
   async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    return executeRequest<T>(path, options, false);
+  }
+
+  async function executeRequest<T>(path: string, options: RequestOptions, isRetry: boolean): Promise<T> {
     const {
       method = 'GET',
       headers = {},
@@ -186,8 +190,11 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
         signal: controller.signal,
       });
 
-      if (response.status === 401 && config.onUnauthorized) {
-        config.onUnauthorized({ url, status: response.status });
+      if (response.status === 401 && config.onUnauthorized && !isRetry) {
+        const shouldRetry = await config.onUnauthorized({ url, status: response.status });
+        if (shouldRetry) {
+          return executeRequest<T>(path, options, true);
+        }
       }
 
       const payload = await readPayload(response);

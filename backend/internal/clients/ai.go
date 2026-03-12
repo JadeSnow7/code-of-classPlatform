@@ -108,6 +108,7 @@ type ChatMultimodalRequest struct {
 // AIClientInterface defines the AI client interface for dependency injection
 type AIClientInterface interface {
 	Chat(ctx context.Context, req ChatRequest) (ChatResponse, error)
+	Health(ctx context.Context) (map[string]any, error)
 	ChatMultimodal(ctx context.Context, req ChatMultimodalRequest) (ChatResponse, error)
 	StreamChat(ctx context.Context, req ChatRequest) (io.ReadCloser, error)
 	ChatWithTools(ctx context.Context, req ChatWithToolsRequest) (ChatWithToolsResponse, error)
@@ -233,6 +234,39 @@ func (c *AIClient) Chat(ctx context.Context, req ChatRequest) (ChatResponse, err
 		return ChatResponse{}, err
 	}
 	return out, nil
+}
+
+func (c *AIClient) Health(ctx context.Context) (map[string]any, error) {
+	if c.baseURL == "" {
+		return nil, errors.New("AI base url is empty")
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/v1/upstream/health", c.baseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setCommonHeaders(httpReq)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ai service health error: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 func (c *AIClient) ChatMultimodal(ctx context.Context, req ChatMultimodalRequest) (ChatResponse, error) {

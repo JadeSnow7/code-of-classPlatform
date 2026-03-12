@@ -8,6 +8,7 @@ import (
 
 // AIHandlers interface for AI handler methods
 type AIHandlers interface {
+	Health(c *gin.Context)
 	Chat(c *gin.Context)
 	ChatOrchestrated(c *gin.Context)
 	ChatMultimodal(c *gin.Context)
@@ -18,6 +19,7 @@ type AIHandlers interface {
 
 // RegisterAIRoutes registers AI routes
 func RegisterAIRoutes(api *gin.RouterGroup, jwtSecret string, aiLimiter *middleware.RateLimiter, h AIHandlers) {
+	api.GET("/ai/health", h.Health)
 	api.POST("/ai/chat", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.Chat)
 	api.POST("/ai/orchestrated", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ChatOrchestrated)
 	api.POST("/ai/chat/multimodal", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ChatMultimodal)

@@ -22,7 +22,8 @@ func setupCourseTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
-	err = db.AutoMigrate(&models.User{}, &models.Course{}, &models.CourseEnrollment{})
+	migrateAuthTables(t, db)
+	err = db.AutoMigrate(&models.Course{}, &models.CourseEnrollment{})
 	assert.NoError(t, err)
 
 	return db
@@ -31,7 +32,7 @@ func setupCourseTestDB(t *testing.T) *gorm.DB {
 func setupCourseRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	hCourse := newCourseHandlers(db)
 	userRepo := repositories.NewUserRepository(db)
-	authService := services.NewAuthService(userRepo, jwtSecret)
+	authService := services.NewAuthService(userRepo, newAuthTestConfig(jwtSecret))
 	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()
@@ -59,6 +60,7 @@ func createCourseTestUser(t *testing.T, db *gorm.DB, username string, password s
 		PasswordHash: passwordHash,
 		Role:         role,
 		Name:         "Test " + username,
+		Status:       models.UserStatusActive,
 	}
 	assert.NoError(t, db.Create(&user).Error)
 	return user

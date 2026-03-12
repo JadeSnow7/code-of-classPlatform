@@ -19,6 +19,17 @@ type UserRepository interface {
 	Delete(ctx context.Context, id uint) error
 	Count(ctx context.Context) (int64, error)
 	CountByRole(ctx context.Context, role string) (int64, error)
+	CreateActivationToken(ctx context.Context, token *models.ActivationToken) error
+	FindActivationTokenByHash(ctx context.Context, tokenHash string) (*models.ActivationToken, error)
+	MarkActivationTokenUsed(ctx context.Context, id uint, usedAt int64) error
+	ConsumeActivationTokenByHash(ctx context.Context, tokenHash string, usedAt int64) (bool, error)
+	RevokeActivationTokensByUser(ctx context.Context, userID uint, usedAt int64) error
+	CreateRefreshSession(ctx context.Context, session *models.RefreshSession) error
+	FindRefreshSessionByHash(ctx context.Context, tokenHash string) (*models.RefreshSession, error)
+	RevokeRefreshSessionByHash(ctx context.Context, tokenHash string, revokedAt int64) error
+	ConsumeRefreshSessionByHash(ctx context.Context, tokenHash string, consumedAt int64) (bool, error)
+	RevokeRefreshSessionsByUser(ctx context.Context, userID uint, revokedAt int64) error
+	TouchRefreshSession(ctx context.Context, id uint, lastUsedAt int64) error
 }
 
 // AIConfigRepository user AI config data access interface.

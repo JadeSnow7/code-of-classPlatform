@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -41,6 +43,7 @@ from app.graphrag_neo4j import (
 from app.graphrag_neo4j.types import (
     DerivationResponse as Neo4jDerivationResponse,
     DeriveGraphRAGRequest as Neo4jDeriveGraphRAGRequest,
+    RetrievalDebug,
     SyncResult,
 )
 from app.model_router import (
@@ -63,6 +66,8 @@ _index_updater: IndexUpdater | None = None
 _intent_router: EdgeIntentRouter | None = None
 _structured_graphrag_retriever: GraphRAGRetriever | None = None
 _neo4j_graphrag_client: Neo4jGraphRAGClient | None = None
+_http_clients: dict[str, httpx.AsyncClient] = {}
+_graphrag_semaphore: asyncio.Semaphore | None = None
 
 _audit_logger = logging.getLogger("ai_service.audit")
 _logger = logging.getLogger("ai_service.main")
@@ -160,6 +165,13 @@ class RoutingDecision:
     caller_trusted: bool
 
 
+@_routing_decision_dataclass
+class MockFallbackDecision:
+    reply: str
+    reason: str
+    model: str = "mock-fallback"
+
+
 def _get_env(name: str) -> str:
     v = os.getenv(name, "")
     return v.strip()
@@ -184,6 +196,16 @@ def _get_int_env(name: str, default: int) -> int:
         return default
 
 
+def _get_float_env(name: str, default: float) -> float:
+    v = _get_env(name)
+    if not v:
+        return default
+    try:
+        return float(v)
+    except ValueError:
+        return default
+
+
 def _app_env() -> str:
     return (_get_env("APP_ENV") or "dev").lower()
 
@@ -200,6 +222,29 @@ def _validate_routing_policy() -> None:
 @app.on_event("startup")
 def _validate_on_startup() -> None:
     _validate_routing_policy()
+
+
+@app.on_event("startup")
+async def _startup_http_clients() -> None:
+    global _graphrag_semaphore
+    limits = httpx.Limits(
+        max_connections=max(1, _get_int_env("HTTPX_MAX_CONNECTIONS", 200)),
+        max_keepalive_connections=max(1, _get_int_env("HTTPX_MAX_KEEPALIVE_CONNECTIONS", 50)),
+    )
+    for upstream in ("local", "cloud"):
+        client = _http_clients.get(upstream)
+        if client is not None:
+            await client.aclose()
+        _http_clients[upstream] = httpx.AsyncClient(limits=limits, timeout=None, trust_env=False)
+    _graphrag_semaphore = asyncio.Semaphore(max(1, _get_int_env("GRAPH_RAG_MAX_INFLIGHT", 16)))
+
+
+@app.on_event("shutdown")
+async def _shutdown_http_clients() -> None:
+    clients = list(_http_clients.values())
+    _http_clients.clear()
+    for client in clients:
+        await client.aclose()
 
 
 def _family_suffix(model_family: ModelFamily) -> str:
@@ -499,6 +544,241 @@ def _http_timeout(upstream: Literal["local", "cloud"], *, stream: bool) -> httpx
     return httpx.Timeout(timeout=None, connect=30.0, read=read_timeout, write=30.0, pool=30.0)
 
 
+def _get_http_client(upstream: Literal["local", "cloud"]) -> httpx.AsyncClient:
+    client = _http_clients.get(upstream)
+    if client is None:
+        limits = httpx.Limits(
+            max_connections=max(1, _get_int_env("HTTPX_MAX_CONNECTIONS", 200)),
+            max_keepalive_connections=max(1, _get_int_env("HTTPX_MAX_KEEPALIVE_CONNECTIONS", 50)),
+        )
+        client = httpx.AsyncClient(limits=limits, timeout=None, trust_env=False)
+        _http_clients[upstream] = client
+    return client
+
+
+def _hard_fallback_enabled() -> bool:
+    return _get_bool_env("DEMO_HARD_FALLBACK", default=False)
+
+
+def _hard_fallback_timeout_sec() -> float:
+    return max(1.0, _get_float_env("DEMO_HARD_FALLBACK_TIMEOUT_SEC", 5.0))
+
+
+def _mock_reply_for_query(query: str) -> str:
+    normalized = (query or "").lower()
+    if any(keyword in normalized for keyword in ("引用", "引文", "文献", "citation", "reference")):
+        return "当前检索排队人数较多，建议您先检查第二章引文格式：编号是否连续、正文引用与参考文献是否一一对应、是否缺少页码或出版信息。"
+    if any(keyword in normalized for keyword in ("摘要", "abstract")):
+        return "当前检索排队人数较多，建议您先把摘要压缩成研究目的、方法、结果、结论四句结构。"
+    return "当前检索排队人数较多，建议您先检查问题中的关键概念、证据出处和引文格式，我会在检索恢复后继续补全。"
+
+
+def _build_mock_fallback(query: str, reason: str) -> MockFallbackDecision:
+    return MockFallbackDecision(reply=_mock_reply_for_query(query), reason=reason)
+
+
+async def _run_with_hard_fallback(
+    *,
+    query: str,
+    op_name: str,
+    coro: Any,
+) -> tuple[Any | None, MockFallbackDecision | None]:
+    if not _hard_fallback_enabled():
+        return await coro, None
+    try:
+        result = await asyncio.wait_for(coro, timeout=_hard_fallback_timeout_sec())
+        return result, None
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        _logger.warning("%s timed out, returning mock fallback", op_name)
+        return None, _build_mock_fallback(query, f"{op_name}_timeout")
+    except Exception as exc:
+        _logger.exception("%s failed, returning mock fallback: %s", op_name, exc)
+        return None, _build_mock_fallback(query, f"{op_name}_failed:{type(exc).__name__}")
+
+
+def _sse_frame(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _streaming_headers(request_id: str, *, fallback: str = "none") -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+        "X-Request-ID": request_id,
+        "X-AI-Fallback": fallback,
+    }
+
+
+def _mock_stream(request_id: str, fallback: MockFallbackDecision) -> AsyncIterator[str]:
+    async def generator() -> AsyncIterator[str]:
+        yield _sse_frame({"type": "start", "request_id": request_id})
+        yield _sse_frame({"content": fallback.reply, "degraded": True, "model": fallback.model})
+        yield _sse_frame({"type": "done", "model": fallback.model})
+
+    return generator()
+
+
+_THINK_OPEN_TAG = "<think>"
+_THINK_CLOSE_TAG = "</think>"
+_THINK_LABEL = "thinking process:"
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+
+
+def _prepare_chat_completions_payload(
+    payload: dict[str, Any],
+    *,
+    model: str,
+    stream: bool,
+) -> dict[str, Any]:
+    request_payload = dict(payload)
+    request_payload["model"] = model
+    request_payload["stream"] = stream
+    existing_kwargs = request_payload.get("chat_template_kwargs")
+    merged_kwargs = dict(existing_kwargs) if isinstance(existing_kwargs, dict) else {}
+    # Qwen3.5 may emit visible reasoning by default; disable it at the template layer.
+    merged_kwargs["enable_thinking"] = False
+    request_payload["chat_template_kwargs"] = merged_kwargs
+    return request_payload
+
+
+def _strip_leading_thinking_prefix(text: str) -> str:
+    stripped = text.lstrip()
+    if not stripped.lower().startswith(_THINK_LABEL):
+        return text
+
+    remainder = stripped[len(_THINK_LABEL):]
+    for marker in ("\n\n", "最终答案：", "最终答案:", "答案：", "答案:", "答：", "答:"):
+        idx = remainder.find(marker)
+        if idx == -1:
+            continue
+        if marker == "\n\n":
+            return remainder[idx + len(marker):].lstrip()
+        return remainder[idx:].lstrip()
+    return ""
+
+
+def _sanitize_llm_text(text: str) -> str:
+    original = str(text or "").strip()
+    if not original:
+        return ""
+
+    cleaned = _THINK_BLOCK_RE.sub("", original)
+    cleaned = _strip_leading_thinking_prefix(cleaned)
+    cleaned = cleaned.replace(_THINK_OPEN_TAG, "").replace(_THINK_CLOSE_TAG, "").strip()
+    if cleaned:
+        return cleaned
+    lowered_original = original.lower()
+    if lowered_original.startswith(_THINK_LABEL) or _THINK_OPEN_TAG in lowered_original or _THINK_CLOSE_TAG in lowered_original:
+        return ""
+    return original
+
+
+def _sanitize_chat_completion_data(data: dict[str, Any]) -> dict[str, Any]:
+    choices = data.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    message["content"] = _sanitize_llm_text(content)
+                message.pop("reasoning", None)
+                message.pop("reasoning_content", None)
+            delta = choice.get("delta")
+            if isinstance(delta, dict):
+                content = delta.get("content")
+                if isinstance(content, str):
+                    delta["content"] = _sanitize_llm_text(content)
+                delta.pop("reasoning", None)
+                delta.pop("reasoning_content", None)
+
+    message = data.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str):
+            message["content"] = _sanitize_llm_text(content)
+        message.pop("reasoning", None)
+        message.pop("reasoning_content", None)
+    return data
+
+
+def _split_partial_think_tail(text: str) -> tuple[str, str]:
+    tail = ""
+    for token in (_THINK_OPEN_TAG, _THINK_CLOSE_TAG):
+        upper = min(len(token) - 1, len(text))
+        for size in range(1, upper + 1):
+            if token.startswith(text[-size:]) and size > len(tail):
+                tail = text[-size:]
+    if not tail:
+        return text, ""
+    return text[:-len(tail)], tail
+
+
+@dataclass
+class _StreamingContentSanitizer:
+    in_think_block: bool = False
+    pending_tail: str = ""
+    emitted_answer: bool = False
+    suppress_preface: bool = False
+
+    def sanitize(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+
+        text = self.pending_tail + chunk
+        self.pending_tail = ""
+        pieces: list[str] = []
+
+        while text:
+            if self.in_think_block:
+                end = text.lower().find(_THINK_CLOSE_TAG)
+                if end == -1:
+                    _, self.pending_tail = _split_partial_think_tail(text)
+                    if not self.pending_tail:
+                        self.pending_tail = text[-(len(_THINK_CLOSE_TAG) - 1):]
+                    return ""
+                text = text[end + len(_THINK_CLOSE_TAG):]
+                self.in_think_block = False
+                continue
+
+            start = text.lower().find(_THINK_OPEN_TAG)
+            if start == -1:
+                safe_text, self.pending_tail = _split_partial_think_tail(text)
+                pieces.append(safe_text)
+                break
+
+            pieces.append(text[:start])
+            text = text[start + len(_THINK_OPEN_TAG):]
+            end = text.lower().find(_THINK_CLOSE_TAG)
+            if end == -1:
+                self.in_think_block = True
+                _, self.pending_tail = _split_partial_think_tail(text)
+                if not self.pending_tail:
+                    self.pending_tail = text[-(len(_THINK_CLOSE_TAG) - 1):]
+                break
+            text = text[end + len(_THINK_CLOSE_TAG):]
+
+        cleaned = "".join(pieces).replace(_THINK_OPEN_TAG, "").replace(_THINK_CLOSE_TAG, "")
+        if not self.emitted_answer:
+            lowered = cleaned.lstrip().lower()
+            if lowered.startswith(_THINK_LABEL):
+                self.suppress_preface = True
+                cleaned = _strip_leading_thinking_prefix(cleaned)
+            if self.suppress_preface and not cleaned.strip():
+                return ""
+            if self.suppress_preface:
+                self.suppress_preface = False
+
+        if not self.emitted_answer:
+            cleaned = cleaned.lstrip()
+        if cleaned.strip():
+            self.emitted_answer = True
+        return cleaned
+
+
 def _build_routing_decision(
     request: Request,
     *,
@@ -602,13 +882,12 @@ async def _post_chat_completions_once(
     if not cfg["base_url"] or not cfg["api_key"]:
         raise ValueError(f"{upstream} upstream is not configured")
     model = cfg["model"] or "qwen-plus"
-    request_payload = dict(payload)
-    request_payload["model"] = model
+    request_payload = _prepare_chat_completions_payload(payload, model=model, stream=False)
     url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
     timeout = _http_timeout(upstream, stream=False)
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        response = await client.post(url, json=request_payload, headers=headers)
+    client = _get_http_client(upstream)
+    response = await client.post(url, json=request_payload, headers=headers, timeout=timeout)
     return response, model
 
 
@@ -699,7 +978,7 @@ async def _post_chat_completions_with_routing(
         )
 
     try:
-        data = resp.json()
+        data = _sanitize_chat_completion_data(resp.json())
     except ValueError as exc:
         _raise_api_error(502, "INVALID_UPSTREAM_RESPONSE", f"invalid upstream response: {exc}", decision.request_id)
 
@@ -1003,43 +1282,45 @@ async def _retrieve_structured_graphrag_bundle(
     }
 
     embedding_upstream = _embedding_route(decision.route_resolved)
-    try:
-        bundle = await retriever.retrieve(
-            vector_store=_get_vector_store(embedding_upstream),
-            embedding=_get_embedding(embedding_upstream),
-            **kwargs,
-        )
-        return bundle if bundle.assembled_context.strip() else None
-    except Exception as exc:
-        if embedding_upstream == "local" and _can_cloud_fallback(decision):
-            _audit_event(
-                event="cloud_fallback",
-                request_id=decision.request_id,
-                request_id_source=decision.request_id_source,
-                endpoint=decision.endpoint,
-                mode=decision.mode,
-                privacy_input=decision.privacy_input,
-                route_input=decision.route_input,
-                privacy_resolved=decision.privacy_resolved,
-                route_resolved=decision.route_resolved,
-                caller_trusted=decision.caller_trusted,
-                final_upstream="cloud",
-                fallback_reason=f"embedding_local_error:{type(exc).__name__}",
-                status_code=200,
-                latency_ms=0,
+    semaphore = _graphrag_semaphore or asyncio.Semaphore(max(1, _get_int_env("GRAPH_RAG_MAX_INFLIGHT", 16)))
+    async with semaphore:
+        try:
+            bundle = await retriever.retrieve(
+                vector_store=_get_vector_store(embedding_upstream),
+                embedding=_get_embedding(embedding_upstream),
+                **kwargs,
             )
-            try:
-                bundle = await retriever.retrieve(
-                    vector_store=_get_vector_store("cloud"),
-                    embedding=_get_embedding("cloud"),
-                    **kwargs,
+            return bundle if bundle.assembled_context.strip() else None
+        except Exception as exc:
+            if embedding_upstream == "local" and _can_cloud_fallback(decision):
+                _audit_event(
+                    event="cloud_fallback",
+                    request_id=decision.request_id,
+                    request_id_source=decision.request_id_source,
+                    endpoint=decision.endpoint,
+                    mode=decision.mode,
+                    privacy_input=decision.privacy_input,
+                    route_input=decision.route_input,
+                    privacy_resolved=decision.privacy_resolved,
+                    route_resolved=decision.route_resolved,
+                    caller_trusted=decision.caller_trusted,
+                    final_upstream="cloud",
+                    fallback_reason=f"embedding_local_error:{type(exc).__name__}",
+                    status_code=200,
+                    latency_ms=0,
                 )
-                return bundle if bundle.assembled_context.strip() else None
-            except Exception as cloud_exc:
-                _logger.warning("cloud GraphRAG retrieval failed: %s", cloud_exc)
-                return None
-        _logger.warning("structured GraphRAG retrieval failed: %s", exc)
-        return None
+                try:
+                    bundle = await retriever.retrieve(
+                        vector_store=_get_vector_store("cloud"),
+                        embedding=_get_embedding("cloud"),
+                        **kwargs,
+                    )
+                    return bundle if bundle.assembled_context.strip() else None
+                except Exception as cloud_exc:
+                    _logger.warning("cloud GraphRAG retrieval failed: %s", cloud_exc)
+                    return None
+            _logger.warning("structured GraphRAG retrieval failed: %s", exc)
+            return None
 
 
 def _course_scoped_index(index: GraphRAGIndex, course_id: str | None) -> GraphRAGIndex:
@@ -1176,6 +1457,49 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/v1/upstream/health")
+async def upstream_health() -> dict[str, str]:
+    """Probe the active local-text upstream used by the gateway chat path."""
+    cfg = _upstream_config("local", model_family="qwen3")
+    base_url = cfg["base_url"].rstrip("/")
+    if not base_url:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "UPSTREAM_NOT_CONFIGURED",
+                "message": "local upstream base url is not configured",
+            },
+        )
+
+    url = base_url + "/v1/models"
+    headers: dict[str, str] = {}
+    if cfg["api_key"]:
+        headers["Authorization"] = f"Bearer {cfg['api_key']}"
+
+    try:
+        response = await _get_http_client("local").get(
+            url,
+            headers=headers,
+            timeout=httpx.Timeout(connect=10.0, read=10.0, write=10.0, pool=10.0),
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "UPSTREAM_UNAVAILABLE",
+                "message": f"local upstream probe failed: {exc}",
+            },
+        ) from exc
+
+    return {
+        "status": "ready",
+        "upstream": "local",
+        "base_url": base_url,
+        "model": cfg["model"] or "unknown",
+    }
+
+
 @app.get("/v1/skills")
 def list_skills() -> dict[str, Any]:
     """List all available AI skills."""
@@ -1198,6 +1522,7 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         body_route=req.route,
     )
     response.headers["X-Request-ID"] = decision.request_id
+    response.headers["X-AI-Fallback"] = "none"
 
     system = _system_prompt(req.mode)
     messages: list[dict[str, str]] = []
@@ -1219,6 +1544,7 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
             user_role=user_role,
         )
     )
+    mock_fallback: MockFallbackDecision | None = None
     if intent_decision.label == IntentLabel.COMPLEX_REASONING:
         if not _get_bool_env("GRAPH_RAG_ENABLED", default=False):
             _logger.warning("GraphRAG disabled for complex reasoning request")
@@ -1226,22 +1552,49 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         index = _load_graphrag_index(index_path)
         if not index and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
             _logger.warning("GraphRAG index unavailable at %s", index_path)
+            if _hard_fallback_enabled():
+                mock_fallback = _build_mock_fallback(latest_user_query, "graphrag_index_unavailable")
         if index and _get_bool_env("GRAPH_RAG_ENABLED", default=False):
-            context = await _resolve_graphrag_context_with_fallback(
-                index=index,
+            context, rag_mock = await _run_with_hard_fallback(
                 query=latest_user_query,
-                decision=decision,
-                course_id=course_id,
-                user_id=user_id,
-                user_role=user_role,
-                endpoint="/v1/chat",
+                op_name="graphrag",
+                coro=_resolve_graphrag_context_with_fallback(
+                    index=index,
+                    query=latest_user_query,
+                    decision=decision,
+                    course_id=course_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                    endpoint="/v1/chat",
+                ),
             )
-            if context:
+            if rag_mock is not None:
+                mock_fallback = rag_mock
+            elif not context and _hard_fallback_enabled():
+                mock_fallback = _build_mock_fallback(latest_user_query, "graphrag_empty")
+            elif context:
                 insert_at = 1 if system else 0
                 messages.insert(
                     insert_at,
                     {"role": "system", "content": _build_graphrag_system_message(context)},
                 )
+
+    if mock_fallback is not None:
+        response.headers["X-AI-Fallback"] = "mock"
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream="mock",
+            fallback_reason=mock_fallback.reason,
+            started_at=started_at,
+        )
+        if req.stream:
+            return StreamingResponse(
+                _mock_stream(decision.request_id, mock_fallback),
+                media_type="text/event-stream",
+                headers=_streaming_headers(decision.request_id, fallback="mock"),
+            )
+        return ChatResponse(reply=mock_fallback.reply, model=mock_fallback.model)
 
     payload: dict[str, Any] = {
         "messages": messages,
@@ -1265,61 +1618,47 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
                     raise ValueError(f"{upstream} upstream is not configured")
 
                 model_name = cfg["model"] or "qwen-plus"
-                request_payload = dict(payload)
-                request_payload["model"] = model_name
-                request_payload["stream"] = True
+                request_payload = _prepare_chat_completions_payload(payload, model=model_name, stream=True)
                 headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
-
-                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-                    async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
-                        if upstream_resp.status_code >= 300:
-                            raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
-                        async for raw_line in upstream_resp.aiter_lines():
-                            line = raw_line.strip()
-                            if not line:
-                                continue
-                            if line.startswith("data: "):
-                                data_str = line[6:]
-                                if data_str == "[DONE]":
-                                    break
-                                try:
-                                    data = json.loads(data_str)
-                                except json.JSONDecodeError:
-                                    continue
-                                delta = data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                reasoning = delta.get("reasoning_content") or delta.get("reasoning")
-                                response_data: dict[str, str] = {}
-                                if content:
-                                    response_data["content"] = content
-                                if reasoning:
-                                    response_data["reasoning"] = reasoning
-                                if response_data:
-                                    emitted_content = True
-                                    yield f"data: {json.dumps(response_data)}\n\n"
-                                continue
-
+                client = _get_http_client(upstream)
+                sanitizer = _StreamingContentSanitizer()
+                async with client.stream("POST", url, json=request_payload, headers=headers, timeout=timeout) as upstream_resp:
+                    if upstream_resp.status_code >= 300:
+                        raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
+                    async for raw_line in upstream_resp.aiter_lines():
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
                             try:
-                                data = json.loads(line)
+                                data = json.loads(data_str)
                             except json.JSONDecodeError:
                                 continue
-                            content = data.get("message", {}).get("content", "")
-                            reasoning = data.get("message", {}).get("reasoning_content") or data.get("message", {}).get("reasoning")
-                            response_data = {}
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = sanitizer.sanitize(str(delta.get("content", "")))
                             if content:
-                                response_data["content"] = content
-                            if reasoning:
-                                response_data["reasoning"] = reasoning
-                            if response_data:
                                 emitted_content = True
-                                yield f"data: {json.dumps(response_data)}\n\n"
-                            if data.get("done"):
-                                break
+                                yield _sse_frame({"content": content})
+                            continue
+
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        content = sanitizer.sanitize(str(data.get("message", {}).get("content", "")))
+                        if content:
+                            emitted_content = True
+                            yield _sse_frame({"content": content})
+                        if data.get("done"):
+                            break
 
             try:
-                yield f"data: {json.dumps({'type': 'start', 'request_id': decision.request_id})}\n\n"
+                yield _sse_frame({"type": "start", "request_id": decision.request_id})
                 try:
                     final_upstream = primary_upstream
                     async for chunk in stream_once(primary_upstream):
@@ -1365,17 +1704,15 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
                     final_upstream = "cloud"
                     async for chunk in stream_once("cloud"):
                         yield chunk
-            except ValueError as exc:
-                status_code = 503
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except httpx.TimeoutException as exc:
-                status_code = 504
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except (RuntimeError, httpx.HTTPError) as exc:
-                status_code = 502
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except (ValueError, httpx.TimeoutException, RuntimeError, httpx.HTTPError) as exc:
+                fallback = _build_mock_fallback(latest_user_query, f"stream_mock_fallback:{type(exc).__name__}")
+                status_code = 200
+                final_upstream = "mock"
+                fallback_reason = fallback.reason
+                model_name = fallback.model
+                yield _sse_frame({"content": fallback.reply, "degraded": True, "model": fallback.model})
             finally:
-                yield f"data: {json.dumps({'type': 'done', 'model': model_name})}\n\n"
+                yield _sse_frame({"type": "done", "model": model_name or "mock-fallback"})
                 _audit_request_complete(
                     decision,
                     status_code=status_code,
@@ -1387,18 +1724,29 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
         return StreamingResponse(
             stream_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                "X-Request-ID": decision.request_id,
-            },
+            headers=_streaming_headers(decision.request_id),
         )
 
     final_upstream = "none"
     fallback_reason = ""
     try:
-        data, final_upstream, fallback_reason, model = await _post_chat_completions_with_routing(payload, decision)
+        llm_result, llm_mock = await _run_with_hard_fallback(
+            query=latest_user_query,
+            op_name="llm_chat",
+            coro=_post_chat_completions_with_routing(payload, decision),
+        )
+        if llm_mock is not None:
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=llm_mock.reason,
+                started_at=started_at,
+            )
+            return ChatResponse(reply=llm_mock.reply, model=llm_mock.model)
+        data, final_upstream, fallback_reason, model = llm_result
+        response.headers["X-AI-Fallback"] = "cloud" if final_upstream == "cloud" else "none"
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         _audit_request_complete(
             decision,
@@ -1416,6 +1764,17 @@ async def chat(req: ChatRequest, request: Request, response: Response) -> ChatRe
             fallback_reason=fallback_reason or "request_failed",
             started_at=started_at,
         )
+        if _hard_fallback_enabled():
+            fallback = _build_mock_fallback(latest_user_query, f"chat_http_exception:{exc.status_code}")
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=fallback.reason,
+                started_at=started_at,
+            )
+            return ChatResponse(reply=fallback.reply, model=fallback.model)
         raise
 
 
@@ -1440,6 +1799,7 @@ async def chat_multimodal(
         body_route=req.route,
     )
     response.headers["X-Request-ID"] = decision.request_id
+    response.headers["X-AI-Fallback"] = "none"
 
     try:
         requested_family = normalize_requested_model_family(req.model_family)
@@ -1512,14 +1872,39 @@ async def chat_multimodal(
         index = _load_graphrag_index(index_path)
         if index:
             query = _latest_user_query_from_multimodal(req.messages)
-            context = build_rag_context(
-                index,
-                query,
-                seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
-                expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
-                final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
-                max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+            context, rag_mock = await _run_with_hard_fallback(
+                query=query,
+                op_name="multimodal_rag",
+                coro=asyncio.to_thread(
+                    build_rag_context,
+                    index,
+                    query,
+                    seed_top_k=_get_int_env("GRAPH_RAG_SEED_TOP_K", default=4),
+                    expand_hops=_get_int_env("GRAPH_RAG_EXPAND_HOPS", default=1),
+                    final_top_k=_get_int_env("GRAPH_RAG_FINAL_TOP_K", default=8),
+                    max_chars=_get_int_env("GRAPH_RAG_MAX_CONTEXT_CHARS", default=4000),
+                ),
             )
+            if rag_mock is not None or (not context and _hard_fallback_enabled()):
+                fallback = rag_mock or _build_mock_fallback(query, "multimodal_rag_empty")
+                response.headers["X-AI-Fallback"] = "mock"
+                _audit_request_complete(
+                    decision,
+                    status_code=200,
+                    final_upstream="mock",
+                    fallback_reason=fallback.reason,
+                    started_at=started_at,
+                    model_family_requested=requested_family,
+                    model_family_resolved=model_family,
+                    needs_vision=needs_vision,
+                )
+                if req.stream:
+                    return StreamingResponse(
+                        _mock_stream(decision.request_id, fallback),
+                        media_type="text/event-stream",
+                        headers=_streaming_headers(decision.request_id, fallback="mock"),
+                    )
+                return ChatResponse(reply=fallback.reply, model=fallback.model)
             if context:
                 insert_at = 1 if system else 0
                 messages.insert(insert_at, {"role": "system", "content": _build_graphrag_system_message(context)})
@@ -1545,36 +1930,34 @@ async def chat_multimodal(
                 if not cfg["base_url"] or not cfg["api_key"]:
                     raise ValueError(f"{upstream} upstream is not configured")
                 model_name = cfg["model"] or "qwen-plus"
-                request_payload = dict(payload)
-                request_payload["model"] = model_name
-                request_payload["stream"] = True
+                request_payload = _prepare_chat_completions_payload(payload, model=model_name, stream=True)
                 headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
-
-                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-                    async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
-                        if upstream_resp.status_code >= 300:
-                            raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
-                        async for raw_line in upstream_resp.aiter_lines():
-                            line = raw_line.strip()
-                            if not line or not line.startswith("data: "):
-                                continue
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                emitted_content = True
-                                yield f"data: {json.dumps({'content': content})}\n\n"
+                client = _get_http_client(upstream)
+                sanitizer = _StreamingContentSanitizer()
+                async with client.stream("POST", url, json=request_payload, headers=headers, timeout=timeout) as upstream_resp:
+                    if upstream_resp.status_code >= 300:
+                        raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
+                    async for raw_line in upstream_resp.aiter_lines():
+                        line = raw_line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = sanitizer.sanitize(str(delta.get("content", "")))
+                        if content:
+                            emitted_content = True
+                            yield _sse_frame({"content": content})
 
             try:
-                yield f"data: {json.dumps({'type': 'start', 'request_id': decision.request_id})}\n\n"
+                yield _sse_frame({"type": "start", "request_id": decision.request_id})
                 try:
                     final_upstream = primary_upstream
                     async for chunk in stream_once(primary_upstream):
@@ -1626,17 +2009,15 @@ async def chat_multimodal(
                     final_upstream = "cloud"
                     async for chunk in stream_once("cloud"):
                         yield chunk
-            except ValueError as exc:
-                status_code = 503
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except httpx.TimeoutException as exc:
-                status_code = 504
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except (RuntimeError, httpx.HTTPError) as exc:
-                status_code = 502
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except (ValueError, httpx.TimeoutException, RuntimeError, httpx.HTTPError) as exc:
+                fallback = _build_mock_fallback(_latest_user_query_from_multimodal(req.messages), f"stream_mock_fallback:{type(exc).__name__}")
+                status_code = 200
+                final_upstream = "mock"
+                fallback_reason = fallback.reason
+                model_name = fallback.model
+                yield _sse_frame({"content": fallback.reply, "degraded": True, "model": fallback.model})
             finally:
-                yield f"data: {json.dumps({'type': 'done', 'model': model_name})}\n\n"
+                yield _sse_frame({"type": "done", "model": model_name or "mock-fallback"})
                 _audit_request_complete(
                     decision,
                     status_code=status_code,
@@ -1651,23 +2032,38 @@ async def chat_multimodal(
         return StreamingResponse(
             stream_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Request-ID": decision.request_id,
-            },
+            headers=_streaming_headers(decision.request_id),
         )
 
     final_upstream = "none"
     fallback_reason = ""
     try:
-        data, final_upstream, fallback_reason, model = await _post_chat_completions_with_routing(
-            payload,
-            decision,
-            model_family=model_family,
-            model_family_requested=requested_family,
-            needs_vision=needs_vision,
+        llm_result, llm_mock = await _run_with_hard_fallback(
+            query=_latest_user_query_from_multimodal(req.messages),
+            op_name="llm_multimodal",
+            coro=_post_chat_completions_with_routing(
+                payload,
+                decision,
+                model_family=model_family,
+                model_family_requested=requested_family,
+                needs_vision=needs_vision,
+            ),
         )
+        if llm_mock is not None:
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=llm_mock.reason,
+                started_at=started_at,
+                model_family_requested=requested_family,
+                model_family_resolved=model_family,
+                needs_vision=needs_vision,
+            )
+            return ChatResponse(reply=llm_mock.reply, model=llm_mock.model)
+        data, final_upstream, fallback_reason, model = llm_result
+        response.headers["X-AI-Fallback"] = "cloud" if final_upstream == "cloud" else "none"
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         _audit_request_complete(
             decision,
@@ -1691,6 +2087,20 @@ async def chat_multimodal(
             model_family_resolved=model_family,
             needs_vision=needs_vision,
         )
+        if _hard_fallback_enabled():
+            fallback = _build_mock_fallback(_latest_user_query_from_multimodal(req.messages), f"multimodal_http_exception:{exc.status_code}")
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=fallback.reason,
+                started_at=started_at,
+                model_family_requested=requested_family,
+                model_family_resolved=model_family,
+                needs_vision=needs_vision,
+            )
+            return ChatResponse(reply=fallback.reply, model=fallback.model)
         raise
 
 
@@ -1760,6 +2170,7 @@ async def chat_with_tools(req: ChatWithToolsRequest, request: Request, response:
         body_route=req.route,
     )
     response.headers["X-Request-ID"] = decision.request_id
+    response.headers["X-AI-Fallback"] = "none"
 
     # Build messages
     system = _system_prompt(req.mode, req.context)
@@ -1920,6 +2331,35 @@ def _assign_citation_ids(steps: list[Any], citations: list[Any]) -> None:
                 citation.id = citation_id_map[citation.node_id]
 
 
+def _derive_degraded_response(
+    *,
+    trace_id: str,
+    formatter: DerivationFormatter,
+    problem_text: str,
+    problem_frame: Any,
+    retrieval_debug: Any,
+    reason: str,
+    checks: dict[str, str] | None = None,
+) -> Neo4jDerivationResponse:
+    normalized_checks = dict(checks or {})
+    if "citation_coverage" not in normalized_checks:
+        normalized_checks["citation_coverage"] = "0.00"
+    return Neo4jDerivationResponse(
+        status="degraded",
+        trace_id=trace_id,
+        problem_frame=problem_frame,
+        steps=[],
+        final_answer=formatter.format_degraded(
+            problem_text=problem_text,
+            reason=reason,
+            checks=normalized_checks,
+        ),
+        checks=normalized_checks,
+        citations=[],
+        retrieval_debug=retrieval_debug,
+    )
+
+
 @app.post("/v1/derive/graphrag", response_model=Neo4jDerivationResponse)
 async def derive_graphrag(
     req: Neo4jDeriveGraphRAGRequest,
@@ -1936,81 +2376,143 @@ async def derive_graphrag(
         body_route=req.route,
     )
     response.headers["X-Request-ID"] = decision.request_id
+    response.headers["X-AI-Fallback"] = "none"
 
     graph_client = _get_neo4j_graphrag_client()
+    formatter = _get_derivation_formatter()
+    problem_frame = _get_problem_parser().parse(req.problem_text, course_id=req.course_id)
+    empty_debug = RetrievalDebug(anchor_ids=[], subgraph_node_count=0)
     if not graph_client.configured:
-        _audit_request_complete(decision, status_code=503, final_upstream="none", fallback_reason="neo4j_unconfigured", started_at=started_at)
-        _raise_api_error(503, "GRAPHRAG_UNAVAILABLE", "Neo4j GraphRAG is not configured", decision.request_id)
-
-    try:
-        embedding = _get_embedding(_embedding_route(decision.route_resolved))
-        await graph_client.ensure_schema(embedding.dimension)
-        await graph_client.seed_domain_catalog()
-
-        problem_frame = _get_problem_parser().parse(req.problem_text, course_id=req.course_id)
-        retriever = Neo4jDerivationRetriever(client=graph_client, embedding=embedding)
-        anchors, subgraph, retrieval_debug = await retriever.retrieve(
-            query=req.problem_text,
-            problem_frame=problem_frame,
-            user_role=req.user_role,
-        )
-
-        planner = _get_derivation_planner()
-        executor = _get_derivation_executor()
-        verifier = _get_derivation_verifier()
-        formatter = _get_derivation_formatter()
-
-        if not anchors or not subgraph.nodes:
-            response_payload = Neo4jDerivationResponse(
-                status="insufficient_context",
-                trace_id=decision.request_id,
-                problem_frame=problem_frame,
-                steps=[],
-                final_answer=formatter.format(
-                    problem_text=req.problem_text,
-                    problem_frame=problem_frame,
-                    steps=[],
-                    checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
-                    citations=[],
-                ),
-                checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
-                citations=[],
-                retrieval_debug=retrieval_debug,
-            )
-            _audit_request_complete(decision, status_code=200, final_upstream="neo4j", fallback_reason="insufficient_context", started_at=started_at)
-            return response_payload
-
-        plan = planner.plan(problem_frame=problem_frame, subgraph=subgraph)
-        steps = executor.execute(problem_text=req.problem_text, problem_frame=problem_frame, plan=plan, subgraph=subgraph)
-        steps, checks, final_status = verifier.verify(problem_frame=problem_frame, steps=steps, subgraph=subgraph)
-        citations = formatter.collect_citations(steps)
-        _assign_citation_ids(steps, citations)
-        final_answer = formatter.format(
+        response.headers["X-AI-Fallback"] = "mock"
+        result = _derive_degraded_response(
+            trace_id=decision.request_id,
+            formatter=formatter,
             problem_text=req.problem_text,
             problem_frame=problem_frame,
-            steps=steps,
-            checks=checks,
-            citations=citations,
+            retrieval_debug=empty_debug,
+            reason="当前知识图谱服务暂不可用，我先给最小结论：请先核对题目中的边界条件、对称性假设与引用依据。",
+            checks={"dimension": "not_applicable", "boundary": "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
         )
+        _audit_request_complete(decision, status_code=200, final_upstream="mock", fallback_reason="neo4j_unconfigured", started_at=started_at)
+        return result
 
-        result = Neo4jDerivationResponse(
-            status=final_status,
-            trace_id=decision.request_id,
-            problem_frame=problem_frame,
-            steps=steps,
-            final_answer=final_answer,
-            checks=checks,
-            citations=citations,
-            retrieval_debug=retrieval_debug,
+    try:
+        async def _derive_pipeline() -> Neo4jDerivationResponse:
+            embedding = _get_embedding(_embedding_route(decision.route_resolved))
+            await graph_client.ensure_schema(embedding.dimension)
+            await graph_client.seed_domain_catalog()
+
+            retriever = Neo4jDerivationRetriever(client=graph_client, embedding=embedding)
+            anchors, subgraph, retrieval_debug = await retriever.retrieve(
+                query=req.problem_text,
+                problem_frame=problem_frame,
+                user_role=req.user_role,
+            )
+
+            planner = _get_derivation_planner()
+            executor = _get_derivation_executor()
+            verifier = _get_derivation_verifier()
+
+            if not anchors or not subgraph.nodes:
+                return Neo4jDerivationResponse(
+                    status="insufficient_context",
+                    trace_id=decision.request_id,
+                    problem_frame=problem_frame,
+                    steps=[],
+                    final_answer=formatter.format(
+                        problem_text=req.problem_text,
+                        problem_frame=problem_frame,
+                        steps=[],
+                        checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable", "citation_coverage": "0.00"},
+                        citations=[],
+                    ),
+                    checks={"dimension": "not_applicable", "boundary": "failed" if problem_frame.missing_constraints else "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable", "citation_coverage": "0.00"},
+                    citations=[],
+                    retrieval_debug=retrieval_debug,
+                )
+
+            plan = planner.plan(problem_frame=problem_frame, subgraph=subgraph)
+            steps = executor.execute(problem_text=req.problem_text, problem_frame=problem_frame, plan=plan, subgraph=subgraph)
+            steps, checks, final_status = verifier.verify(problem_frame=problem_frame, steps=steps, subgraph=subgraph)
+            citations = formatter.collect_citations(steps)
+            _assign_citation_ids(steps, citations)
+            final_answer = formatter.format(
+                problem_text=req.problem_text,
+                problem_frame=problem_frame,
+                steps=steps,
+                checks=checks,
+                citations=citations,
+            )
+
+            if final_status == "degraded":
+                return _derive_degraded_response(
+                    trace_id=decision.request_id,
+                    formatter=formatter,
+                    problem_text=req.problem_text,
+                    problem_frame=problem_frame,
+                    retrieval_debug=retrieval_debug,
+                    reason="当前推导的引用覆盖率不足，我先给最小结论：请补充更明确的公式依据或章节上下文后再继续自动推导。",
+                    checks=checks,
+                )
+
+            return Neo4jDerivationResponse(
+                status=final_status,
+                trace_id=decision.request_id,
+                problem_frame=problem_frame,
+                steps=steps,
+                final_answer=final_answer,
+                checks=checks,
+                citations=citations,
+                retrieval_debug=retrieval_debug,
+            )
+
+        result, fallback = await _run_with_hard_fallback(
+            query=req.problem_text,
+            op_name="derive_graphrag",
+            coro=_derive_pipeline(),
         )
-        _audit_request_complete(decision, status_code=200, final_upstream="neo4j", fallback_reason="", started_at=started_at)
+        if fallback is not None:
+            response.headers["X-AI-Fallback"] = "mock"
+            result = _derive_degraded_response(
+                trace_id=decision.request_id,
+                formatter=formatter,
+                problem_text=req.problem_text,
+                problem_frame=problem_frame,
+                retrieval_debug=empty_debug,
+                reason=fallback.reply,
+                checks={"dimension": "not_applicable", "boundary": "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
+            )
+            _audit_request_complete(decision, status_code=200, final_upstream="mock", fallback_reason=fallback.reason, started_at=started_at)
+            return result
+        if result.status == "degraded":
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(decision, status_code=200, final_upstream="mock", fallback_reason="citation_coverage_low", started_at=started_at)
+            return result
+        _audit_request_complete(
+            decision,
+            status_code=200,
+            final_upstream="neo4j",
+            fallback_reason="insufficient_context" if result.status == "insufficient_context" else "",
+            started_at=started_at,
+        )
         return result
     except HTTPException:
         raise
     except Exception as exc:
         _logger.exception("derive_graphrag failed: %s", exc)
-        _audit_request_complete(decision, status_code=500, final_upstream="neo4j", fallback_reason=type(exc).__name__, started_at=started_at)
-        _raise_api_error(500, "DERIVATION_PIPELINE_FAILED", str(exc), decision.request_id)
+        fallback = _build_mock_fallback(req.problem_text, f"derive_graphrag_failed:{type(exc).__name__}")
+        response.headers["X-AI-Fallback"] = "mock"
+        result = _derive_degraded_response(
+            trace_id=decision.request_id,
+            formatter=formatter,
+            problem_text=req.problem_text,
+            problem_frame=problem_frame,
+            retrieval_debug=empty_debug,
+            reason=fallback.reply,
+            checks={"dimension": "not_applicable", "boundary": "not_applicable", "limits": "not_applicable", "symmetry": "not_applicable"},
+        )
+        _audit_request_complete(decision, status_code=200, final_upstream="mock", fallback_reason=fallback.reason, started_at=started_at)
+        return result
 
 
 @app.post("/v1/graphrag/sync/bootstrap", response_model=SyncResult)
@@ -2234,17 +2736,55 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
         index = _load_graphrag_index(index_path)
         if not index:
             _logger.warning("GraphRAG index unavailable at %s", index_path)
+            if _hard_fallback_enabled():
+                fallback = _build_mock_fallback(_latest_user_query(req.messages), "graphrag_index_unavailable")
+                response.headers["X-AI-Fallback"] = "mock"
+                _audit_request_complete(
+                    decision,
+                    status_code=200,
+                    final_upstream="mock",
+                    fallback_reason=fallback.reason,
+                    started_at=started_at,
+                )
+                if req.stream:
+                    return StreamingResponse(
+                        _mock_stream(decision.request_id, fallback),
+                        media_type="text/event-stream",
+                        headers=_streaming_headers(decision.request_id, fallback="mock"),
+                    )
+                return ChatResponse(reply=fallback.reply, model=fallback.model)
         if index:
             query = _latest_user_query(req.messages)
-            context = await _resolve_graphrag_context_with_fallback(
-                index=index,
+            context, rag_mock = await _run_with_hard_fallback(
                 query=query,
-                decision=decision,
-                course_id=course_id,
-                user_id=user_id,
-                user_role=user_role,
-                endpoint="/v1/chat/hybrid",
+                op_name="graphrag_hybrid",
+                coro=_resolve_graphrag_context_with_fallback(
+                    index=index,
+                    query=query,
+                    decision=decision,
+                    course_id=course_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                    endpoint="/v1/chat/hybrid",
+                ),
             )
+            if rag_mock is not None or (not context and _hard_fallback_enabled()):
+                fallback = rag_mock or _build_mock_fallback(query, "graphrag_empty")
+                response.headers["X-AI-Fallback"] = "mock"
+                _audit_request_complete(
+                    decision,
+                    status_code=200,
+                    final_upstream="mock",
+                    fallback_reason=fallback.reason,
+                    started_at=started_at,
+                )
+                if req.stream:
+                    return StreamingResponse(
+                        _mock_stream(decision.request_id, fallback),
+                        media_type="text/event-stream",
+                        headers=_streaming_headers(decision.request_id, fallback="mock"),
+                    )
+                return ChatResponse(reply=fallback.reply, model=fallback.model)
             if context:
                 insert_at = 1 if system else 0
                 messages.insert(
@@ -2273,37 +2813,34 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
                 if not cfg["base_url"] or not cfg["api_key"]:
                     raise ValueError(f"{upstream} upstream is not configured")
                 model_name = cfg["model"] or "qwen-plus"
-                request_payload = dict(payload)
-                request_payload["model"] = model_name
-                request_payload["stream"] = True
+                request_payload = _prepare_chat_completions_payload(payload, model=model_name, stream=True)
                 headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 url = cfg["base_url"].rstrip("/") + "/v1/chat/completions"
                 timeout = _http_timeout(upstream, stream=True)
-                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-                    async with client.stream("POST", url, json=request_payload, headers=headers) as upstream_resp:
-                        if upstream_resp.status_code >= 300:
-                            raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
-                        async for raw_line in upstream_resp.aiter_lines():
-                            line = raw_line.strip()
-                            if not line:
-                                continue
-                            if not line.startswith("data: "):
-                                continue
-                            data_str = line[6:]
-                            if data_str == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                emitted_content = True
-                                yield f"data: {json.dumps({'content': content})}\n\n"
+                client = _get_http_client(upstream)
+                sanitizer = _StreamingContentSanitizer()
+                async with client.stream("POST", url, json=request_payload, headers=headers, timeout=timeout) as upstream_resp:
+                    if upstream_resp.status_code >= 300:
+                        raise RuntimeError(f"upstream error: {upstream_resp.status_code}")
+                    async for raw_line in upstream_resp.aiter_lines():
+                        line = raw_line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = sanitizer.sanitize(str(delta.get("content", "")))
+                        if content:
+                            emitted_content = True
+                            yield _sse_frame({"content": content})
 
             try:
-                yield f"data: {json.dumps({'type': 'start', 'request_id': decision.request_id})}\n\n"
+                yield _sse_frame({"type": "start", "request_id": decision.request_id})
                 try:
                     final_upstream = primary_upstream
                     async for chunk in stream_once(primary_upstream):
@@ -2349,17 +2886,15 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
                     final_upstream = "cloud"
                     async for chunk in stream_once("cloud"):
                         yield chunk
-            except ValueError as exc:
-                status_code = 503
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except httpx.TimeoutException as exc:
-                status_code = 504
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-            except (RuntimeError, httpx.HTTPError) as exc:
-                status_code = 502
-                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            except (ValueError, httpx.TimeoutException, RuntimeError, httpx.HTTPError) as exc:
+                fallback = _build_mock_fallback(_latest_user_query(req.messages), f"stream_mock_fallback:{type(exc).__name__}")
+                status_code = 200
+                final_upstream = "mock"
+                fallback_reason = fallback.reason
+                model_name = fallback.model
+                yield _sse_frame({"content": fallback.reply, "degraded": True, "model": fallback.model})
             finally:
-                yield f"data: {json.dumps({'type': 'done', 'model': model_name})}\n\n"
+                yield _sse_frame({"type": "done", "model": model_name or "mock-fallback"})
                 _audit_request_complete(
                     decision,
                     status_code=status_code,
@@ -2371,17 +2906,29 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
         return StreamingResponse(
             stream_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Request-ID": decision.request_id,
-            },
+            headers=_streaming_headers(decision.request_id),
         )
 
     final_upstream = "none"
     fallback_reason = ""
     try:
-        data, final_upstream, fallback_reason, model = await _post_chat_completions_with_routing(payload, decision)
+        llm_result, llm_mock = await _run_with_hard_fallback(
+            query=_latest_user_query(req.messages),
+            op_name="llm_hybrid",
+            coro=_post_chat_completions_with_routing(payload, decision),
+        )
+        if llm_mock is not None:
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=llm_mock.reason,
+                started_at=started_at,
+            )
+            return ChatResponse(reply=llm_mock.reply, model=llm_mock.model)
+        data, final_upstream, fallback_reason, model = llm_result
+        response.headers["X-AI-Fallback"] = "cloud" if final_upstream == "cloud" else "none"
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         _audit_request_complete(
             decision,
@@ -2399,6 +2946,17 @@ async def chat_hybrid(req: HybridChatRequest, request: Request, response: Respon
             fallback_reason=fallback_reason or "request_failed",
             started_at=started_at,
         )
+        if _hard_fallback_enabled():
+            fallback = _build_mock_fallback(_latest_user_query(req.messages), f"hybrid_http_exception:{exc.status_code}")
+            response.headers["X-AI-Fallback"] = "mock"
+            _audit_request_complete(
+                decision,
+                status_code=200,
+                final_upstream="mock",
+                fallback_reason=fallback.reason,
+                started_at=started_at,
+            )
+            return ChatResponse(reply=fallback.reply, model=fallback.model)
         raise
 
 

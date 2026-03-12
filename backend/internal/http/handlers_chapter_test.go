@@ -21,8 +21,8 @@ func setupChapterTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
+	migrateAuthTables(t, db)
 	err = db.AutoMigrate(
-		&models.User{},
 		&models.Course{},
 		&models.CourseEnrollment{},
 		&models.Chapter{},
@@ -35,11 +35,8 @@ func setupChapterTestDB(t *testing.T) *gorm.DB {
 
 func setupChapterRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	hChapter := newChapterHandlers(db)
-	// hAuth := newAuthHandlers(db, jwtSecret) // Old line
-
-	// New lines for AuthService
 	userRepo := repositories.NewUserRepository(db)
-	authService := services.NewAuthService(userRepo, jwtSecret)
+	authService := services.NewAuthService(userRepo, newAuthTestConfig(jwtSecret))
 	hAuth := newAuthHandlers(authService, jwtSecret)
 
 	r := gin.New()

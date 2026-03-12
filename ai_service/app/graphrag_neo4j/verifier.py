@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
-from collections import Counter
 
-import sympy
+try:
+    import sympy
+except ImportError:  # pragma: no cover - optional dependency in lean runtime images
+    sympy = None
 
 from app.graphrag_neo4j.types import DerivationStepResult, ProblemFrame, ReasoningSubgraph, VerificationResult
 
@@ -35,9 +38,15 @@ class DerivationVerifier:
             final_status = "partially_verified"
         if any(value == "failed" for value in checks.values()):
             final_status = "partially_verified"
+        coverage = self._citation_coverage(steps)
+        checks["citation_coverage"] = f"{coverage:.2f}"
+        if coverage < self._citation_threshold():
+            final_status = "degraded"
         return steps, checks, final_status
 
     def _verify_symbolic(self, equations: list[str]) -> tuple[str, list[str]]:
+        if sympy is None:
+            return "not_applicable", []
         parsed = 0
         failures = 0
         details: list[str] = []
@@ -60,6 +69,8 @@ class DerivationVerifier:
         if not cleaned or "=" not in cleaned:
             return "not_applicable", ""
         if "\\" in cleaned or any(token in cleaned for token in ("∮", "∫", "∇", "mathbf", "hat", "rho", "varepsilon")):
+            return "not_applicable", ""
+        if sympy is None:
             return "not_applicable", ""
         left, right = cleaned.split("=", 1)
         try:
@@ -126,3 +137,16 @@ class DerivationVerifier:
             "limits": limits,
             "symmetry": symmetry,
         }
+
+    def _citation_coverage(self, steps: list[DerivationStepResult]) -> float:
+        if not steps:
+            return 0.0
+        covered = sum(1 for step in steps if step.citations)
+        return covered / len(steps)
+
+    def _citation_threshold(self) -> float:
+        raw_value = os.getenv("VERIFIER_CITATION_COVERAGE_THRESHOLD", "0.60").strip()
+        try:
+            return max(0.0, min(1.0, float(raw_value)))
+        except ValueError:
+            return 0.60

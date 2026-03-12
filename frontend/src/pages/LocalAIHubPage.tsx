@@ -4,6 +4,7 @@ import { SendOutlined, PaperClipOutlined, CloudOutlined, DesktopOutlined } from 
 import clsx from 'clsx';
 import { Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { EduEdgeAI as LocalAI } from '@jadesnow7/edge-ai-sdk';
+import { useCloudAiHealth } from '@/hooks/useCloudAiHealth';
 import { useMobile } from '@/hooks/useMobile';
 import { aiStreamClient } from '@/lib/ai-stream';
 import type { ChatMessage } from '@/api/ai';
@@ -23,21 +24,25 @@ function errorToMessage(error: unknown): string {
 
 export function LocalAIHubPage() {
     const isMobile = useMobile();
-    const [source, setSource] = useState<AiSource>('local');
+    const isDesktopRuntime = typeof window !== 'undefined' && Boolean(window.electronAPI?.isElectron);
+    const cloudHealth = useCloudAiHealth();
+    const [source, setSource] = useState<AiSource>(isDesktopRuntime ? 'local' : 'cloud');
     const [messages, setMessages] = useState<ChatMessage[]>([
         {
             role: 'assistant',
-            content: '你好！这是 Local AI 入口。离线时优先使用本地模式，联网后可切到云端增强。',
+            content: isDesktopRuntime
+                ? '你好！这是 Local AI 入口。离线时优先使用本地模式，联网后可切到云端增强。'
+                : '你好！这是 AI 会话入口。当前为 Web 环境，默认使用云端 AI 服务。',
         },
     ]);
     const [isLocalAiReady, setIsLocalAiReady] = useState(false);
     const [backendInfo, setBackendInfo] = useState<string | null>(null);
-    const [isLocalAiInitializing, setIsLocalAiInitializing] = useState(true);
+    const [isLocalAiInitializing, setIsLocalAiInitializing] = useState(isDesktopRuntime);
     const [localAiInitError, setLocalAiInitError] = useState<string | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [inputValue, setInputValue] = useState('');
     const [networkOnline, setNetworkOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
-    const [bannerMode, setBannerMode] = useState<'loading' | 'offline' | 'recovered' | null>('loading');
+    const [bannerMode, setBannerMode] = useState<'loading' | 'offline' | 'recovered' | null>(isDesktopRuntime ? 'loading' : null);
     const downloadProgress = 60;
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -45,11 +50,13 @@ export function LocalAIHubPage() {
         const onOnline = () => {
             setNetworkOnline(true);
             setBannerMode('recovered');
-            setTimeout(() => setBannerMode(null), 2000);
+            window.setTimeout(() => setBannerMode(null), 2000);
         };
         const onOffline = () => {
             setNetworkOnline(false);
-            setSource('local');
+            if (isDesktopRuntime) {
+                setSource('local');
+            }
             setBannerMode('offline');
         };
         window.addEventListener('online', onOnline);
@@ -58,21 +65,29 @@ export function LocalAIHubPage() {
             window.removeEventListener('online', onOnline);
             window.removeEventListener('offline', onOffline);
         };
-    }, []);
+    }, [isDesktopRuntime]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streaming]);
 
     useEffect(() => {
-        const timer = setTimeout(() => setBannerMode(networkOnline ? null : 'offline'), 1200);
-        return () => clearTimeout(timer);
-    }, [networkOnline]);
+        const timer = window.setTimeout(() => setBannerMode(networkOnline ? null : 'offline'), isDesktopRuntime ? 1200 : 0);
+        return () => window.clearTimeout(timer);
+    }, [isDesktopRuntime, networkOnline]);
 
     useEffect(() => {
         let cancelled = false;
 
         const initLocalAi = async () => {
+            if (!isDesktopRuntime) {
+                setIsLocalAiReady(false);
+                setBackendInfo(null);
+                setLocalAiInitError(null);
+                setIsLocalAiInitializing(false);
+                return;
+            }
+
             setIsLocalAiInitializing(true);
             setLocalAiInitError(null);
             try {
@@ -102,7 +117,7 @@ export function LocalAIHubPage() {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [isDesktopRuntime]);
 
     const sendWithCloud = async (history: ChatMessage[]) => {
         let content = '';
@@ -122,7 +137,7 @@ export function LocalAIHubPage() {
                         const updated = [...prev];
                         updated[updated.length - 1] = {
                             role: 'assistant',
-                            content: '云端 AI 不可用，已建议切换到本地模式。',
+                            content: '云端 AI 服务当前不可用，请稍后重试。',
                         };
                         return updated;
                     });
@@ -184,16 +199,30 @@ export function LocalAIHubPage() {
         setStreaming(true);
 
         try {
-            if (source === 'cloud' && networkOnline) {
+            if (source === 'cloud') {
+                if (!networkOnline) {
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        updated[updated.length - 1] = {
+                            role: 'assistant',
+                            content: '当前网络不可用，云端 AI 服务暂时无法访问。',
+                        };
+                        return updated;
+                    });
+                    return;
+                }
                 await sendWithCloud(history);
                 return;
             }
+
             if (!isLocalAiReady) {
                 const fallbackText = isLocalAiInitializing
                     ? '本地推理引擎正在初始化，请稍候再试。'
                     : localAiInitError
-                      ? `本地推理引擎初始化失败：${localAiInitError}。请切换云端模式或检查桌面端插件。`
-                      : '本地推理引擎暂不可用，请稍后重试。';
+                      ? `本地推理引擎初始化失败：${localAiInitError}。请检查桌面端插件或切换云端模式。`
+                      : isDesktopRuntime
+                        ? '本地推理引擎暂不可用，请稍后重试。'
+                        : '当前为 Web 环境，请使用云端 AI 服务。';
                 setMessages((prev) => {
                     const updated = [...prev];
                     updated[updated.length - 1] = {
@@ -214,11 +243,15 @@ export function LocalAIHubPage() {
         ? `本地推理引擎已就绪（运行于：${backendInfo ?? 'Unknown'}）。离线可用，请提问。`
         : isLocalAiInitializing
           ? '本地推理引擎初始化中，请稍候...'
-          : '本地推理引擎初始化失败，请切换云端模式或在桌面端检查本地模型配置。';
+          : isDesktopRuntime
+            ? '本地推理引擎初始化失败，请切换云端模式或在桌面端检查本地模型配置。'
+            : '当前为 Web 环境，默认使用云端 AI 服务。';
+
+    const assistantLabel = source === 'local' && isDesktopRuntime ? '本地 AI' : '云端 AI';
 
     const banner = (
         <div className="space-y-3">
-            {bannerMode === 'loading' && (
+            {isDesktopRuntime && bannerMode === 'loading' && (
                 <div className="rounded-3xl border border-violet-200 bg-violet-50/85 px-5 py-4 dark:border-violet-500/20 dark:bg-violet-500/10">
                     <div className="flex items-center gap-4">
                         <Text className="font-medium text-violet-700 dark:text-violet-200">模型加载中 {downloadProgress}%</Text>
@@ -239,7 +272,9 @@ export function LocalAIHubPage() {
                     <div className="flex items-center gap-3">
                         <WifiOff size={16} className="text-violet-600 dark:text-violet-300" />
                         <Text className="text-slate-700 dark:text-slate-200">
-                            本地运行中，无网络连接。当前会话将继续优先使用设备端推理。
+                            {isDesktopRuntime
+                                ? '本地运行中，无网络连接。当前会话将继续优先使用设备端推理。'
+                                : '当前网络不可用，云端 AI 服务暂时无法访问。'}
                         </Text>
                     </div>
                 </div>
@@ -251,17 +286,19 @@ export function LocalAIHubPage() {
                         <div className="flex items-center gap-3">
                             <Wifi size={16} className="text-emerald-600 dark:text-emerald-300" />
                             <Text className="text-emerald-800 dark:text-emerald-100">
-                                网络已恢复，可切换到云端增强模式。
+                                {isDesktopRuntime ? '网络已恢复，可切换到云端增强模式。' : '网络已恢复，可继续使用云端 AI 服务。'}
                             </Text>
                         </div>
-                        <div className="flex gap-2">
-                            <Button size="small" onClick={() => setSource('local')}>
-                                保持本地
-                            </Button>
-                            <Button size="small" type="primary" onClick={() => setSource('cloud')}>
-                                切换云端
-                            </Button>
-                        </div>
+                        {isDesktopRuntime ? (
+                            <div className="flex gap-2">
+                                <Button size="small" onClick={() => setSource('local')}>
+                                    保持本地
+                                </Button>
+                                <Button size="small" type="primary" onClick={() => setSource('cloud')}>
+                                    切换云端
+                                </Button>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )}
@@ -282,13 +319,15 @@ export function LocalAIHubPage() {
                                 <div className="min-w-0">
                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Local AI 会话</p>
                                     <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                        {localEngineStatusText}
+                                        {!isDesktopRuntime && cloudHealth.status !== 'ready'
+                                            ? `当前为 Web 环境，默认使用云端 AI 服务。${cloudHealth.title}。`
+                                            : localEngineStatusText}
                                     </p>
                                 </div>
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                                {isLocalAiReady && backendInfo ? (
+                                {isDesktopRuntime && isLocalAiReady && backendInfo ? (
                                     <Tag color="geekblue">Backend: {backendInfo}</Tag>
                                 ) : null}
                                 <Tag
@@ -297,13 +336,15 @@ export function LocalAIHubPage() {
                                 >
                                     {source === 'local' ? '本地模式' : '云端模式'}
                                 </Tag>
-                                <Button
-                                    size="small"
-                                    onClick={() => setSource((prev) => (prev === 'local' ? 'cloud' : 'local'))}
-                                    disabled={!networkOnline && source === 'local'}
-                                >
-                                    切换
-                                </Button>
+                                {isDesktopRuntime ? (
+                                    <Button
+                                        size="small"
+                                        onClick={() => setSource((prev) => (prev === 'local' ? 'cloud' : 'local'))}
+                                        disabled={!networkOnline && source === 'local'}
+                                    >
+                                        切换
+                                    </Button>
+                                ) : null}
                             </div>
                         </div>
                     </div>
@@ -328,7 +369,7 @@ export function LocalAIHubPage() {
                                     {!isUser ? (
                                         <div className="mb-3 flex items-center gap-2 text-violet-600 dark:text-violet-200">
                                             <Sparkles size={15} />
-                                            <span className="text-sm font-medium">本地 AI</span>
+                                            <span className="text-sm font-medium">{assistantLabel}</span>
                                         </div>
                                     ) : null}
                                     <p className="whitespace-pre-wrap text-sm leading-7">{msg.content}</p>
@@ -399,7 +440,7 @@ export function LocalAIHubPage() {
                         </div>
 
                         <div className="flex items-center justify-between px-2 pt-2 text-xs text-slate-400 dark:text-slate-500">
-                            <span>{source === 'local' ? '优先使用设备端推理' : '云端增强模式已启用'}</span>
+                            <span>{source === 'local' ? '优先使用设备端推理' : '当前已启用云端 AI 服务'}</span>
                             <span>Enter 发送</span>
                         </div>
                     </div>

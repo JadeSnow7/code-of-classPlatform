@@ -3,10 +3,12 @@ package services
 import (
 	"context"
 	"errors"
+	"time"
 
+	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -16,11 +18,14 @@ var (
 )
 
 type adminService struct {
-	userRepo       repositories.UserRepository
-	courseRepo     repositories.CourseRepository
-	assignmentRepo repositories.AssignmentRepository
-	quizRepo       repositories.QuizRepository
-	resourceRepo   repositories.ResourceRepository
+	userRepo           repositories.UserRepository
+	courseRepo         repositories.CourseRepository
+	assignmentRepo     repositories.AssignmentRepository
+	quizRepo           repositories.QuizRepository
+	resourceRepo       repositories.ResourceRepository
+	authService        AuthService
+	activationTokenTTL time.Duration
+	authBcryptCost     int
 }
 
 // NewAdminService 创建管理员服务实例
@@ -30,13 +35,18 @@ func NewAdminService(
 	assignmentRepo repositories.AssignmentRepository,
 	quizRepo repositories.QuizRepository,
 	resourceRepo repositories.ResourceRepository,
+	authService AuthService,
+	cfg config.Config,
 ) AdminService {
 	return &adminService{
-		userRepo:       userRepo,
-		courseRepo:     courseRepo,
-		assignmentRepo: assignmentRepo,
-		quizRepo:       quizRepo,
-		resourceRepo:   resourceRepo,
+		userRepo:           userRepo,
+		courseRepo:         courseRepo,
+		assignmentRepo:     assignmentRepo,
+		quizRepo:           quizRepo,
+		resourceRepo:       resourceRepo,
+		authService:        authService,
+		activationTokenTTL: cfg.ActivationTokenTTL,
+		authBcryptCost:     cfg.AuthBcryptCost,
 	}
 }
 
@@ -81,26 +91,67 @@ func (s *adminService) ListUsers(ctx context.Context, roleFilter string) ([]*mod
 	return s.userRepo.FindAll(ctx, roleFilter)
 }
 
-func (s *adminService) CreateUser(ctx context.Context, user *models.User, password string) error {
-	if user.Username == "" || password == "" {
-		return errors.New("username and password are required")
+func (s *adminService) CreateUser(ctx context.Context, user *models.User, password string, opts AdminCreateUserOptions) (AdminCreateUserResult, error) {
+	if user.Username == "" {
+		return AdminCreateUserResult{}, errors.New("username is required")
 	}
 
 	exists, err := s.userRepo.ExistsByUsername(ctx, user.Username)
 	if err != nil {
-		return err
+		return AdminCreateUserResult{}, err
 	}
 	if exists {
-		return ErrUsernameExists
+		return AdminCreateUserResult{}, ErrUsernameExists
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
+	sendInvite := opts.SendInvite
+	if user.Status == "" {
+		if sendInvite {
+			user.Status = models.UserStatusPendingActivation
+		} else {
+			user.Status = models.UserStatusActive
+		}
 	}
-	user.PasswordHash = string(hashedPassword)
 
-	return s.userRepo.Create(ctx, user)
+	if sendInvite {
+		randomPassword, tokenErr := auth.GenerateOpaqueToken()
+		if tokenErr != nil {
+			return AdminCreateUserResult{}, tokenErr
+		}
+		passwordHash, hashErr := auth.HashPasswordWithCost(randomPassword, s.authBcryptCost)
+		if hashErr != nil {
+			return AdminCreateUserResult{}, hashErr
+		}
+		user.PasswordHash = passwordHash
+	} else {
+		if !auth.ValidatePasswordPolicy(password) {
+			return AdminCreateUserResult{}, errors.New("password must be at least 8 characters and include letters and numbers")
+		}
+		hashedPassword, hashErr := auth.HashPasswordWithCost(password, s.authBcryptCost)
+		if hashErr != nil {
+			return AdminCreateUserResult{}, hashErr
+		}
+		user.PasswordHash = string(hashedPassword)
+	}
+
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return AdminCreateUserResult{}, err
+	}
+
+	result := AdminCreateUserResult{User: user}
+	if sendInvite {
+		ttl := s.activationTokenTTL
+		if opts.ActivationTTLHours > 0 {
+			ttl = time.Duration(opts.ActivationTTLHours) * time.Hour
+		}
+		invite, inviteErr := s.authService.CreateActivationInvite(ctx, user, opts.InvitedBy, ttl)
+		if inviteErr != nil {
+			return AdminCreateUserResult{}, inviteErr
+		}
+		result.Invite = &invite
+		result.InviteURL = s.authService.BuildInviteURL(invite.Token)
+	}
+	return result, nil
 }
 
 func (s *adminService) UpdateUser(ctx context.Context, id uint, updates map[string]interface{}) (*models.User, error) {
@@ -117,6 +168,9 @@ func (s *adminService) UpdateUser(ctx context.Context, id uint, updates map[stri
 	}
 	if role, ok := updates["role"].(string); ok {
 		user.Role = role
+	}
+	if status, ok := updates["status"].(string); ok {
+		user.Status = status
 	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {

@@ -52,7 +52,13 @@ class Neo4jGraphRAGClient:
         if not self.configured:
             raise RuntimeError("Neo4j is not configured")
         if self._driver is None:
-            self._driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
+            self._driver = GraphDatabase.driver(
+                self.uri,
+                auth=(self.user, self.password),
+                max_connection_pool_size=max(1, int(os.getenv("NEO4J_MAX_CONNECTION_POOL_SIZE", "50"))),
+                connection_timeout=max(1.0, float(os.getenv("NEO4J_CONNECTION_TIMEOUT_SEC", "5"))),
+                max_connection_lifetime=1800,
+            )
         return self._driver
 
     async def ensure_schema(self, embedding_dimensions: int) -> None:

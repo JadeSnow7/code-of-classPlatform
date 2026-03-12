@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/sha1"
 	"fmt"
 	"math/rand"
@@ -11,26 +12,31 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
 
 type wecomHandlers struct {
-	wecom     *clients.WecomClient
-	db        *gorm.DB
-	jwtSecret string
+	wecom         *clients.WecomClient
+	db            *gorm.DB
+	authService   services.AuthService
+	getUserInfo   func(ctx context.Context, code string) (*clients.UserInfo, error)
+	getUserDetail func(ctx context.Context, userID string) (*clients.UserDetail, error)
 }
 
-func NewWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, jwtSecret string) *wecomHandlers {
+func NewWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, authService services.AuthService) *wecomHandlers {
 	return &wecomHandlers{
-		wecom:     wecom,
-		db:        db,
-		jwtSecret: jwtSecret,
+		wecom:         wecom,
+		db:            db,
+		authService:   authService,
+		getUserInfo:   wecom.GetUserInfoByCode,
+		getUserDetail: wecom.GetUserDetail,
 	}
 }
 
-func newWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, jwtSecret string) *wecomHandlers {
-	return NewWecomHandlers(wecom, db, jwtSecret)
+func newWecomHandlers(wecom *clients.WecomClient, db *gorm.DB, authService services.AuthService) *wecomHandlers {
+	return NewWecomHandlers(wecom, db, authService)
 }
 
 // WecomLoginRequest is the request body for WeChat Work login
@@ -40,11 +46,15 @@ type WecomLoginRequest struct {
 
 // WecomLoginResponse is the response for WeChat Work login
 type WecomLoginResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int    `json:"expires_in"`
-	UserID      string `json:"user_id"`
-	Name        string `json:"name"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token,omitempty"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in,omitempty"`
+	UserID           uint   `json:"user_id"`
+	Username         string `json:"username"`
+	Role             string `json:"role"`
+	Name             string `json:"name"`
 }
 
 // Login handles WeChat Work OAuth login
@@ -64,7 +74,7 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// Exchange code for user info
-	userInfo, err := h.wecom.GetUserInfoByCode(ctx, req.Code)
+	userInfo, err := h.getUserInfo(ctx, req.Code)
 	if err != nil {
 		response.BadRequest(c, fmt.Sprintf("wecom auth failed: %v", err))
 		return
@@ -77,7 +87,7 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 
 	// Get user details (optional, for name and other info)
 	var userName string
-	userDetail, err := h.wecom.GetUserDetail(ctx, userInfo.UserID)
+	userDetail, err := h.getUserDetail(ctx, userInfo.UserID)
 	if err == nil && userDetail != nil {
 		userName = userDetail.Name
 	} else {
@@ -92,9 +102,10 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 			// Create new user with student role by default
 			user = models.User{
 				Username:     userInfo.UserID,
-				PasswordHash: "", // No password for WeChat Work users
+				PasswordHash: mustHashWecomPassword(),
 				Role:         "student",
 				Name:         userName,
+				Status:       models.UserStatusActive,
 				WecomUserID:  userInfo.UserID,
 			}
 			if err := h.db.Create(&user).Error; err != nil {
@@ -111,21 +122,35 @@ func (h *wecomHandlers) Login(c *gin.Context) {
 	if userName != "" && user.Name != userName {
 		h.db.Model(&user).Update("name", userName)
 	}
+	if user.Status == models.UserStatusPendingActivation {
+		response.Forbidden(c, "Complete invitation activation before login")
+		return
+	}
+	if user.Status == models.UserStatusDisabled {
+		response.Forbidden(c, "Account is disabled")
+		return
+	}
 
-	// Generate JWT token
-	expiresIn := 86400 // 24 hours
-	token, err := auth.SignToken(h.jwtSecret, user.ID, user.Username, user.Role, time.Duration(expiresIn)*time.Second)
+	session, err := h.authService.IssueSession(c.Request.Context(), &user, services.AuthSessionMeta{
+		ClientType: "wecom",
+		IP:         c.ClientIP(),
+		UserAgent:  c.GetHeader("User-Agent"),
+	})
 	if err != nil {
-		response.BadRequest(c, "failed to generate token")
+		response.Error(c, err)
 		return
 	}
 
 	response.OK(c, WecomLoginResponse{
-		AccessToken: token,
-		TokenType:   "Bearer",
-		ExpiresIn:   expiresIn,
-		UserID:      userInfo.UserID,
-		Name:        userName,
+		AccessToken:      session.AccessToken,
+		RefreshToken:     session.RefreshToken,
+		TokenType:        session.TokenType,
+		ExpiresIn:        session.ExpiresIn,
+		RefreshExpiresIn: session.RefreshExpiresIn,
+		UserID:           user.ID,
+		Username:         user.Username,
+		Role:             user.Role,
+		Name:             userName,
 	})
 }
 
@@ -229,4 +254,16 @@ func generateNonceStr(length int) string {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
 	return string(b)
+}
+
+func mustHashWecomPassword() string {
+	token, err := auth.GenerateOpaqueToken()
+	if err != nil {
+		return "wecom-only"
+	}
+	hash, err := auth.HashPassword(token)
+	if err != nil {
+		return "wecom-only"
+	}
+	return hash
 }
