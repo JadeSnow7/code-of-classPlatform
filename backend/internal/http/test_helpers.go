@@ -21,7 +21,7 @@ type envelope[T any] struct {
 }
 
 func migrateAuthTables(t assert.TestingT, db *gorm.DB) {
-	assert.NoError(t, db.AutoMigrate(&models.User{}, &models.ActivationToken{}, &models.RefreshSession{}))
+	assert.NoError(t, db.AutoMigrate(&models.User{}, &models.ActivationToken{}, &models.RefreshSession{}, &models.StudentGlobalProfile{}))
 }
 
 func newAuthTestConfig(jwtSecret string) config.Config {

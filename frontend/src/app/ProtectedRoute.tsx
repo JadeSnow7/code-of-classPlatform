@@ -1,9 +1,10 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/domains/auth/useAuth';
 import { Loader2 } from 'lucide-react';
 
 export function ProtectedRoute() {
     const { status } = useAuth();
+    const location = useLocation();
 
     if (status === 'idle' || status === 'loading') {
         return (
@@ -14,7 +15,8 @@ export function ProtectedRoute() {
     }
 
     if (status === 'unauthenticated') {
-        return <Navigate to="/login" replace />;
+        const redirect = `${location.pathname}${location.search}${location.hash}`;
+        return <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />;
     }
 
     return <Outlet />;

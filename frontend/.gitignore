@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary test output files
+error-*.txt
+errors.txt
+quiz-fail.txt
+sim-fail.txt
+test-results.txt
+ws-fail.txt

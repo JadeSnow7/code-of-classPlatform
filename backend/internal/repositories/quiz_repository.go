@@ -156,6 +156,14 @@ func (r *quizRepository) FindInProgressAttempt(ctx context.Context, quizID uint,
 	return &attempt, nil
 }
 
+func (r *quizRepository) FindAttemptByID(ctx context.Context, attemptID uint) (*models.QuizAttempt, error) {
+	var attempt models.QuizAttempt
+	if err := r.db.WithContext(ctx).First(&attempt, attemptID).Error; err != nil {
+		return nil, err
+	}
+	return &attempt, nil
+}
+
 func (r *quizRepository) CreateAttempt(ctx context.Context, attempt *models.QuizAttempt) error {
 	return r.db.WithContext(ctx).Create(attempt).Error
 }

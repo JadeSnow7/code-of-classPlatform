@@ -1,10 +1,10 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
-import { courseApi, type Course } from '@/api/course';
+import { courseApi, type LegacyCourse } from '@/api/course';
 
 interface CourseContextValue {
-    course: Course | null;
+    course: LegacyCourse | null;
     isLoading: boolean;
     error: string | null;
 }
@@ -13,7 +13,7 @@ const CourseContext = createContext<CourseContextValue | null>(null);
 
 export function CourseProvider({ children }: { children: ReactNode }) {
     const { courseId } = useParams<{ courseId: string }>();
-    const [course, setCourse] = useState<Course | null>(null);
+    const [course, setCourse] = useState<LegacyCourse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 

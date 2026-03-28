@@ -21,6 +21,7 @@ type fakeWritingRepo struct {
 	dimensionJSON     string
 	events            []*models.LearningEvent
 	profiles          []models.StudentLearningProfile
+	revisions         []*models.WritingRevision
 }
 
 func (f *fakeWritingRepo) Create(_ context.Context, submission *models.WritingSubmission) error {
@@ -35,6 +36,11 @@ func (f *fakeWritingRepo) UpdateFeedback(_ context.Context, id uint, feedbackJSO
 	f.updatedID = id
 	f.feedbackJSON = feedbackJSON
 	f.dimensionJSON = dimensionJSON
+	return nil
+}
+
+func (f *fakeWritingRepo) CreateRevision(_ context.Context, revision *models.WritingRevision) error {
+	f.revisions = append(f.revisions, revision)
 	return nil
 }
 

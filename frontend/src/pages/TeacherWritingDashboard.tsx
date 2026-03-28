@@ -38,7 +38,7 @@ export default function TeacherWritingDashboard() {
         loadData();
     }, [courseId]);
 
-    const handleViewSubmission = (id: number) => {
+    const handleViewSubmission = (id: string | number) => {
         navigate(`/courses/${courseId}/writing/${id}`);
     };
 
@@ -95,13 +95,13 @@ export default function TeacherWritingDashboard() {
                                     onClick={() => handleViewSubmission(sub.id)}
                                 >
                                     <div className="sub-info">
-                                        <span className="student-id">#{sub.student_id}</span>
+                                        <span className="student-id">#{sub.studentId}</span>
                                         <span className="sub-title">{sub.title}</span>
                                     </div>
                                     <div className="sub-meta">
-                                        <span className="sub-type">{getWritingTypeName(sub.writing_type)}</span>
+                                        <span className="sub-type">{getWritingTypeName(sub.writingType)}</span>
                                         <span className="sub-date">
-                                            {new Date(sub.created_at).toLocaleDateString('zh-CN')}
+                                            {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString('zh-CN') : ''}
                                         </span>
                                     </div>
                                 </div>

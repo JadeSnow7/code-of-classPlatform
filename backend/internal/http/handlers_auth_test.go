@@ -49,9 +49,11 @@ func setupAuthTestDB(t *testing.T) *gorm.DB {
 
 func setupAuthRouter(db *gorm.DB, jwtSecret string) *gin.Engine {
 	userRepo := repositories.NewUserRepository(db)
+	globalProfileRepo := repositories.NewGlobalProfileRepository(db)
 	cfg := newAuthTestConfig(jwtSecret)
 	authService := services.NewAuthService(userRepo, cfg)
-	hAuth := newAuthHandlers(authService, jwtSecret)
+	globalProfileService := services.NewGlobalProfileService(globalProfileRepo)
+	hAuth := newAuthHandlers(authService, jwtSecret, globalProfileService)
 
 	r := gin.New()
 	r.POST("/auth/login", hAuth.Login)
@@ -152,7 +154,33 @@ func TestActivateRefreshAndMe_FullFlow(t *testing.T) {
 	assert.False(t, inviteResp.Data.Expired)
 	assert.False(t, inviteResp.Data.Used)
 
-	activatePayload := []byte(`{"token":"` + token + `","password":"newpass123","confirm_password":"newpass123"}`)
+	activatePayload := []byte(`{
+		"token":"` + token + `",
+		"password":"newpass123",
+		"confirm_password":"newpass123",
+		"real_name":"胡傲东",
+		"student_id":"M202500123",
+		"consent_personalization":true,
+		"analytics_opt_in":true,
+		"onboarding_profile":{
+			"major_track":"ic_design",
+			"current_tasks":["course_paper","thesis_chapter"],
+			"primary_platform":"macos_apple_silicon",
+			"local_compute_tier":"apple_silicon_local",
+			"network_tier":"offline_expected",
+			"writing_stage":"first_paper",
+			"pain_points":["citation_management","structure_logic"],
+			"prior_tools":["chatgpt","kimi"]
+		},
+		"learning_style":{
+			"preferred_time":"evening",
+			"guidance_style":"options_guidance",
+			"feedback_verbosity":"detailed",
+			"latency_tolerance":4,
+			"guided_refusal_tolerance":3,
+			"evidence_first_tolerance":5
+		}
+	}`)
 	activateReq := httptest.NewRequest(http.MethodPost, "/auth/register/activate", bytes.NewReader(activatePayload))
 	activateReq.Header.Set("Content-Type", "application/json")
 	activateW := httptest.NewRecorder()
@@ -163,6 +191,20 @@ func TestActivateRefreshAndMe_FullFlow(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(activateW.Body.Bytes(), &activateResp))
 	assert.NotEmpty(t, activateResp.Data.AccessToken)
 	assert.NotEmpty(t, activateResp.Data.RefreshToken)
+	assert.Equal(t, "M202500123", activateResp.Data.Username)
+
+	var updatedUser models.User
+	assert.NoError(t, db.First(&updatedUser, user.ID).Error)
+	assert.Equal(t, "M202500123", updatedUser.Username)
+	assert.Equal(t, "胡傲东", updatedUser.Name)
+	assert.Equal(t, models.UserStatusActive, updatedUser.Status)
+
+	var globalProfile models.StudentGlobalProfile
+	assert.NoError(t, db.Where("student_id = ?", user.ID).First(&globalProfile).Error)
+	assert.Contains(t, globalProfile.OnboardingProfile, `"major_track":"ic_design"`)
+	assert.Contains(t, globalProfile.OnboardingProfile, `"route_preference":"local_first"`)
+	assert.Contains(t, globalProfile.LearningStyle, `"pace":"moderate"`)
+	assert.Contains(t, globalProfile.GlobalCompetencies, `"citation":0.25`)
 
 	meReq := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
 	meReq.Header.Set("Authorization", "Bearer "+activateResp.Data.AccessToken)

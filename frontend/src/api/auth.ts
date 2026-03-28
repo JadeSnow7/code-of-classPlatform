@@ -1,63 +1,72 @@
-/**
- * Auth API helpers wrapping the shared client with local storage.
- */
-import { api } from '@/lib/api-client';
+import { api, apiClient } from '@/lib/api-client';
 import { authStore, type User } from '@/lib/auth-store';
-import type { InvitePreview, LoginResponse, MeResponse } from '@classplatform/shared';
+import type { ActivateRegistrationPayload } from '@/types/onboarding';
 
-function normalizeRole(role: string): User['role'] {
+interface LoginPayload {
+    accessToken: string;
+    refreshToken?: string;
+    expiresIn?: number;
+    user?: {
+        id: string | number;
+        username?: string;
+        name?: string | null;
+        role?: string;
+        permissions?: string[];
+    };
+}
+
+function normalizeRole(role: string | undefined): User['role'] {
     if (role === 'admin' || role === 'teacher' || role === 'assistant' || role === 'student') {
         return role;
     }
     return 'student';
 }
 
-function toUser(profile: MeResponse): User {
-    return {
-        id: String(profile.id),
-        name: profile.name ?? profile.username,
-        role: normalizeRole(profile.role),
-        permissions: profile.permissions ?? [],
-    };
+function persistSession(data: LoginPayload) {
+    authStore.setSession({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        tokenType: 'Bearer',
+        expiresIn: data.expiresIn,
+    });
 }
 
-function persistSession(data: LoginResponse) {
-    authStore.setSession({
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        tokenType: data.token_type ?? 'Bearer',
-        expiresIn: data.expires_in,
-        refreshExpiresIn: data.refresh_expires_in,
-    });
+function toUser(data: LoginPayload['user']): User {
+    return {
+        id: String(data?.id ?? ''),
+        name: data?.name ?? data?.username ?? '用户',
+        role: normalizeRole(data?.role),
+        permissions: data?.permissions ?? [],
+    };
 }
 
 export const authApi = {
     async login(username: string, password: string): Promise<User> {
         authStore.clearToken();
-        const data = await api.auth.login(username, password);
-        persistSession(data);
-        const profile = await api.auth.me();
-        const user = toUser(profile);
-        authStore.setProfile(user);
-        return user;
-    },
-
-    async activateRegistration(token: string, password: string, confirmPassword: string): Promise<User> {
-        authStore.clearToken();
-        const data = await api.auth.activateRegistration({
-            token,
+        const data = await apiClient.post<LoginPayload>('/auth/login', {
+            username,
             password,
-            confirm_password: confirmPassword,
+        }, {
+            skipAuth: true,
+            suppressErrorToast: true,
         });
         persistSession(data);
-        const profile = await api.auth.me();
-        const user = toUser(profile);
+        const user = data.user ? toUser(data.user) : await this.me();
         authStore.setProfile(user);
         return user;
     },
 
-    async getInvite(token: string): Promise<InvitePreview> {
-        return api.auth.getInvite(token);
+    async me(): Promise<User> {
+        const data = await apiClient.get<{
+            id: string | number;
+            username?: string;
+            name?: string | null;
+            role?: string;
+            permissions?: string[];
+        }>('/me');
+        const user = toUser(data);
+        authStore.setProfile(user);
+        return user;
     },
 
     async refresh(): Promise<string | null> {
@@ -65,36 +74,52 @@ export const authApi = {
         if (!refreshToken) {
             return null;
         }
-        const data = await api.auth.refresh(refreshToken);
+        const data = await apiClient.post<LoginPayload>('/auth/refresh', {
+            refreshToken,
+        }, {
+            skipAuth: true,
+            suppressErrorToast: true,
+        });
         persistSession(data);
-        return data.access_token;
+        return data.accessToken;
     },
 
-    async me(): Promise<User> {
-        const profile = await api.auth.me();
-        const user = toUser(profile);
-        authStore.setProfile(user);
-        return user;
+    async logout(): Promise<void> {
+        try {
+            await apiClient.post<null>('/auth/logout');
+        } finally {
+            authStore.clearToken();
+        }
+    },
+
+    async activateRegistration(payload: ActivateRegistrationPayload): Promise<User> {
+        authStore.clearToken();
+        const data = await api.auth.activateRegistration(payload);
+        authStore.setSession({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            tokenType: data.token_type ?? 'Bearer',
+            expiresIn: data.expires_in,
+            refreshExpiresIn: data.refresh_expires_in,
+        });
+        return this.me();
+    },
+
+    async getInvite(token: string) {
+        return api.auth.getInvite(token);
     },
 
     async wecomLogin(code: string): Promise<User> {
         authStore.clearToken();
         const data = await api.auth.wecomLogin(code);
-        persistSession(data);
-        const profile = await api.auth.me();
-        const user = toUser(profile);
-        authStore.setProfile(user);
-        return user;
+        authStore.setSession({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            tokenType: data.token_type ?? 'Bearer',
+            expiresIn: data.expires_in,
+            refreshExpiresIn: data.refresh_expires_in,
+        });
+        return this.me();
     },
-
-    async logout(): Promise<void> {
-        const refreshToken = authStore.getRefreshToken();
-        try {
-            if (refreshToken) {
-                await api.auth.logout(refreshToken);
-            }
-        } finally {
-            authStore.clearToken();
-        }
-    }
 };
+

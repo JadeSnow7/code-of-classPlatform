@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
@@ -164,7 +165,20 @@ func (s *authService) GetInvitePreview(ctx context.Context, token string) (Invit
 	}, nil
 }
 
-func (s *authService) ActivateRegistration(ctx context.Context, token, password, confirmPassword string, meta AuthSessionMeta) (AuthSessionBundle, error) {
+func (s *authService) ActivateRegistration(ctx context.Context, input ActivateRegistrationInput, meta AuthSessionMeta) (AuthSessionBundle, error) {
+	password := input.Password
+	confirmPassword := input.ConfirmPassword
+	realName := strings.TrimSpace(input.RealName)
+	studentID := strings.ToUpper(strings.TrimSpace(input.StudentID))
+	if input.Token == "" {
+		return AuthSessionBundle{}, apperrors.BadRequest("invite token is required")
+	}
+	if realName == "" {
+		return AuthSessionBundle{}, apperrors.BadRequest("real name is required")
+	}
+	if studentID == "" {
+		return AuthSessionBundle{}, apperrors.BadRequest("student id is required")
+	}
 	if password != confirmPassword {
 		return AuthSessionBundle{}, apperrors.BadRequest("password confirmation does not match")
 	}
@@ -172,7 +186,7 @@ func (s *authService) ActivateRegistration(ctx context.Context, token, password,
 		return AuthSessionBundle{}, apperrors.BadRequest("password must be at least 8 characters and include letters and numbers")
 	}
 
-	tokenHash := auth.HashOpaqueToken(token)
+	tokenHash := auth.HashOpaqueToken(input.Token)
 	record, err := s.userRepo.FindActivationTokenByHash(ctx, tokenHash)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -189,6 +203,15 @@ func (s *authService) ActivateRegistration(ctx context.Context, token, password,
 	if user.ID == 0 {
 		return AuthSessionBundle{}, apperrors.NotFound("user")
 	}
+	if studentID != user.Username {
+		exists, err := s.userRepo.ExistsByUsername(ctx, studentID)
+		if err != nil {
+			return AuthSessionBundle{}, apperrors.Internal(err)
+		}
+		if exists {
+			return AuthSessionBundle{}, apperrors.BadRequest("student id is already in use")
+		}
+	}
 	consumed, err := s.userRepo.ConsumeActivationTokenByHash(ctx, tokenHash, nowUnix)
 	if err != nil {
 		return AuthSessionBundle{}, apperrors.Internal(err)
@@ -200,6 +223,8 @@ func (s *authService) ActivateRegistration(ctx context.Context, token, password,
 	if err != nil {
 		return AuthSessionBundle{}, apperrors.Internal(err)
 	}
+	user.Username = studentID
+	user.Name = realName
 	user.PasswordHash = passwordHash
 	user.Status = models.UserStatusActive
 	if err := s.userRepo.Update(ctx, user); err != nil {

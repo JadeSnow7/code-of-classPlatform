@@ -78,5 +78,11 @@ func AutoMigrate(gormDB *gorm.DB) error {
 		&models.StudentGlobalProfile{},
 		&models.LearningEvent{},
 		&models.WritingSubmission{},
+		&models.WritingRevision{},
+		&models.AISession{},
+		&models.AIMessage{},
+		&models.AIRun{},
+		&models.KnowledgeBase{},
+		&models.KnowledgeBaseFile{},
 	)
 }

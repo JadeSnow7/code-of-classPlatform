@@ -13,7 +13,7 @@ type AuthService interface {
 	IssueSession(ctx context.Context, user *models.User, meta AuthSessionMeta) (AuthSessionBundle, error)
 	GetUserByID(ctx context.Context, userID uint) (*models.User, error)
 	GetInvitePreview(ctx context.Context, token string) (InvitePreview, error)
-	ActivateRegistration(ctx context.Context, token, password, confirmPassword string, meta AuthSessionMeta) (AuthSessionBundle, error)
+	ActivateRegistration(ctx context.Context, input ActivateRegistrationInput, meta AuthSessionMeta) (AuthSessionBundle, error)
 	Refresh(ctx context.Context, refreshToken string, meta AuthSessionMeta) (AuthSessionBundle, error)
 	Logout(ctx context.Context, refreshToken string) error
 	LogoutAll(ctx context.Context, userID uint) error
@@ -52,6 +52,14 @@ type InvitePreview struct {
 type ActivationInvite struct {
 	Token     string `json:"token"`
 	ExpiresAt int64  `json:"expires_at"`
+}
+
+type ActivateRegistrationInput struct {
+	Token           string
+	Password        string
+	ConfirmPassword string
+	RealName        string
+	StudentID       string
 }
 
 // Activity 用户最近活动项
@@ -222,9 +230,14 @@ type AnnouncementService interface {
 
 // ActiveSessionInfo 当前活跃考勤会话信息
 type ActiveSessionInfo struct {
-	ID     uint      `json:"id"`
-	Code   string    `json:"code"`
-	EndsAt time.Time `json:"ends_at"`
+	ID               uint      `json:"id"`
+	Code             string    `json:"code"`
+	EndsAt           time.Time `json:"ends_at"`
+	LocationRequired bool      `json:"location_required"`
+	CenterLatitude   float64   `json:"center_latitude,omitempty"`
+	CenterLongitude  float64   `json:"center_longitude,omitempty"`
+	RadiusMeters     int       `json:"radius_meters,omitempty"`
+	QRURL            string    `json:"qr_url,omitempty"`
 }
 
 // AttendanceSummary 考勤摘要
@@ -237,34 +250,57 @@ type AttendanceSummary struct {
 
 // AttendanceSessionListItem 考勤会话列表项
 type AttendanceSessionListItem struct {
-	ID            uint      `json:"id"`
-	StartAt       time.Time `json:"start_at"`
-	EndAt         time.Time `json:"end_at"`
-	IsActive      bool      `json:"is_active"`
-	AttendeeCount int       `json:"attendee_count"`
+	ID               uint      `json:"id"`
+	StartAt          time.Time `json:"start_at"`
+	EndAt            time.Time `json:"end_at"`
+	IsActive         bool      `json:"is_active"`
+	AttendeeCount    int       `json:"attendee_count"`
+	LocationRequired bool      `json:"location_required"`
+	CenterLatitude   float64   `json:"center_latitude,omitempty"`
+	CenterLongitude  float64   `json:"center_longitude,omitempty"`
+	RadiusMeters     int       `json:"radius_meters,omitempty"`
+}
+
+type AttendanceStartSessionInput struct {
+	TimeoutMinutes   int
+	LocationRequired bool
+	CenterLatitude   float64
+	CenterLongitude  float64
+	RadiusMeters     int
+}
+
+type AttendanceCheckinInput struct {
+	Code      string
+	Location  string
+	Latitude  float64
+	Longitude float64
 }
 
 // AttendanceCheckinResult 签到结果
 type AttendanceCheckinResult struct {
-	AlreadyCheckedIn bool
-	CheckedInAt      time.Time
+	AlreadyCheckedIn  bool
+	CheckedInAt       time.Time
+	LocationValidated bool
 }
 
 // AttendanceRecordWithStudent 考勤记录（含学生名称）
 type AttendanceRecordWithStudent struct {
-	StudentID   uint      `json:"student_id"`
-	StudentName string    `json:"student_name"`
-	CheckedInAt time.Time `json:"checked_in_at"`
-	IPAddress   string    `json:"ip_address"`
+	StudentID         uint      `json:"student_id"`
+	StudentName       string    `json:"student_name"`
+	CheckedInAt       time.Time `json:"checked_in_at"`
+	IPAddress         string    `json:"ip_address"`
+	Latitude          float64   `json:"latitude"`
+	Longitude         float64   `json:"longitude"`
+	LocationValidated bool      `json:"location_validated"`
 }
 
 // AttendanceService 考勤服务接口
 type AttendanceService interface {
 	GetSummary(ctx context.Context, courseID, userID uint, role string) (AttendanceSummary, error)
 	ListSessions(ctx context.Context, courseID uint) ([]AttendanceSessionListItem, error)
-	StartSession(ctx context.Context, courseID, startedByID uint, timeoutMinutes int) (*models.AttendanceSession, error)
+	StartSession(ctx context.Context, courseID, startedByID uint, input AttendanceStartSessionInput) (*models.AttendanceSession, error)
 	EndSession(ctx context.Context, sessionID uint) error
-	Checkin(ctx context.Context, sessionID, studentID uint, code, location string) (AttendanceCheckinResult, error)
+	Checkin(ctx context.Context, sessionID, studentID uint, input AttendanceCheckinInput) (AttendanceCheckinResult, error)
 	GetRecords(ctx context.Context, sessionID uint) ([]AttendanceRecordWithStudent, error)
 }
 
@@ -294,7 +330,10 @@ type WritingService interface {
 	GetSubmissions(ctx context.Context, courseID uint, studentID *uint) ([]*models.WritingSubmission, error)
 	GetStats(ctx context.Context, courseID uint) (map[string]interface{}, error)
 	GetSubmission(ctx context.Context, id uint) (*models.WritingSubmission, error)
+	UpdateSubmission(ctx context.Context, id uint, updates map[string]interface{}) (*models.WritingSubmission, error)
 	UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error
+	CreateRevision(ctx context.Context, submission *models.WritingSubmission, triggerType string, summary string) error
+	ListRevisions(ctx context.Context, submissionID uint, page, pageSize int) ([]models.WritingRevision, int64, error)
 }
 
 // LearningProfileService 学习档案服务接口

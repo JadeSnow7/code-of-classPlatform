@@ -40,11 +40,38 @@ func (r *writingRepository) Create(ctx context.Context, submission *models.Writi
 	return r.db.WithContext(ctx).Create(submission).Error
 }
 
+func (r *writingRepository) UpdateSubmission(ctx context.Context, submission *models.WritingSubmission, updates map[string]interface{}) error {
+	return r.db.WithContext(ctx).Model(submission).Updates(updates).Error
+}
+
 func (r *writingRepository) UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error {
 	return r.db.WithContext(ctx).Model(&models.WritingSubmission{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"feedback_json":  feedbackJSON,
 		"dimension_json": dimensionJSON,
 	}).Error
+}
+
+func (r *writingRepository) CreateRevision(ctx context.Context, revision *models.WritingRevision) error {
+	return r.db.WithContext(ctx).Create(revision).Error
+}
+
+func (r *writingRepository) ListRevisions(ctx context.Context, submissionID uint, page, pageSize int) ([]models.WritingRevision, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	var total int64
+	query := r.db.WithContext(ctx).Model(&models.WritingRevision{}).Where("submission_id = ?", submissionID)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var revisions []models.WritingRevision
+	if err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&revisions).Error; err != nil {
+		return nil, 0, err
+	}
+	return revisions, total, nil
 }
 
 func (r *writingRepository) GetStats(ctx context.Context, courseID uint) (map[string]interface{}, error) {

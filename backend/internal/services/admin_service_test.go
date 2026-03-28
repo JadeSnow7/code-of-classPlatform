@@ -91,7 +91,7 @@ func (f *fakeAuthService) GetUserByID(context.Context, uint) (*models.User, erro
 func (f *fakeAuthService) GetInvitePreview(context.Context, string) (InvitePreview, error) {
 	return InvitePreview{}, nil
 }
-func (f *fakeAuthService) ActivateRegistration(context.Context, string, string, string, AuthSessionMeta) (AuthSessionBundle, error) {
+func (f *fakeAuthService) ActivateRegistration(context.Context, ActivateRegistrationInput, AuthSessionMeta) (AuthSessionBundle, error) {
 	return AuthSessionBundle{}, nil
 }
 func (f *fakeAuthService) Refresh(context.Context, string, AuthSessionMeta) (AuthSessionBundle, error) {

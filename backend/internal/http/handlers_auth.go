@@ -11,16 +11,21 @@ import (
 )
 
 type authHandlers struct {
-	service   services.AuthService
-	jwtSecret string
+	service              services.AuthService
+	globalProfileService services.GlobalProfileService
+	jwtSecret            string
 }
 
-func NewAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
-	return &authHandlers{service: service, jwtSecret: jwtSecret}
+func NewAuthHandlers(service services.AuthService, jwtSecret string, globalProfileService ...services.GlobalProfileService) *authHandlers {
+	var profileService services.GlobalProfileService
+	if len(globalProfileService) > 0 {
+		profileService = globalProfileService[0]
+	}
+	return &authHandlers{service: service, globalProfileService: profileService, jwtSecret: jwtSecret}
 }
 
-func newAuthHandlers(service services.AuthService, jwtSecret string) *authHandlers {
-	return NewAuthHandlers(service, jwtSecret)
+func newAuthHandlers(service services.AuthService, jwtSecret string, globalProfileService ...services.GlobalProfileService) *authHandlers {
+	return NewAuthHandlers(service, jwtSecret, globalProfileService...)
 }
 
 type loginRequest struct {
@@ -29,9 +34,15 @@ type loginRequest struct {
 }
 
 type activateRequest struct {
-	Token           string `json:"token" binding:"required"`
-	Password        string `json:"password" binding:"required"`
-	ConfirmPassword string `json:"confirm_password" binding:"required"`
+	Token                  string                          `json:"token" binding:"required"`
+	Password               string                          `json:"password" binding:"required"`
+	ConfirmPassword        string                          `json:"confirm_password" binding:"required"`
+	RealName               string                          `json:"real_name" binding:"required"`
+	StudentID              string                          `json:"student_id" binding:"required"`
+	ConsentPersonalization bool                            `json:"consent_personalization"`
+	AnalyticsOptIn         bool                            `json:"analytics_opt_in"`
+	OnboardingProfile      services.OnboardingProfileInput `json:"onboarding_profile"`
+	LearningStyle          services.LearningStyleInput     `json:"learning_style"`
 }
 
 type refreshRequest struct {
@@ -90,16 +101,35 @@ func (h *authHandlers) ActivateRegistration(c *gin.Context) {
 		response.BadRequest(c, "Invalid request")
 		return
 	}
+	if err := services.ValidateActivationQuestionnaire(req.ConsentPersonalization, req.OnboardingProfile, req.LearningStyle); err != nil {
+		response.Error(c, err)
+		return
+	}
 	session, err := h.service.ActivateRegistration(
 		c.Request.Context(),
-		req.Token,
-		req.Password,
-		req.ConfirmPassword,
+		services.ActivateRegistrationInput{
+			Token:           req.Token,
+			Password:        req.Password,
+			ConfirmPassword: req.ConfirmPassword,
+			RealName:        req.RealName,
+			StudentID:       req.StudentID,
+		},
 		requestSessionMeta(c, "web"),
 	)
 	if err != nil {
 		response.Error(c, err)
 		return
+	}
+	if h.globalProfileService != nil && session.User != nil {
+		profile, err := services.BuildInitialGlobalProfile(session.User.ID, req.OnboardingProfile, req.LearningStyle, req.AnalyticsOptIn)
+		if err != nil {
+			response.Error(c, err)
+			return
+		}
+		if err := h.globalProfileService.SaveGlobalProfile(c.Request.Context(), profile); err != nil {
+			response.Error(c, err)
+			return
+		}
 	}
 	response.OK(c, toLoginResponse(session))
 }

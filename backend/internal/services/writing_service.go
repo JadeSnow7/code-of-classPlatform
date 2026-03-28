@@ -37,7 +37,13 @@ func (s *writingService) Submit(ctx context.Context, submission *models.WritingS
 }
 
 func (s *writingService) CreateSubmission(ctx context.Context, submission *models.WritingSubmission) error {
-	return s.repo.Create(ctx, submission)
+	if submission.Status == "" {
+		submission.Status = "draft"
+	}
+	if err := s.repo.Create(ctx, submission); err != nil {
+		return err
+	}
+	return s.CreateRevision(ctx, submission, "created", "Initial submission created")
 }
 
 func (s *writingService) ApplyAIAnalysis(ctx context.Context, submission *models.WritingSubmission, privacy, route string) error {
@@ -61,6 +67,9 @@ func (s *writingService) ApplyAIAnalysis(ctx context.Context, submission *models
 	feedbackJSON, _ := json.Marshal(resp)
 	dimensionJSON, _ := json.Marshal(resp.Dimensions)
 	if err := s.repo.UpdateFeedback(ctx, submission.ID, string(feedbackJSON), string(dimensionJSON)); err != nil {
+		return err
+	}
+	if err := s.CreateRevision(ctx, submission, "ai_feedback", "AI feedback generated"); err != nil {
 		return err
 	}
 
@@ -119,8 +128,41 @@ func (s *writingService) GetSubmission(ctx context.Context, id uint) (*models.Wr
 	return s.repo.FindByID(ctx, id)
 }
 
+func (s *writingService) UpdateSubmission(ctx context.Context, id uint, updates map[string]interface{}) (*models.WritingSubmission, error) {
+	submission, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdateSubmission(ctx, submission, updates); err != nil {
+		return nil, err
+	}
+	updated, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.CreateRevision(ctx, updated, "autosave", "Autosave snapshot"); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
 func (s *writingService) UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error {
 	return s.repo.UpdateFeedback(ctx, id, feedbackJSON, dimensionJSON)
+}
+
+func (s *writingService) CreateRevision(ctx context.Context, submission *models.WritingSubmission, triggerType string, summary string) error {
+	return s.repo.CreateRevision(ctx, &models.WritingRevision{
+		SubmissionID: submission.ID,
+		Title:        submission.Title,
+		Content:      submission.Content,
+		WordCount:    submission.WordCount,
+		Summary:      summary,
+		TriggerType:  triggerType,
+	})
+}
+
+func (s *writingService) ListRevisions(ctx context.Context, submissionID uint, page, pageSize int) ([]models.WritingRevision, int64, error) {
+	return s.repo.ListRevisions(ctx, submissionID, page, pageSize)
 }
 
 func jsonNumber(v uint) string {

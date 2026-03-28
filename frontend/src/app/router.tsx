@@ -3,6 +3,7 @@ import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router
 import { AuthProvider } from '@/domains/auth/useAuth';
 import { ProtectedRoute } from './ProtectedRoute';
 import { AppShell } from '@/layouts/AppShell';
+import { Layout as EdugraphLayout } from '@/components/edugraph/Layout';
 
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ActivateRegistrationPage = lazy(() =>
@@ -43,6 +44,15 @@ const AttendancePage = lazy(() => import('@/pages/AttendancePage').then((module)
 const WritingDetailPage = lazy(() => import('@/pages/WritingDetailPage'));
 const TeacherWritingDashboard = lazy(() => import('@/pages/TeacherWritingDashboard'));
 const WorkspacePage = lazy(() => import('@/pages/Workspace').then((module) => ({ default: module.WorkspacePage })));
+
+// Edugraph New Pages
+const EduDash = lazy(() => import('@/pages/edugraph/Dashboard').then((m) => ({ default: m.Dashboard })));
+const EduCourses = lazy(() => import('@/pages/edugraph/Courses').then((m) => ({ default: m.Courses })));
+const EduWriting = lazy(() => import('@/pages/edugraph/WritingStudio').then((m) => ({ default: m.WritingStudio })));
+const EduAssistant = lazy(() => import('@/pages/edugraph/AIAssistant').then((m) => ({ default: m.AIAssistant })));
+const EduQuiz = lazy(() => import('@/pages/edugraph/Quiz').then((m) => ({ default: m.Quiz })));
+const EduGraph = lazy(() => import('@/pages/edugraph/KnowledgeGraph').then((m) => ({ default: m.KnowledgeGraph })));
+const EduSimulations = lazy(() => import('@/pages/edugraph/Simulations').then((m) => ({ default: m.Simulations })));
 
 interface RootErrorBoundaryProps {
     children: ReactNode;
@@ -127,8 +137,22 @@ export function AppRouter() {
                         <Route path="/auth/wecom/callback" element={routeElement(<WeComCallbackPage />)} />
 
                         <Route element={<ProtectedRoute />}>
-                            <Route path="/" element={<AppShell />}>
+                            {/* New Edugraph Layout as default */}
+                            <Route path="/" element={<EdugraphLayout />}>
                                 <Route index element={<Navigate to="/learning" replace />} />
+                                <Route path="learning" element={routeElement(<EduDash />)} />
+                                <Route path="courses" element={routeElement(<EduCourses />)} />
+                                <Route path="writing" element={routeElement(<EduWriting />)} />
+                                <Route path="ai" element={routeElement(<EduAssistant />)} />
+                                <Route path="assistant" element={routeElement(<EduAssistant />)} />
+                                <Route path="graph" element={routeElement(<EduGraph />)} />
+                                <Route path="simulations" element={routeElement(<EduSimulations />)} />
+                                <Route path="quiz" element={routeElement(<EduQuiz />)} />
+                            </Route>
+
+                            {/* Legacy Routes under V1 layout */}
+                            <Route path="/v1" element={<AppShell />}>
+                                <Route index element={<Navigate to="learning" replace />} />
                                 <Route path="learning" element={routeElement(<LearningHubPage />)} />
                                 <Route path="courses" element={routeElement(<CoursesHubPage />)} />
                                 <Route path="local-ai" element={routeElement(<LocalAIHubPage />)} />

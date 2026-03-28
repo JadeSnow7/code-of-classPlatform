@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-    User, Shield, BookOpen, LogOut, Clock, Trophy,
-    FileText, ClipboardCheck, Plus
+    User, Shield, BookOpen, LogOut, Loader2, Clock, Trophy,
+    FileText, ClipboardCheck, Plus, AlertCircle, ChevronRight
 } from 'lucide-react';
 import { authStore, type User as UserType } from '@/lib/auth-store';
-import { useNavigate } from 'react-router-dom';
-import { userApi, type StudentStats, type TeacherStats } from '@/api/user';
-import { Card, Row, Col, Typography, Button, Spin, Alert, Avatar, Statistic, Tag, List, Space } from 'antd';
-
-const { Title, Text } = Typography;
+import { useNavigate, Link } from 'react-router-dom';
+import { userApi, type StudentStats, type TeacherStats, type Activity, type PendingItem } from '@/api/user';
 
 export function ProfilePage() {
     const navigate = useNavigate();
@@ -44,8 +41,8 @@ export function ProfilePage() {
 
     if (!user) {
         return (
-            <div className="flex items-center justify-center min-h-[50vh]">
-                <Spin size="large" />
+            <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
             </div>
         );
     }
@@ -61,202 +58,271 @@ export function ProfilePage() {
     const teacherStats = stats as TeacherStats;
 
     return (
-        <div className="min-h-screen p-6" style={{ background: '#0D0E15' }}>
+        <div className="min-h-screen bg-gray-950 p-6">
             <div className="max-w-4xl mx-auto">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
-                    <Space size="large">
-                        <Avatar
-                            size={80}
-                            icon={<User size={40} />}
-                            style={{ background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)' }}
-                        />
-                        <div>
-                            <Title level={3} style={{ color: '#F8FAFC', margin: 0 }}>{user.name}</Title>
-                            <Tag color="blue" style={{ marginTop: 8 }}>{roleLabels[user.role] || user.role}</Tag>
+                    <div className="flex items-center gap-4">
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                            <User className="w-10 h-10 text-white" />
                         </div>
-                    </Space>
+                        <div>
+                            <h1 className="text-2xl font-bold text-white">{user.name}</h1>
+                            <span className="inline-block mt-1 px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm">
+                                {roleLabels[user.role] || user.role}
+                            </span>
+                        </div>
+                    </div>
                     {!isStudent && (
-                        <Button
-                            type="primary"
-                            icon={<Plus size={16} />}
-                            onClick={() => navigate('/courses')}
-                            style={{ background: '#8B5CF6', borderColor: '#8B5CF6' }}
-                        >
-                            创建课程
-                        </Button>
+                        <div className="flex gap-2">
+                            <Link
+                                to="/courses"
+                                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg flex items-center gap-2 text-sm"
+                            >
+                                <Plus className="w-4 h-4" />
+                                创建课程
+                            </Link>
+                        </div>
                     )}
                 </div>
 
-                {/* Content */}
+                {/* Stats Grid */}
                 {isLoading ? (
                     <div className="flex items-center justify-center h-32">
-                        <Spin />
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
                     </div>
                 ) : error ? (
-                    <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-6 flex items-center gap-3 text-red-400">
+                        <AlertCircle className="w-5 h-5" />
+                        {error}
+                    </div>
                 ) : stats && (
                     <>
-                        {/* Selected Stats Overview */}
-                        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                             {isStudent ? (
                                 <>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#60A5FA' }}>课程数</Text>} value={studentStats.courses_count} prefix={<BookOpen size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#34D399' }}>作业完成</Text>} value={`${studentStats.assignments_submitted}/${studentStats.assignments_total}`} prefix={<FileText size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#FBBF24' }}>测验平均分</Text>} value={studentStats.quizzes_avg_score.toFixed(1)} prefix={<Trophy size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#F87171' }}>待办事项</Text>} value={studentStats.pending_count} prefix={<Clock size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
+                                    <StatCard icon={BookOpen} label="课程数" value={studentStats.courses_count} color="blue" />
+                                    <StatCard
+                                        icon={FileText}
+                                        label="作业完成"
+                                        value={`${studentStats.assignments_submitted}/${studentStats.assignments_total}`}
+                                        color="green"
+                                    />
+                                    <StatCard
+                                        icon={Trophy}
+                                        label="测验平均分"
+                                        value={studentStats.quizzes_avg_score.toFixed(1)}
+                                        color="yellow"
+                                    />
+                                    <StatCard icon={Clock} label="待办事项" value={studentStats.pending_count} color="red" />
                                 </>
                             ) : (
                                 <>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#60A5FA' }}>创建课程</Text>} value={teacherStats.courses_created} prefix={<BookOpen size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#34D399' }}>发布作业</Text>} value={teacherStats.assignments_created} prefix={<FileText size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(167, 139, 250, 0.1)', borderColor: 'rgba(167, 139, 250, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#A78BFA' }}>创建测验</Text>} value={teacherStats.quizzes_created} prefix={<ClipboardCheck size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
-                                    <Col xs={12} sm={6}>
-                                        <Card bordered={false} style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)' }}>
-                                            <Statistic title={<Text style={{ color: '#F87171' }}>待批改</Text>} value={teacherStats.pending_grades} prefix={<Clock size={16} />} valueStyle={{ color: '#E2E8F0' }} />
-                                        </Card>
-                                    </Col>
+                                    <StatCard icon={BookOpen} label="创建课程" value={teacherStats.courses_created} color="blue" />
+                                    <StatCard icon={FileText} label="发布作业" value={teacherStats.assignments_created} color="green" />
+                                    <StatCard icon={ClipboardCheck} label="创建测验" value={teacherStats.quizzes_created} color="purple" />
+                                    <StatCard icon={Clock} label="待批改" value={teacherStats.pending_grades} color="red" />
                                 </>
                             )}
-                        </Row>
+                        </div>
 
-                        <Row gutter={[24, 24]}>
+                        {/* Main Grid */}
+                        <div className="grid md:grid-cols-2 gap-6 mb-6">
                             {/* Left Column */}
-                            <Col xs={24} md={12}>
-                                <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                                    <Card
-                                        title={<><Shield size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#60A5FA' }} />账户信息</>}
-                                        bordered={false}
-                                        style={{ background: '#13141F', border: '1px solid #1E1F2E' }}
-                                    >
-                                        <List itemLayout="horizontal" size="small">
-                                            <List.Item><Text type="secondary">用户ID</Text><Text style={{ color: '#E2E8F0' }}>{user.id}</Text></List.Item>
-                                            <List.Item><Text type="secondary">用户名</Text><Text style={{ color: '#E2E8F0' }}>{user.name}</Text></List.Item>
-                                            <List.Item><Text type="secondary">角色</Text><Text style={{ color: '#E2E8F0' }}>{roleLabels[user.role] || user.role}</Text></List.Item>
-                                        </List>
-                                    </Card>
+                            <div className="space-y-6">
+                                {/* Account Info */}
+                                <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6">
+                                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                        <Shield className="w-5 h-5 text-blue-400" />
+                                        账户信息
+                                    </h2>
+                                    <div className="space-y-3">
+                                        <InfoRow label="用户ID" value={user.id} />
+                                        <InfoRow label="用户名" value={user.name} />
+                                        <InfoRow label="角色" value={roleLabels[user.role] || user.role} />
+                                    </div>
+                                </div>
 
-                                    {isStudent ? (
-                                        <Card
-                                            title={<><Clock size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#F87171' }} />待办事项</>}
-                                            bordered={false}
-                                            style={{ background: '#13141F', border: '1px solid #1E1F2E' }}
+                                {/* Learning Analysis Entry */}
+                                {isStudent && (
+                                    <div className="bg-gradient-to-br from-purple-900/50 to-blue-900/50 border border-purple-500/30 rounded-2xl p-6">
+                                        <h2 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+                                            <Trophy className="w-5 h-5 text-yellow-400" />
+                                            学习分析
+                                        </h2>
+                                        <p className="text-gray-400 text-sm mb-4">
+                                            AI 正在根据您的章节学习时长和作业表现生成个性化分析。
+                                        </p>
+                                        <Link
+                                            to="/courses"
+                                            className="block w-full text-center py-2 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 rounded-lg transition-colors border border-purple-500/30"
                                         >
-                                            <List
-                                                dataSource={studentStats.pending}
-                                                renderItem={(item) => (
-                                                    <List.Item>
-                                                        <List.Item.Meta
-                                                            title={<Text style={{ color: '#E2E8F0' }}>{item.title}</Text>}
-                                                            description={<Tag color={item.type === 'assignment' ? 'blue' : 'purple'}>{item.type === 'assignment' ? '作业' : '测验'}</Tag>}
-                                                        />
-                                                        <Text type="secondary" style={{ fontSize: 12 }}>截止: {new Date(item.deadline).toLocaleDateString()}</Text>
-                                                    </List.Item>
-                                                )}
-                                                locale={{ emptyText: <Text type="secondary">暂无待办</Text> }}
-                                            />
-                                        </Card>
-                                    ) : (
-                                        <Card
-                                            title={<Text style={{ color: '#E2E8F0' }}>快捷操作</Text>}
-                                            bordered={false}
-                                            style={{ background: '#13141F', border: '1px solid #1E1F2E' }}
-                                        >
-                                            <Button type="dashed" block icon={<Plus size={16} />} onClick={() => navigate('/courses')}>
-                                                创建新课程
-                                            </Button>
-                                        </Card>
-                                    )}
-                                </Space>
-                            </Col>
+                                            前往课程查看详情
+                                        </Link>
+                                    </div>
+                                )}
 
-                            {/* Right Column */}
-                            <Col xs={24} md={12}>
-                                <Card
-                                    title={<>
-                                        {isStudent ? (
-                                            <><Trophy size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#FBBF24' }} />最近活动</>
+                                {/* Pending Items (Student) or Quick Actions (Teacher) */}
+                                {isStudent ? (
+                                    <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6">
+                                        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                            <Clock className="w-5 h-5 text-red-400" />
+                                            待办事项
+                                        </h2>
+                                        {studentStats.pending.length === 0 ? (
+                                            <p className="text-gray-500 text-center py-4">暂无待办</p>
                                         ) : (
-                                            <><FileText size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#34D399' }} />最近提交</>
+                                            <div className="space-y-2">
+                                                {studentStats.pending.map((item, i) => (
+                                                    <PendingCard key={i} item={item} />
+                                                ))}
+                                            </div>
                                         )}
-                                    </>}
-                                    bordered={false}
-                                    style={{ background: '#13141F', border: '1px solid #1E1F2E', height: '100%' }}
-                                >
-                                    <List
-                                        dataSource={isStudent ? studentStats.recent_activity : teacherStats.recent_submissions}
-                                        renderItem={(activity) => (
-                                            <List.Item>
-                                                <List.Item.Meta
-                                                    title={<Text style={{ color: '#E2E8F0' }}>{activity.title}</Text>}
-                                                    description={<Tag color={activity.type === 'assignment_submit' ? 'green' : 'orange'}>{activity.type === 'assignment_submit' ? '作业' : '测验'}</Tag>}
-                                                />
-                                                <div style={{ textAlign: 'right' }}>
-                                                    {isStudent && activity.score !== undefined && (
-                                                        <Text strong style={{ display: 'block', color: '#E2E8F0' }}>{activity.score}/{activity.max_score}</Text>
-                                                    )}
-                                                    <Text type="secondary" style={{ fontSize: 12 }}>{new Date(activity.created_at).toLocaleDateString()}</Text>
-                                                </div>
-                                            </List.Item>
-                                        )}
-                                        locale={{ emptyText: <Text type="secondary">暂无记录</Text> }}
-                                    />
-                                </Card>
-                            </Col>
-                        </Row>
+                                    </div>
+                                ) : (
+                                    <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6">
+                                        <h2 className="text-lg font-semibold text-white mb-4">快捷操作</h2>
+                                        <div className="space-y-2">
+                                            <Link
+                                                to="/courses"
+                                                className="flex items-center justify-between p-3 bg-gray-800/50 hover:bg-gray-800 rounded-lg transition-colors"
+                                            >
+                                                <span className="text-gray-300">创建新课程</span>
+                                                <ChevronRight className="w-4 h-4 text-gray-500" />
+                                            </Link>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Right Column - Recent Activity */}
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6">
+                                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                    {isStudent ? (
+                                        <>
+                                            <Trophy className="w-5 h-5 text-yellow-400" />
+                                            最近活动
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FileText className="w-5 h-5 text-green-400" />
+                                            最近提交
+                                        </>
+                                    )}
+                                </h2>
+                                <div className="space-y-3">
+                                    {(isStudent ? studentStats.recent_activity : teacherStats.recent_submissions).length === 0 ? (
+                                        <p className="text-gray-500 text-center py-4">暂无记录</p>
+                                    ) : (
+                                        (isStudent ? studentStats.recent_activity : teacherStats.recent_submissions).map((activity, i) => (
+                                            <ActivityCard key={i} activity={activity} showScore={isStudent} />
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     </>
                 )}
 
-                <div style={{ marginTop: 32 }}>
-                    <Button
-                        danger
-                        block
-                        size="large"
-                        icon={<LogOut size={18} />}
+                {/* Actions */}
+                <div className="space-y-3">
+                    <button
                         onClick={handleLogout}
-                        style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-xl transition-colors"
                     >
+                        <LogOut className="w-5 h-5" />
                         退出登录
-                    </Button>
+                    </button>
                 </div>
 
-<<<<<<< HEAD:frontend/src/pages/ProfilePage.tsx
                 {/* Footer */}
                 <p className="text-center text-gray-600 text-sm mt-8">
                     智能教学平台 v1.0
-=======
-                <p style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', marginTop: 32, fontSize: 13 }}>
-                    电磁场教学平台 v1.0
->>>>>>> origin/main:frontend-react/src/pages/ProfilePage.tsx
                 </p>
+            </div>
+        </div>
+    );
+}
+
+function StatCard({
+    icon: Icon,
+    label,
+    value,
+    color
+}: {
+    icon: React.ElementType;
+    label: string;
+    value: string | number;
+    color: 'blue' | 'green' | 'yellow' | 'red' | 'purple';
+}) {
+    const colorClasses = {
+        blue: 'from-blue-500/20 to-blue-600/20 border-blue-500/30 text-blue-400',
+        green: 'from-green-500/20 to-green-600/20 border-green-500/30 text-green-400',
+        yellow: 'from-yellow-500/20 to-yellow-600/20 border-yellow-500/30 text-yellow-400',
+        red: 'from-red-500/20 to-red-600/20 border-red-500/30 text-red-400',
+        purple: 'from-purple-500/20 to-purple-600/20 border-purple-500/30 text-purple-400',
+    };
+
+    return (
+        <div className={`bg-gradient-to-br ${colorClasses[color]} border rounded-xl p-4`}>
+            <div className="flex items-center gap-2 mb-2">
+                <Icon className="w-4 h-4" />
+                <span className="text-sm text-gray-400">{label}</span>
+            </div>
+            <div className="text-2xl font-bold text-white">{value}</div>
+        </div>
+    );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
+            <span className="text-gray-400">{label}</span>
+            <span className="text-white">{value}</span>
+        </div>
+    );
+}
+
+function PendingCard({ item }: { item: PendingItem }) {
+    const deadline = new Date(item.deadline);
+    const now = new Date();
+    const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const isUrgent = daysLeft <= 1;
+
+    return (
+        <div className={`flex items-center justify-between p-3 rounded-lg ${isUrgent ? 'bg-red-500/10' : 'bg-gray-800/50'}`}>
+            <div>
+                <span className={`text-xs px-2 py-0.5 rounded ${item.type === 'assignment' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>
+                    {item.type === 'assignment' ? '作业' : '测验'}
+                </span>
+                <p className="text-white mt-1">{item.title}</p>
+            </div>
+            <div className="text-right">
+                <p className={`text-sm ${isUrgent ? 'text-red-400' : 'text-gray-400'}`}>
+                    {daysLeft <= 0 ? '今天截止' : `${daysLeft}天后`}
+                </p>
+            </div>
+        </div>
+    );
+}
+
+function ActivityCard({ activity, showScore }: { activity: Activity; showScore: boolean }) {
+    const date = new Date(activity.created_at);
+    const timeStr = date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+
+    return (
+        <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+            <div className="flex-1">
+                <span className={`text-xs px-2 py-0.5 rounded ${activity.type === 'assignment_submit' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                    {activity.type === 'assignment_submit' ? '作业' : '测验'}
+                </span>
+                <p className="text-white mt-1 truncate">{activity.title}</p>
+            </div>
+            <div className="text-right ml-4">
+                {showScore && activity.score !== undefined && activity.max_score !== undefined && (
+                    <p className="text-sm text-white">{activity.score}/{activity.max_score}</p>
+                )}
+                <p className="text-xs text-gray-500">{timeStr}</p>
             </div>
         </div>
     );

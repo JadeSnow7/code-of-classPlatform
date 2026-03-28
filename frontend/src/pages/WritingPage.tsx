@@ -11,7 +11,6 @@ import {
     submitWriting,
     getWritingSubmissions,
     getWritingTypeName,
-    parseFeedback,
     type WritingSubmission,
     type WritingType,
     WRITING_TYPE_INFO,
@@ -102,7 +101,7 @@ export default function WritingPage() {
         }
     };
 
-    const viewSubmission = (id: number) => {
+    const viewSubmission = (id: string | number) => {
         navigate(`/courses/${courseId}/writing/${id}`);
     };
 
@@ -213,7 +212,7 @@ export default function WritingPage() {
                     ) : (
                         <div className="submissions-list">
                             {submissions.map((sub) => {
-                                const feedback = parseFeedback(sub);
+                                const feedback = sub.feedback;
                                 return (
                                     <div
                                         key={sub.id}
@@ -222,18 +221,18 @@ export default function WritingPage() {
                                     >
                                         <div className="card-header">
                                             <span className="type-badge">
-                                                {getWritingTypeName(sub.writing_type)}
+                                                {getWritingTypeName(sub.writingType)}
                                             </span>
                                             <span className="date">
-                                                {new Date(sub.created_at).toLocaleDateString('zh-CN')}
+                                                {sub.createdAt ? new Date(sub.createdAt).toLocaleDateString('zh-CN') : ''}
                                             </span>
                                         </div>
                                         <h3 className="card-title">{sub.title}</h3>
                                         <div className="card-meta">
-                                            <span>{sub.word_count} 词</span>
+                                            <span>{sub.wordCount} 词</span>
                                             {feedback && (
                                                 <span className="score">
-                                                    评分: {feedback.overall_score}/10
+                                                    评分: {feedback.overallScore}/10
                                                 </span>
                                             )}
                                         </div>

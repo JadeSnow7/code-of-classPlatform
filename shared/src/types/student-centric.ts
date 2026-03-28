@@ -51,6 +51,7 @@ export type LearningEvent = {
 export type StudentGlobalProfile = {
   user_id?: number;
   student_id?: number;
+  onboarding_profile?: string;
   learning_style: string;
   competencies_json?: string;
   global_competencies?: string;

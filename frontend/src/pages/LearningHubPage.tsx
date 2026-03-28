@@ -32,7 +32,7 @@ import {
   type KnowledgeBaseFile,
 } from '@/api/knowledgeBase';
 import { courseApi } from '@/api/course';
-import { assignmentApi, type Assignment } from '@/api/assignment';
+import { assignmentApi, type LegacyAssignment } from '@/api/assignment';
 import { logger } from '@/lib/logger';
 
 const { Title, Text } = Typography;
@@ -73,14 +73,14 @@ function buildHeatmap(cells: DashboardSummary['activity_heatmap'] | undefined): 
   return matrix;
 }
 
-function toDeadlineTimestamp(assignment: Assignment): number {
+function toDeadlineTimestamp(assignment: LegacyAssignment): number {
   const raw = assignment.deadline ?? assignment.due_date;
   if (!raw) return Number.POSITIVE_INFINITY;
   const value = Date.parse(raw);
   return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
 }
 
-function isPendingAssignment(assignment: Assignment): boolean {
+function isPendingAssignment(assignment: LegacyAssignment): boolean {
   if (assignment.status === 'graded' || assignment.status === 'submitted') return false;
   if (!assignment.submission) return true;
   return assignment.submission.grade === null || assignment.submission.grade === undefined;
@@ -137,7 +137,7 @@ export function LearningHubPage() {
     const [dashboardResult, knowledgeResult, coursesResult] = await Promise.allSettled([
       dashboardApi.get(),
       knowledgeBaseApi.list(),
-      courseApi.list(),
+      courseApi.listMy(),
     ]);
 
     if (dashboardResult.status === 'fulfilled') {
@@ -163,10 +163,10 @@ export function LearningHubPage() {
     }
 
     if (coursesResult.status === 'fulfilled') {
-      const courses = coursesResult.value;
+      const courses = coursesResult.value.items;
       const assignmentResults = await Promise.allSettled(
         courses.slice(0, 10).map(async (course) => {
-          const items = await assignmentApi.listByCourse(course.ID);
+          const items = await assignmentApi.listByCourse(course.id);
           return {
             courseName: course.name,
             assignments: items,
@@ -175,14 +175,15 @@ export function LearningHubPage() {
       );
 
       const merged = assignmentResults
-        .filter((result): result is PromiseFulfilledResult<{ courseName: string; assignments: Assignment[] }> => result.status === 'fulfilled')
+        .filter((result) => result.status === 'fulfilled')
         .flatMap((result) => {
-          return result.value.assignments
+          const fulfilled = result as PromiseFulfilledResult<{ courseName: string; assignments: LegacyAssignment[] }>;
+          return fulfilled.value.assignments
             .filter(isPendingAssignment)
-            .map((assignment) => ({
+            .map((assignment: LegacyAssignment) => ({
               id: assignment.ID,
               title: assignment.title,
-              courseName: result.value.courseName,
+              courseName: fulfilled.value.courseName,
               dueAt: assignment.deadline ?? assignment.due_date ?? undefined,
               dueTs: toDeadlineTimestamp(assignment),
             }));

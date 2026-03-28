@@ -10,6 +10,7 @@ import (
 type RouterDeps struct {
 	AuthHandlers            routes.AuthHandlers
 	UserHandlers            routes.UserHandlers
+	LearningHubHandlers     routes.LearningHubHandlers
 	AIConfigHandlers        routes.AIConfigHandlers
 	WecomHandlers           routes.WecomHandlers
 	CourseHandlers          routes.CourseHandlers

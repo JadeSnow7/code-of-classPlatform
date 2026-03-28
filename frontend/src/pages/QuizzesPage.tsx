@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ClipboardList, Plus, Clock, Trophy } from 'lucide-react';
-import { quizApi, type Quiz, type QuizWithAttempt } from '@/api/quiz';
+import { quizApi, type QuizSummary } from '@/api/quiz';
 import { authStore } from '@/lib/auth-store';
 import { List, Typography, Button, Spin, Alert, Modal, Form, Input, InputNumber, Space, Tag, Card } from 'antd';
 
@@ -10,67 +11,67 @@ const { Title, Text, Paragraph } = Typography;
 export function QuizzesPage() {
     const { courseId } = useParams<{ courseId: string }>();
     const navigate = useNavigate();
-    const [quizzes, setQuizzes] = useState<(Quiz | QuizWithAttempt)[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const numericCourseId = Number(courseId);
 
     const user = authStore.getUser();
     const isTeacher = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'assistant';
 
-    const loadQuizzes = useCallback(async () => {
-        if (!courseId) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await quizApi.listByCourse(parseInt(courseId));
-            setQuizzes(data);
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Failed to load quizzes';
-            setError(message);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [courseId]);
+    const quizzesQuery = useQuery({
+        queryKey: ['course-quizzes', numericCourseId],
+        enabled: Number.isFinite(numericCourseId),
+        queryFn: async () => {
+            const payload = await quizApi.listCourseQuizzes(numericCourseId);
+            return payload.items;
+        },
+    });
 
-    useEffect(() => {
-        if (!courseId) return;
-        void loadQuizzes();
-    }, [courseId, loadQuizzes]);
+    const createQuizMutation = useMutation({
+        mutationFn: (values: { title: string; description: string; timeLimit: number }) => {
+            if (!Number.isFinite(numericCourseId)) {
+                throw new Error('courseId is required');
+            }
 
-    const handleCreate = async (values: { title: string; description: string; timeLimit: number }) => {
-        if (!courseId) return;
-        try {
-            const quiz = await quizApi.create({
-                course_id: parseInt(courseId),
+            return quizApi.createQuiz({
+                courseId: numericCourseId,
                 title: values.title,
                 description: values.description,
-                time_limit: values.timeLimit || 0,
-                max_attempts: 1,
+                durationMinutes: values.timeLimit || 0,
+                maxAttempts: 1,
             });
+        },
+        onSuccess: (quiz) => {
             setShowCreate(false);
-            navigate(`/courses/${courseId}/quizzes/${quiz.ID}`);
+            navigate(`/courses/${courseId}/quizzes/${quiz.id}`);
+        },
+    });
+
+    const quizzes = useMemo(() => quizzesQuery.data ?? [], [quizzesQuery.data]);
+
+    const handleCreate = async (values: { title: string; description: string; timeLimit: number }) => {
+        try {
+            await createQuizMutation.mutateAsync(values);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '创建失败';
             alert('创建失败: ' + message);
         }
     };
 
-    const getQuizStatus = (quiz: Quiz | QuizWithAttempt) => {
+    const getQuizStatus = (quiz: QuizSummary) => {
         const now = new Date();
-        if (!quiz.is_published) {
+        if (!quiz.isPublished) {
             return { label: '草稿', color: 'default' };
         }
-        if (quiz.start_time && new Date(quiz.start_time) > now) {
+        if (quiz.startTime && new Date(quiz.startTime) > now) {
             return { label: '未开始', color: 'warning' };
         }
-        if (quiz.end_time && new Date(quiz.end_time) < now) {
+        if (quiz.endTime && new Date(quiz.endTime) < now) {
             return { label: '已结束', color: 'error' };
         }
         return { label: '进行中', color: 'success' };
     };
 
-    if (isLoading) {
+    if (quizzesQuery.isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[50vh]">
                 <Spin size="large" />
@@ -78,17 +79,17 @@ export function QuizzesPage() {
         );
     }
 
-    if (error) {
+    if (quizzesQuery.isError) {
+        const message = quizzesQuery.error instanceof Error ? quizzesQuery.error.message : 'Failed to load quizzes';
         return (
             <div className="p-6">
-                <Alert message={error} type="error" showIcon />
+                <Alert message={message} type="error" showIcon />
             </div>
         );
     }
 
     return (
         <div className="p-6 space-y-6">
-            {/* Header */}
             <div className="flex items-center justify-between">
                 <Space size="middle">
                     <div style={{ background: 'rgba(167, 139, 250, 0.2)', padding: 8, borderRadius: 8 }}>
@@ -108,7 +109,6 @@ export function QuizzesPage() {
                 )}
             </div>
 
-            {/* Quiz List */}
             <List
                 grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3, xl: 3, xxl: 4 }}
                 dataSource={quizzes}
@@ -118,21 +118,21 @@ export function QuizzesPage() {
                             <ClipboardList className="w-12 h-12 text-gray-600 mx-auto mb-4" />
                             <Text style={{ color: '#94A3B8' }}>暂无测验</Text>
                         </div>
-                    )
+                    ),
                 }}
                 renderItem={(quiz) => {
                     const status = getQuizStatus(quiz);
 
                     return (
                         <List.Item>
-                            <Link to={`/courses/${courseId}/quizzes/${quiz.ID}`}>
+                            <Link to={`/courses/${courseId}/quizzes/${quiz.id}`}>
                                 <Card
                                     hoverable
                                     style={{
                                         background: 'rgba(31, 41, 55, 0.5)',
                                         border: '1px solid #374151',
                                         borderRadius: 12,
-                                        height: '100%'
+                                        height: '100%',
                                     }}
                                     bodyStyle={{ padding: 20 }}
                                 >
@@ -153,27 +153,26 @@ export function QuizzesPage() {
                                     </Paragraph>
 
                                     <Space size="large" style={{ color: '#6B7280', fontSize: 13 }}>
-                                        {(quiz.time_limit ?? 0) > 0 && (
+                                        {(quiz.durationMinutes ?? 0) > 0 && (
                                             <Space size="small">
                                                 <Clock size={16} />
-                                                <span>{quiz.time_limit}分钟</span>
+                                                <span>{quiz.durationMinutes}分钟</span>
                                             </Space>
                                         )}
                                         <Space size="small">
                                             <Trophy size={16} />
-                                            <span>{quiz.total_points}分</span>
+                                            <span>{quiz.totalPoints ?? 0}分</span>
                                         </Space>
                                     </Space>
 
-                                    {/* Student: show attempt info */}
-                                    {'attempt_count' in quiz && (
+                                    {typeof quiz.attemptCount === 'number' && (
                                         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <Text style={{ color: '#94A3B8', fontSize: 12 }}>
-                                                已尝试 {quiz.attempt_count}/{quiz.max_attempts} 次
+                                                已尝试 {quiz.attemptCount}/{quiz.maxAttempts ?? 1} 次
                                             </Text>
-                                            {quiz.best_score !== null && (
+                                            {quiz.bestScore !== null && quiz.bestScore !== undefined && (
                                                 <Text style={{ color: '#4ADE80', fontSize: 12 }}>
-                                                    最高分: {quiz.best_score}
+                                                    最高分: {quiz.bestScore}
                                                 </Text>
                                             )}
                                         </div>
@@ -185,7 +184,6 @@ export function QuizzesPage() {
                 }}
             />
 
-            {/* Create Modal */}
             <Modal
                 title="创建测验"
                 open={showCreate}
@@ -209,7 +207,14 @@ export function QuizzesPage() {
                     <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
                         <Space>
                             <Button onClick={() => setShowCreate(false)}>取消</Button>
-                            <Button type="primary" htmlType="submit" style={{ backgroundColor: '#9333EA', borderColor: '#9333EA' }}>创建</Button>
+                            <Button
+                                type="primary"
+                                htmlType="submit"
+                                loading={createQuizMutation.isPending}
+                                style={{ backgroundColor: '#9333EA', borderColor: '#9333EA' }}
+                            >
+                                创建
+                            </Button>
                         </Space>
                     </Form.Item>
                 </Form>

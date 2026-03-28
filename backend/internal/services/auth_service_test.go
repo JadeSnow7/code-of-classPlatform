@@ -15,6 +15,8 @@ import (
 type fakeAuthUserRepo struct {
 	findByUsernameResult      *models.User
 	findByUsernameErr         error
+	existsByUsernameResult    bool
+	existsByUsernameErr       error
 	findRefreshSessionResult  *models.RefreshSession
 	findRefreshSessionErr     error
 	findActivationTokenResult *models.ActivationToken
@@ -37,7 +39,9 @@ func (f *fakeAuthUserRepo) FindByIDs(context.Context, []uint) ([]*models.User, e
 func (f *fakeAuthUserRepo) FindByUsername(context.Context, string) (*models.User, error) {
 	return f.findByUsernameResult, f.findByUsernameErr
 }
-func (f *fakeAuthUserRepo) ExistsByUsername(context.Context, string) (bool, error)  { return false, nil }
+func (f *fakeAuthUserRepo) ExistsByUsername(context.Context, string) (bool, error) {
+	return f.existsByUsernameResult, f.existsByUsernameErr
+}
 func (f *fakeAuthUserRepo) FindAll(context.Context, string) ([]*models.User, error) { return nil, nil }
 func (f *fakeAuthUserRepo) Create(context.Context, *models.User) error              { return nil }
 func (f *fakeAuthUserRepo) Update(_ context.Context, user *models.User) error {
@@ -142,7 +146,13 @@ func TestAuthServiceActivateRegistration_StopsWhenAtomicConsumeFails(t *testing.
 	}
 
 	svc := newAuthServiceForTest(repo)
-	session, err := svc.ActivateRegistration(context.Background(), "invite-token", "newpass123", "newpass123", AuthSessionMeta{ClientType: "web"})
+	session, err := svc.ActivateRegistration(context.Background(), ActivateRegistrationInput{
+		Token:           "invite-token",
+		Password:        "newpass123",
+		ConfirmPassword: "newpass123",
+		RealName:        "Alice",
+		StudentID:       "M202500001",
+	}, AuthSessionMeta{ClientType: "web"})
 
 	assert.Equal(t, AuthSessionBundle{}, session)
 	var appErr *apperrors.AppError
@@ -151,4 +161,40 @@ func TestAuthServiceActivateRegistration_StopsWhenAtomicConsumeFails(t *testing.
 	assert.Equal(t, 0, repo.updateCount)
 	assert.Equal(t, 0, repo.revokeActivationCount)
 	assert.Equal(t, 0, repo.createRefreshSessionCount)
+}
+
+func TestAuthServiceActivateRegistration_UpdatesAccountIdentity(t *testing.T) {
+	user := models.User{
+		Username:     "temp-user",
+		PasswordHash: "old-hash",
+		Role:         "student",
+		Status:       models.UserStatusPendingActivation,
+	}
+	user.ID = 12
+	repo := &fakeAuthUserRepo{
+		findActivationTokenResult: &models.ActivationToken{
+			UserID:       user.ID,
+			TokenHash:    auth.HashOpaqueToken("invite-token"),
+			ExpiresAt:    time.Now().Add(time.Hour).Unix(),
+			RoleSnapshot: user.Role,
+			User:         user,
+		},
+		consumeActivationOK: true,
+	}
+
+	svc := newAuthServiceForTest(repo)
+	session, err := svc.ActivateRegistration(context.Background(), ActivateRegistrationInput{
+		Token:           "invite-token",
+		Password:        "newpass123",
+		ConfirmPassword: "newpass123",
+		RealName:        "胡傲东",
+		StudentID:       "M202500123",
+	}, AuthSessionMeta{ClientType: "web"})
+
+	assert.NoError(t, err)
+	assert.NotEmpty(t, session.AccessToken)
+	assert.Equal(t, "M202500123", repo.lastUpdatedUser.Username)
+	assert.Equal(t, "胡傲东", repo.lastUpdatedUser.Name)
+	assert.Equal(t, models.UserStatusActive, repo.lastUpdatedUser.Status)
+	assert.NotEmpty(t, repo.lastUpdatedUser.PasswordHash)
 }

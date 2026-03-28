@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/domains/auth/useAuth';
 import { Loader2, GraduationCap } from 'lucide-react';
 
 export function LoginPage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { login, status, error } = useAuth();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -13,7 +14,7 @@ export function LoginPage() {
         e.preventDefault();
         try {
             await login(username, password);
-            navigate('/courses');
+            navigate(searchParams.get('redirect') || '/courses');
         } catch {
             // Error is handled by auth state
         }

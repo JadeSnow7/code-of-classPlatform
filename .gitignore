@@ -7,3 +7,4 @@ deployment/docker/nginx/certs/*.crt
 ai_service/.venv/
 frontend-react/dist-electron/
 frontend-react/models/*.gguf
+.DS_Store

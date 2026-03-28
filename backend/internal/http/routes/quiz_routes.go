@@ -21,6 +21,10 @@ type QuizHandlers interface {
 	StartQuiz(c *gin.Context)
 	SubmitQuiz(c *gin.Context)
 	GetQuizResult(c *gin.Context)
+	CreateAttempt(c *gin.Context)
+	GetAttempt(c *gin.Context)
+	UpdateAttemptAnswers(c *gin.Context)
+	SubmitAttempt(c *gin.Context)
 }
 
 // RegisterQuizRoutes registers quiz routes
@@ -47,4 +51,8 @@ func RegisterQuizRoutes(api *gin.RouterGroup, jwtSecret string, h QuizHandlers) 
 	api.POST("/quizzes/:id/start", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizTake), h.StartQuiz)
 	api.POST("/quizzes/:id/submit", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizTake), h.SubmitQuiz)
 	api.GET("/quizzes/:id/result", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizRead), h.GetQuizResult)
+	api.POST("/quizzes/:id/attempts", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizTake), h.CreateAttempt)
+	api.GET("/quiz-attempts/:attemptId", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizRead), h.GetAttempt)
+	api.PATCH("/quiz-attempts/:attemptId/answers", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizTake), h.UpdateAttemptAnswers)
+	api.POST("/quiz-attempts/:attemptId/submit", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermQuizTake), h.SubmitAttempt)
 }

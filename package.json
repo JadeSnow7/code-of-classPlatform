@@ -13,6 +13,7 @@
     "dev:mobile": "npm -w mobile run start"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.91.3",
     "lodash": "^4.17.23",
     "react": "19.1.0",
     "react-dom": "19.1.0"

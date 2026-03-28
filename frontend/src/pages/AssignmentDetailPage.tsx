@@ -1,23 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Calendar, User, FileText, Send, CheckCircle, Loader2, Star, Upload, X } from 'lucide-react';
-import { assignmentApi, type Assignment, type Submission } from '@/api/assignment';
+import { ArrowLeft, Calendar, FileText, Send, CheckCircle, Loader2, Star, Upload, X } from 'lucide-react';
+import { assignmentApi, type SubmissionModel } from '@/api/assignment';
 import { uploadApi } from '@/api/upload';
 import { authStore } from '@/lib/auth-store';
 
 export function AssignmentDetailPage() {
     const { courseId, assignmentId } = useParams<{ courseId: string; assignmentId: string }>();
-    const [assignment, setAssignment] = useState<Assignment | null>(null);
-    const [submissions, setSubmissions] = useState<Submission[]>([]);
-    const [mySubmission, setMySubmission] = useState<Submission | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    // Form states
+    const numericAssignmentId = Number(assignmentId);
     const [content, setContent] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // File upload states
+    const [mySubmission, setMySubmission] = useState<SubmissionModel | null>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadError, setUploadError] = useState<string | null>(null);
@@ -27,81 +20,89 @@ export function AssignmentDetailPage() {
     const isTeacher = user?.role === 'admin' || user?.role === 'teacher' || user?.role === 'assistant';
     const isStudent = user?.role === 'student';
 
-    const loadData = useCallback(async () => {
-        if (!assignmentId) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            const assignmentData = await assignmentApi.get(parseInt(assignmentId));
-            setAssignment(assignmentData);
+    const assignmentQuery = useQuery({
+        queryKey: ['assignment-detail', numericAssignmentId],
+        enabled: Number.isFinite(numericAssignmentId),
+        queryFn: () => assignmentApi.getDetail(numericAssignmentId),
+    });
 
-            if (isTeacher) {
-                const subs = await assignmentApi.listSubmissions(parseInt(assignmentId));
-                setSubmissions(subs);
-            }
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Failed to load assignment';
-            setError(message);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [assignmentId, isTeacher]);
+    const submissionsQuery = useQuery({
+        queryKey: ['assignment-submissions', numericAssignmentId],
+        enabled: Number.isFinite(numericAssignmentId) && isTeacher,
+        queryFn: () => assignmentApi.listAssignmentSubmissions(numericAssignmentId),
+    });
 
     useEffect(() => {
-        if (!assignmentId) return;
-        void loadData();
-    }, [assignmentId, loadData]);
+        setMySubmission(assignmentQuery.data?.submission ?? null);
+    }, [assignmentQuery.data]);
 
-    const handleSubmit = async () => {
-        if (!assignmentId || !content.trim()) return;
-        setIsSubmitting(true);
-        setUploadError(null);
+    const submitMutation = useMutation({
+        mutationFn: async () => {
+            if (!Number.isFinite(numericAssignmentId)) {
+                throw new Error('assignmentId is required');
+            }
+            if (!content.trim() && !selectedFile) {
+                throw new Error('请输入作业内容或上传附件');
+            }
 
-        try {
             let fileUrl = '';
 
-            // Upload file if selected
             if (selectedFile) {
                 setUploadProgress(0);
                 const uploadResult = await uploadApi.uploadAssignmentFile(
-                    parseInt(assignmentId),
+                    numericAssignmentId,
                     selectedFile,
                     (progress) => setUploadProgress(progress)
                 );
                 fileUrl = uploadResult.signed_url;
             }
 
-            // Submit assignment with content and optional file
-            const sub = await assignmentApi.submit(parseInt(assignmentId), {
+            return assignmentApi.submitAssignment(numericAssignmentId, {
                 content,
-                file_url: fileUrl || undefined
+                fileUrl: fileUrl || undefined,
             });
-
-            setMySubmission(sub);
+        },
+        onSuccess: (submission) => {
+            setMySubmission(submission);
             setContent('');
             setSelectedFile(null);
             setUploadProgress(0);
+        },
+    });
+
+    const gradeMutation = useMutation({
+        mutationFn: ({ submissionId, grade, feedback }: { submissionId: number; grade: number; feedback: string }) =>
+            assignmentApi.gradeSubmission(submissionId, { grade, feedback }),
+        onSuccess: async () => {
+            await submissionsQuery.refetch();
+        },
+    });
+
+    const handleSubmit = async () => {
+        setUploadError(null);
+
+        try {
+            await submitMutation.mutateAsync();
             alert('提交成功!');
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '提交失败';
             setUploadError(message);
             alert('提交失败: ' + message);
         } finally {
-            setIsSubmitting(false);
+            setUploadProgress(0);
         }
     };
 
     const handleGrade = async (submissionId: number, grade: number, feedback: string) => {
         try {
-            await assignmentApi.grade(submissionId, { grade, feedback });
-            loadData();
+            await gradeMutation.mutateAsync({ submissionId, grade, feedback });
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '评分失败';
             alert('评分失败: ' + message);
         }
     };
 
-    if (isLoading) {
+    if (assignmentQuery.isLoading) {
         return (
             <div className="flex items-center justify-center h-64">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
@@ -109,19 +110,23 @@ export function AssignmentDetailPage() {
         );
     }
 
-    if (error || !assignment) {
+    if (assignmentQuery.isError || !assignmentQuery.data) {
+        const message = assignmentQuery.error instanceof Error ? assignmentQuery.error.message : '作业不存在';
         return (
             <div className="p-6">
                 <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg">
-                    {error || '作业不存在'}
+                    {message}
                 </div>
             </div>
         );
     }
 
+    const assignment = assignmentQuery.data;
+    const submissions = submissionsQuery.data ?? [];
+    const currentSubmission = mySubmission ?? assignment.submission ?? null;
+
     return (
         <div className="p-6 max-w-4xl">
-            {/* Back Link */}
             <Link
                 to={`/courses/${courseId}/assignments`}
                 className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition-colors"
@@ -130,7 +135,6 @@ export function AssignmentDetailPage() {
                 返回作业列表
             </Link>
 
-            {/* Assignment Header */}
             <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-2xl p-6 border border-blue-500/20 mb-6">
                 <h1 className="text-2xl font-bold text-white mb-2">{assignment.title}</h1>
                 <p className="text-gray-300 mb-4">{assignment.description || '暂无描述'}</p>
@@ -144,34 +148,33 @@ export function AssignmentDetailPage() {
                         </span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <User className="w-4 h-4" />
-                        <span>教师 #{assignment.teacher_id}</span>
+                        <FileText className="w-4 h-4" />
+                        <span>{assignment.maxScore ? `总分 ${assignment.maxScore}` : '未设置总分'}</span>
                     </div>
                 </div>
             </div>
 
-            {/* Student: Submit Form */}
             {isStudent && (
                 <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 mb-6">
                     <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                         <Send className="w-5 h-5" />
                         提交作业
                     </h2>
-                    {mySubmission ? (
+                    {currentSubmission ? (
                         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
                             <div className="flex items-center gap-2 text-green-400 mb-2">
                                 <CheckCircle className="w-5 h-5" />
                                 <span className="font-medium">已提交</span>
                             </div>
-                            <p className="text-gray-300 text-sm">{mySubmission.content}</p>
-                            {mySubmission.grade !== null && (
+                            <p className="text-gray-300 text-sm">{currentSubmission.content}</p>
+                            {currentSubmission.grade !== null && currentSubmission.grade !== undefined && (
                                 <div className="mt-3 pt-3 border-t border-gray-700">
                                     <div className="flex items-center gap-2 text-yellow-400">
                                         <Star className="w-4 h-4" />
-                                        <span>成绩: {mySubmission.grade} 分</span>
+                                        <span>成绩: {currentSubmission.grade} 分</span>
                                     </div>
-                                    {mySubmission.feedback && (
-                                        <p className="text-gray-400 text-sm mt-1">反馈: {mySubmission.feedback}</p>
+                                    {currentSubmission.feedback && (
+                                        <p className="text-gray-400 text-sm mt-1">反馈: {currentSubmission.feedback}</p>
                                     )}
                                 </div>
                             )}
@@ -185,7 +188,6 @@ export function AssignmentDetailPage() {
                                 className="w-full h-32 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                             />
 
-                            {/* File Upload Area */}
                             <div className="space-y-2">
                                 <input
                                     ref={fileInputRef}
@@ -193,16 +195,18 @@ export function AssignmentDetailPage() {
                                     accept=".pdf,.doc,.docx,.txt,.zip"
                                     onChange={(e) => {
                                         const file = e.target.files?.[0];
-                                        if (file) {
-                                            // Validate file size (20MB max)
-                                            if (file.size > 20 * 1024 * 1024) {
-                                                setUploadError('文件大小不能超过 20MB');
-                                                e.target.value = '';
-                                                return;
-                                            }
-                                            setSelectedFile(file);
-                                            setUploadError(null);
+                                        if (!file) {
+                                            return;
                                         }
+
+                                        if (file.size > 20 * 1024 * 1024) {
+                                            setUploadError('文件大小不能超过 20MB');
+                                            e.target.value = '';
+                                            return;
+                                        }
+
+                                        setSelectedFile(file);
+                                        setUploadError(null);
                                     }}
                                     className="hidden"
                                 />
@@ -229,7 +233,9 @@ export function AssignmentDetailPage() {
                                             type="button"
                                             onClick={() => {
                                                 setSelectedFile(null);
-                                                if (fileInputRef.current) fileInputRef.current.value = '';
+                                                if (fileInputRef.current) {
+                                                    fileInputRef.current.value = '';
+                                                }
                                             }}
                                             className="p-1 hover:bg-gray-600 rounded transition-colors"
                                         >
@@ -238,7 +244,6 @@ export function AssignmentDetailPage() {
                                     </div>
                                 )}
 
-                                {/* Upload Progress */}
                                 {uploadProgress > 0 && uploadProgress < 100 && (
                                     <div className="space-y-1">
                                         <div className="flex justify-between text-xs text-gray-400">
@@ -254,7 +259,6 @@ export function AssignmentDetailPage() {
                                     </div>
                                 )}
 
-                                {/* Upload Error */}
                                 {uploadError && (
                                     <p className="text-red-400 text-sm">{uploadError}</p>
                                 )}
@@ -262,10 +266,10 @@ export function AssignmentDetailPage() {
 
                             <button
                                 onClick={handleSubmit}
-                                disabled={isSubmitting || (!content.trim() && !selectedFile)}
+                                disabled={submitMutation.isPending || (!content.trim() && !selectedFile)}
                                 className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
                             >
-                                {isSubmitting ? (
+                                {submitMutation.isPending ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                     <Send className="w-4 h-4" />
@@ -277,21 +281,24 @@ export function AssignmentDetailPage() {
                 </div>
             )}
 
-            {/* Teacher: Submissions List */}
             {isTeacher && (
                 <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6">
                     <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                         <FileText className="w-5 h-5" />
                         学生提交 ({submissions.length})
                     </h2>
-                    {submissions.length === 0 ? (
+                    {submissionsQuery.isLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                        </div>
+                    ) : submissions.length === 0 ? (
                         <p className="text-gray-500 text-center py-8">暂无提交</p>
                     ) : (
                         <div className="space-y-4">
-                            {submissions.map((sub) => (
+                            {submissions.map((submission) => (
                                 <SubmissionCard
-                                    key={sub.ID}
-                                    submission={sub}
+                                    key={submission.id}
+                                    submission={submission}
                                     onGrade={handleGrade}
                                 />
                             ))}
@@ -307,7 +314,7 @@ function SubmissionCard({
     submission,
     onGrade,
 }: {
-    submission: Submission;
+    submission: SubmissionModel;
     onGrade: (id: number, grade: number, feedback: string) => void;
 }) {
     const [showGrade, setShowGrade] = useState(false);
@@ -317,12 +324,12 @@ function SubmissionCard({
     const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
 
     const handleSubmitGrade = () => {
-        const gradeNum = parseInt(grade);
-        if (isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
+        const gradeNum = parseInt(grade, 10);
+        if (Number.isNaN(gradeNum) || gradeNum < 0 || gradeNum > 100) {
             alert('请输入 0-100 之间的分数');
             return;
         }
-        onGrade(submission.ID, gradeNum, feedback);
+        onGrade(submission.id, gradeNum, feedback);
         setShowGrade(false);
     };
 
@@ -330,7 +337,7 @@ function SubmissionCard({
         setIsAIGrading(true);
         setAiSuggestion(null);
         try {
-            const result = await assignmentApi.aiGrade(submission.ID);
+            const result = await assignmentApi.aiGrade(submission.id);
             setAiSuggestion(result.suggestion);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '服务不可用';
@@ -344,15 +351,15 @@ function SubmissionCard({
         <div className="bg-gray-900/50 border border-gray-700 rounded-lg p-4">
             <div className="flex items-start justify-between mb-3">
                 <div>
-                    <span className="text-gray-400 text-sm">学生 #{submission.student_id}</span>
+                    <span className="text-gray-400 text-sm">学生 #{submission.studentId ?? '未知'}</span>
                     <span className="text-gray-600 mx-2">•</span>
                     <span className="text-gray-500 text-sm">
-                        {submission.CreatedAt || submission.submitted_at
-                            ? new Date(submission.CreatedAt ?? submission.submitted_at ?? '').toLocaleString('zh-CN')
+                        {submission.submittedAt || submission.createdAt
+                            ? new Date(submission.submittedAt ?? submission.createdAt ?? '').toLocaleString('zh-CN')
                             : '未知时间'}
                     </span>
                 </div>
-                {submission.grade !== null ? (
+                {submission.grade !== null && submission.grade !== undefined ? (
                     <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-sm">
                         {submission.grade} 分
                     </span>
@@ -365,11 +372,10 @@ function SubmissionCard({
 
             <p className="text-gray-300 text-sm mb-3">{submission.content}</p>
 
-            {/* File attachment display */}
-            {submission.file_url && (
+            {submission.fileUrl && (
                 <div className="mb-3">
                     <a
-                        href={submission.file_url}
+                        href={submission.fileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm"
@@ -380,7 +386,6 @@ function SubmissionCard({
                 </div>
             )}
 
-            {/* AI Suggestion Display */}
             {aiSuggestion && (
                 <div className="mb-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
                     <div className="flex items-center gap-2 text-purple-400 text-sm font-medium mb-2">
@@ -397,7 +402,7 @@ function SubmissionCard({
                         onClick={() => setShowGrade(true)}
                         className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
                     >
-                        {submission.grade !== null ? '修改评分' : '评分'}
+                        {submission.grade !== null && submission.grade !== undefined ? '修改评分' : '评分'}
                     </button>
                     <button
                         onClick={handleAIGrade}
