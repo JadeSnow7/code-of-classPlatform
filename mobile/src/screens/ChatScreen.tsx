@@ -81,7 +81,7 @@ export default function ChatScreen({ route, session, messages, setMessages }: Ch
                 if (!cancelled) {
                     setCourses(data);
                     if (preselectedCourseId) {
-                        const match = data.find((c) => c.ID === preselectedCourseId);
+                        const match = data.find((c) => (c.ID ?? c.id) === preselectedCourseId);
                         if (match) setSelectedCourse(match);
                     }
                 }
