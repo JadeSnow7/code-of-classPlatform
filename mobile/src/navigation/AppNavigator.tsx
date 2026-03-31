@@ -17,6 +17,8 @@ import AssignmentDetailScreen from '../screens/AssignmentDetailScreen';
 import QuizDetailScreen from '../screens/QuizDetailScreen';
 import WritingDetailScreen from '../screens/WritingDetailScreen';
 import WritingStudioScreen from '../screens/WritingStudioScreen';
+import KnowledgeHomeScreen from '../screens/KnowledgeHomeScreen';
+import KnowledgeCourseScreen from '../screens/KnowledgeCourseScreen';
 
 export type RootStackParamList = {
     Auth: undefined;
@@ -30,11 +32,17 @@ export type AuthStackParamList = {
 export type MainTabParamList = {
     HomeTab: undefined;
     ChatTab: undefined;
+    KnowledgeTab: undefined;
     ProfileTab: undefined;
 };
 
 export type ChatStackParamList = {
     ChatMain: { courseId?: number; courseTitle?: string } | undefined;
+};
+
+export type KnowledgeStackParamList = {
+    KnowledgeHome: undefined;
+    KnowledgeCourse: { courseId: number; courseTitle: string };
 };
 
 export type HomeStackParamList = {
@@ -52,11 +60,13 @@ const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const ChatStack = createNativeStackNavigator<ChatStackParamList>();
+const KnowledgeStack = createNativeStackNavigator<KnowledgeStackParamList>();
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     const icons: Record<string, string> = {
         home: '📚',
         chat: '💬',
+        knowledge: '🧠',
         profile: '👤',
     };
 
@@ -132,6 +142,30 @@ function HomeNavigator({ session }: { session: AuthSession }) {
                 {(props) => <WritingStudioScreen {...props} session={session} />}
             </HomeStack.Screen>
         </HomeStack.Navigator>
+    );
+}
+
+function KnowledgeNavigator({ session }: { session: AuthSession }) {
+    return (
+        <KnowledgeStack.Navigator
+            screenOptions={{
+                headerStyle: { backgroundColor: palette.background },
+                headerTintColor: palette.textPrimary,
+                headerTitleStyle: { fontWeight: '700' },
+                headerShadowVisible: false,
+                contentStyle: { backgroundColor: palette.background },
+            }}
+        >
+            <KnowledgeStack.Screen name="KnowledgeHome" options={{ title: '学习档案' }}>
+                {(props) => <KnowledgeHomeScreen {...props} session={session} />}
+            </KnowledgeStack.Screen>
+            <KnowledgeStack.Screen
+                name="KnowledgeCourse"
+                options={({ route }) => ({ title: route.params.courseTitle + ' · 档案' })}
+            >
+                {(props) => <KnowledgeCourseScreen {...props} session={session} />}
+            </KnowledgeStack.Screen>
+        </KnowledgeStack.Navigator>
     );
 }
 
@@ -214,6 +248,16 @@ function MainNavigator({
                         </ChatStack.Screen>
                     </ChatStack.Navigator>
                 )}
+            </MainTab.Screen>
+            <MainTab.Screen
+                name="KnowledgeTab"
+                options={{
+                    title: '学习档案',
+                    tabBarIcon: ({ focused }) => <TabIcon name="knowledge" focused={focused} />,
+                    headerShown: false,
+                }}
+            >
+                {() => <KnowledgeNavigator session={session} />}
             </MainTab.Screen>
             <MainTab.Screen
                 name="ProfileTab"
