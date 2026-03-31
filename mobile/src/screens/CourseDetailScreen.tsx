@@ -502,6 +502,39 @@ export default function CourseDetailScreen({ navigation, route, session }: Props
                             <StatCard label="待处理作业" value={`${overviewStats?.pendingAssignments ?? 0}`} />
                             <StatCard label="出勤率" value={`${overviewStats?.attendanceRate ?? 0}%`} />
                         </View>
+                        <Text style={[appStyles.sectionTitle, { marginTop: spacing.md }]}>快捷入口</Text>
+                        <Pressable
+                            style={styles.quickEntryButton}
+                            onPress={() =>
+                                navigation.navigate('WritingStudio', {
+                                    courseId: course.id ?? 0,
+                                    courseTitle: course.name,
+                                })
+                            }
+                        >
+                            <Text style={styles.quickEntryIcon}>✍️</Text>
+                            <View style={styles.quickEntryTextWrap}>
+                                <Text style={styles.quickEntryTitle}>写作助手</Text>
+                                <Text style={styles.quickEntrySubtitle}>AI 写作反馈 · 历史提交记录</Text>
+                            </View>
+                            <Text style={styles.quickEntryChevron}>›</Text>
+                        </Pressable>
+                        <Pressable
+                            style={styles.quickEntryButton}
+                            onPress={() =>
+                                (navigation.getParent() as any)?.navigate('ChatTab', {
+                                    screen: 'ChatMain',
+                                    params: { courseId: course.ID ?? course.id ?? 0, courseTitle: course.name },
+                                })
+                            }
+                        >
+                            <Text style={styles.quickEntryIcon}>💬</Text>
+                            <View style={styles.quickEntryTextWrap}>
+                                <Text style={styles.quickEntryTitle}>AI 助教</Text>
+                                <Text style={styles.quickEntrySubtitle}>基于本课程的智能问答</Text>
+                            </View>
+                            <Text style={styles.quickEntryChevron}>›</Text>
+                        </Pressable>
                     </View>
                 ) : null}
 
@@ -1142,6 +1175,34 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: spacing.sm,
+    },
+    quickEntryButton: {
+        ...appStyles.card,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: palette.backgroundElevated,
+    },
+    quickEntryIcon: {
+        fontSize: 24,
+    },
+    quickEntryTextWrap: {
+        flex: 1,
+        gap: 2,
+    },
+    quickEntryTitle: {
+        color: palette.textPrimary,
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    quickEntrySubtitle: {
+        color: palette.textMuted,
+        fontSize: 12,
+    },
+    quickEntryChevron: {
+        color: palette.textMuted,
+        fontSize: 22,
+        fontWeight: '300',
     },
     statCard: {
         ...appStyles.card,

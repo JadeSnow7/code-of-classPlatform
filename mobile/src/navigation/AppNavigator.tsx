@@ -16,6 +16,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import AssignmentDetailScreen from '../screens/AssignmentDetailScreen';
 import QuizDetailScreen from '../screens/QuizDetailScreen';
 import WritingDetailScreen from '../screens/WritingDetailScreen';
+import WritingStudioScreen from '../screens/WritingStudioScreen';
 
 export type RootStackParamList = {
     Auth: undefined;
@@ -32,6 +33,10 @@ export type MainTabParamList = {
     ProfileTab: undefined;
 };
 
+export type ChatStackParamList = {
+    ChatMain: { courseId?: number; courseTitle?: string } | undefined;
+};
+
 export type HomeStackParamList = {
     Courses: undefined;
     CourseDetail: { course: Course };
@@ -39,12 +44,14 @@ export type HomeStackParamList = {
     AssignmentDetail: { assignmentId: number; courseId: number; title?: string };
     QuizDetail: { quizId: number; courseId: number; title?: string };
     WritingDetail: { submissionId: number; courseId: number; title?: string };
+    WritingStudio: { courseId: number; courseTitle: string };
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const MainTab = createBottomTabNavigator<MainTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
+const ChatStack = createNativeStackNavigator<ChatStackParamList>();
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     const icons: Record<string, string> = {
@@ -118,6 +125,12 @@ function HomeNavigator({ session }: { session: AuthSession }) {
             >
                 {(props) => <WritingDetailScreen {...props} session={session} />}
             </HomeStack.Screen>
+            <HomeStack.Screen
+                name="WritingStudio"
+                options={({ route }) => ({ title: route.params.courseTitle + ' · 写作助手' })}
+            >
+                {(props) => <WritingStudioScreen {...props} session={session} />}
+            </HomeStack.Screen>
         </HomeStack.Navigator>
     );
 }
@@ -169,14 +182,37 @@ function MainNavigator({
                 options={{
                     title: 'AI 助教',
                     tabBarIcon: ({ focused }) => <TabIcon name="chat" focused={focused} />,
-                    headerShown: true,
-                    headerStyle: { backgroundColor: palette.background },
-                    headerTintColor: palette.textPrimary,
-                    headerTitleStyle: { fontWeight: '700' },
+                    headerShown: false,
                 }}
             >
                 {() => (
-                    <ChatScreen session={session} messages={messages} setMessages={setMessages} />
+                    <ChatStack.Navigator
+                        screenOptions={{
+                            headerStyle: { backgroundColor: palette.background },
+                            headerTintColor: palette.textPrimary,
+                            headerTitleStyle: { fontWeight: '700' },
+                            headerShadowVisible: false,
+                            contentStyle: { backgroundColor: palette.background },
+                        }}
+                    >
+                        <ChatStack.Screen
+                            name="ChatMain"
+                            options={({ route }) => ({
+                                title: route.params?.courseTitle
+                                    ? `${route.params.courseTitle} · AI 助教`
+                                    : 'AI 助教',
+                            })}
+                        >
+                            {(props) => (
+                                <ChatScreen
+                                    {...props}
+                                    session={session}
+                                    messages={messages}
+                                    setMessages={setMessages}
+                                />
+                            )}
+                        </ChatStack.Screen>
+                    </ChatStack.Navigator>
                 )}
             </MainTab.Screen>
             <MainTab.Screen
