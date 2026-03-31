@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   Course,
   CourseOverviewStats,
+  LearningProfile,
   Question,
   QuestionWithAnswer,
   Quiz,
@@ -485,4 +486,16 @@ export const WRITING_TYPE_LABELS: Record<WritingType, string> = {
 
 export async function getUserStats(token: string, tokenType: string): Promise<UserStats> {
   return authedApi(token, tokenType).user.getMyLearningStats();
+}
+
+// ============ Learning Profile API ============
+
+export async function getLearningProfile(
+    token: string,
+    tokenType: string,
+    courseId: number,
+    studentId: number,
+): Promise<LearningProfile> {
+    const api = authedApi(token, tokenType);
+    return api.client.get<LearningProfile>(`/learning-profiles/${courseId}/${studentId}`);
 }
