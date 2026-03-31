@@ -491,11 +491,11 @@ export async function getUserStats(token: string, tokenType: string): Promise<Us
 // ============ Learning Profile API ============
 
 export async function getLearningProfile(
-    token: string,
-    tokenType: string,
-    courseId: number,
-    studentId: number,
+  token: string,
+  tokenType: string,
+  courseId: number,
+  studentId: number,
 ): Promise<LearningProfile> {
-    const api = authedApi(token, tokenType);
-    return api.client.get<LearningProfile>(`/learning-profiles/${courseId}/${studentId}`);
+  const api = authedApi(token, tokenType);
+  return api.client.get<LearningProfile>(`/learning-profiles/${courseId}/${studentId}`);
 }
