@@ -59,7 +59,7 @@ func TestChat_OmitsUserIDForTutorMode(t *testing.T) {
 	}))
 	defer downstream.Close()
 
-	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"))
+	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"), nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("user", middleware.UserContext{ID: 123, Role: "student"})
@@ -106,7 +106,7 @@ func TestChat_ForwardsUserIDForPrivateArtifactMode(t *testing.T) {
 	}))
 	defer downstream.Close()
 
-	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"))
+	handler := newAIHandlers(clients.NewAIClient(downstream.URL, "gateway-token"), nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("user", middleware.UserContext{ID: 123, Role: "student"})
@@ -133,7 +133,7 @@ func TestChat_ForwardsUserIDForPrivateArtifactMode(t *testing.T) {
 func TestChat_RejectsMissingUserContext(t *testing.T) {
 	t.Parallel()
 
-	handler := newAIHandlers(clients.NewAIClient("http://ai.local", "gateway-token"))
+	handler := newAIHandlers(clients.NewAIClient("http://ai.local", "gateway-token"), nil)
 	r := gin.New()
 	r.POST("/ai/chat", handler.Chat)
 
@@ -156,7 +156,7 @@ func TestChatGuided_Success(t *testing.T) {
 	mockAI := &clients.AIClient{}
 	// Note: In real test, we'd use interface and mock
 
-	handler := newAIHandlers(mockAI)
+	handler := newAIHandlers(mockAI, nil)
 
 	// Create test router
 	r := gin.New()
@@ -194,7 +194,7 @@ func TestChatGuided_Success(t *testing.T) {
 
 func TestChatGuided_MissingUserID(t *testing.T) {
 	mockAI := &clients.AIClient{}
-	handler := newAIHandlers(mockAI)
+	handler := newAIHandlers(mockAI, nil)
 
 	r := gin.New()
 	// No user_id set - simulates missing JWT
@@ -218,7 +218,7 @@ func TestChatGuided_MissingUserID(t *testing.T) {
 
 func TestChatGuided_InvalidJSON(t *testing.T) {
 	mockAI := &clients.AIClient{}
-	handler := newAIHandlers(mockAI)
+	handler := newAIHandlers(mockAI, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -239,7 +239,7 @@ func TestChatGuided_InvalidJSON(t *testing.T) {
 
 func TestChatGuided_EmptyMessages(t *testing.T) {
 	mockAI := &clients.AIClient{}
-	handler := newAIHandlers(mockAI)
+	handler := newAIHandlers(mockAI, nil)
 
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -278,7 +278,7 @@ func TestUserIDInjection(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockAI := &clients.AIClient{}
-			handler := newAIHandlers(mockAI)
+			handler := newAIHandlers(mockAI, nil)
 
 			r := gin.New()
 			r.Use(func(c *gin.Context) {
@@ -310,7 +310,7 @@ func TestUserIDInjection(t *testing.T) {
 }
 
 func TestChatMultimodal_BadRequest(t *testing.T) {
-	handler := newAIHandlers(&clients.AIClient{})
+	handler := newAIHandlers(&clients.AIClient{}, nil)
 
 	r := gin.New()
 	r.POST("/ai/chat/multimodal", handler.ChatMultimodal)
@@ -324,7 +324,7 @@ func TestChatMultimodal_BadRequest(t *testing.T) {
 }
 
 func TestChatMultimodal_RejectsStreamMode(t *testing.T) {
-	handler := newAIHandlers(&clients.AIClient{})
+	handler := newAIHandlers(&clients.AIClient{}, nil)
 
 	r := gin.New()
 	r.POST("/ai/chat/multimodal", handler.ChatMultimodal)

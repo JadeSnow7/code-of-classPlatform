@@ -2,12 +2,14 @@ package http
 
 import (
 	"errors"
+	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
+	apperrors "github.com/huaodong/llm-teaching-platform/backend/pkg/errors"
 	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
@@ -44,6 +46,9 @@ func (h *attendanceHandlers) GetSummary(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	if summary.ActiveSession != nil && userCtx.Role != "student" {
+		summary.ActiveSession.QRURL = buildAttendanceQRURL(c, uint(courseID), summary.ActiveSession.ID)
+	}
 	response.OK(c, summary)
 }
 
@@ -56,17 +61,34 @@ func (h *attendanceHandlers) ListSessions(c *gin.Context) {
 		return
 	}
 
+	userCtx, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
 	sessions, err := h.service.ListSessions(c.Request.Context(), uint(courseID))
 	if err != nil {
 		response.Error(c, err)
 		return
+	}
+	if userCtx.Role == "student" {
+		for i := range sessions {
+			sessions[i].CenterLatitude = 0
+			sessions[i].CenterLongitude = 0
+			sessions[i].RadiusMeters = 0
+		}
 	}
 
 	response.OK(c, sessions)
 }
 
 type startSessionRequest struct {
-	TimeoutMinutes int `json:"timeout_minutes"`
+	TimeoutMinutes   int     `json:"timeout_minutes"`
+	LocationRequired bool    `json:"location_required"`
+	CenterLatitude   float64 `json:"center_latitude"`
+	CenterLongitude  float64 `json:"center_longitude"`
+	RadiusMeters     int     `json:"radius_meters"`
 }
 
 // StartSession creates a new attendance session
@@ -83,6 +105,9 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 	if req.TimeoutMinutes <= 0 || req.TimeoutMinutes > 60 {
 		req.TimeoutMinutes = 15
 	}
+	if req.RadiusMeters <= 0 {
+		req.RadiusMeters = 100
+	}
 
 	userCtx, ok := middleware.GetUser(c)
 	if !ok {
@@ -90,20 +115,34 @@ func (h *attendanceHandlers) StartSession(c *gin.Context) {
 		return
 	}
 
-	session, err := h.service.StartSession(c.Request.Context(), uint(courseID), userCtx.ID, req.TimeoutMinutes)
+	session, err := h.service.StartSession(c.Request.Context(), uint(courseID), userCtx.ID, services.AttendanceStartSessionInput{
+		TimeoutMinutes:   req.TimeoutMinutes,
+		LocationRequired: req.LocationRequired,
+		CenterLatitude:   req.CenterLatitude,
+		CenterLongitude:  req.CenterLongitude,
+		RadiusMeters:     req.RadiusMeters,
+	})
 	if err != nil {
-		if errors.Is(err, services.ErrAttendanceActiveSessionExists) {
+		switch {
+		case errors.Is(err, services.ErrAttendanceActiveSessionExists):
+			response.Error(c, &apperrors.AppError{Code: apperrors.CodeConflict, Message: "Active session already exists", HTTPStatus: http.StatusConflict})
+		case errors.Is(err, services.ErrAttendanceLocationRequired):
+			response.Error(c, &apperrors.AppError{Code: "LOCATION_REQUIRED", Message: "Valid teacher location is required", HTTPStatus: http.StatusBadRequest})
+		default:
 			response.Error(c, err)
-			return
 		}
-		response.Error(c, err)
 		return
 	}
 
 	response.Created(c, gin.H{
-		"id":      session.ID,
-		"code":    session.Code,
-		"ends_at": session.EndAt,
+		"id":                session.ID,
+		"code":              session.Code,
+		"ends_at":           session.EndAt,
+		"location_required": session.LocationRequired,
+		"radius_meters":     session.RadiusMeters,
+		"center_latitude":   session.CenterLatitude,
+		"center_longitude":  session.CenterLongitude,
+		"qr_url":            buildAttendanceQRURL(c, uint(courseID), session.ID),
 	})
 }
 
@@ -132,14 +171,17 @@ func (h *attendanceHandlers) EndSession(c *gin.Context) {
 }
 
 type checkinRequest struct {
-	Code string `json:"code" binding:"required"`
+	Code      string   `json:"code" binding:"required"`
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
 }
 
 // CheckinResponse is the API response payload for a check-in.
 type CheckinResponse struct {
-	Success          bool      `json:"success"`
-	AlreadyCheckedIn bool      `json:"already_checked_in,omitempty"`
-	CheckedInAt      time.Time `json:"checked_in_at"`
+	Success           bool      `json:"success"`
+	AlreadyCheckedIn  bool      `json:"already_checked_in,omitempty"`
+	CheckedInAt       time.Time `json:"checked_in_at"`
+	LocationValidated bool      `json:"location_validated"`
 }
 
 // Checkin allows a student to check in to a session
@@ -163,7 +205,17 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.Checkin(c.Request.Context(), uint(sessionID), userCtx.ID, req.Code, c.ClientIP())
+	if req.Latitude == nil || req.Longitude == nil {
+		response.Error(c, &apperrors.AppError{Code: "LOCATION_REQUIRED", Message: "Location permission is required", HTTPStatus: http.StatusBadRequest})
+		return
+	}
+
+	result, err := h.service.Checkin(c.Request.Context(), uint(sessionID), userCtx.ID, services.AttendanceCheckinInput{
+		Code:      req.Code,
+		Location:  c.ClientIP(),
+		Latitude:  *req.Latitude,
+		Longitude: *req.Longitude,
+	})
 	if err != nil {
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
@@ -174,6 +226,10 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 			response.BadRequest(c, "Session has expired")
 		case errors.Is(err, services.ErrAttendanceInvalidCode):
 			response.BadRequest(c, "Invalid code")
+		case errors.Is(err, services.ErrAttendanceLocationRequired):
+			response.Error(c, &apperrors.AppError{Code: "LOCATION_REQUIRED", Message: "Location permission is required", HTTPStatus: http.StatusBadRequest})
+		case errors.Is(err, services.ErrAttendanceOutOfRange):
+			response.Error(c, &apperrors.AppError{Code: "OUT_OF_ATTENDANCE_RANGE", Message: "You are outside the attendance area", HTTPStatus: http.StatusBadRequest})
 		default:
 			response.Error(c, err)
 		}
@@ -181,9 +237,10 @@ func (h *attendanceHandlers) Checkin(c *gin.Context) {
 	}
 
 	response.OK(c, CheckinResponse{
-		Success:          true,
-		AlreadyCheckedIn: result.AlreadyCheckedIn,
-		CheckedInAt:      result.CheckedInAt,
+		Success:           true,
+		AlreadyCheckedIn:  result.AlreadyCheckedIn,
+		CheckedInAt:       result.CheckedInAt,
+		LocationValidated: result.LocationValidated,
 	})
 }
 
@@ -203,4 +260,15 @@ func (h *attendanceHandlers) GetRecords(c *gin.Context) {
 	}
 
 	response.OK(c, records)
+}
+
+func buildAttendanceQRURL(c *gin.Context, courseID, sessionID uint) string {
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	if forwardedProto := c.GetHeader("X-Forwarded-Proto"); forwardedProto != "" {
+		scheme = forwardedProto
+	}
+	return scheme + "://" + c.Request.Host + "/courses/" + strconv.FormatUint(uint64(courseID), 10) + "/attendance?session=" + strconv.FormatUint(uint64(sessionID), 10)
 }

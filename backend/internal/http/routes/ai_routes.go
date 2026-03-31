@@ -15,6 +15,9 @@ type AIHandlers interface {
 	ChatWithTools(c *gin.Context)
 	ChatGuided(c *gin.Context)
 	Derive(c *gin.Context)
+	CreateSession(c *gin.Context)
+	ListSessionMessages(c *gin.Context)
+	RunSession(c *gin.Context)
 }
 
 // RegisterAIRoutes registers AI routes
@@ -26,4 +29,7 @@ func RegisterAIRoutes(api *gin.RouterGroup, jwtSecret string, aiLimiter *middlew
 	api.POST("/ai/chat_with_tools", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ChatWithTools)
 	api.POST("/ai/chat/guided", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ChatGuided)
 	api.POST("/ai/derive", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.Derive)
+	api.POST("/ai/sessions", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.CreateSession)
+	api.GET("/ai/sessions/:sessionId/messages", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ListSessionMessages)
+	api.POST("/ai/sessions/:sessionId/runs", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.RunSession)
 }

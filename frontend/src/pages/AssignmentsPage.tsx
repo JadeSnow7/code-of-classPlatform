@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
-import { FileText, Plus, Calendar, User, ChevronRight } from 'lucide-react';
-import { assignmentApi, type Assignment } from '@/api/assignment';
+import { FileText, Plus, Calendar, CheckCircle2, ChevronRight } from 'lucide-react';
+import { assignmentApi, type AssignmentModel } from '@/api/assignment';
 import { authStore } from '@/lib/auth-store';
 import { List, Typography, Button, Spin, Alert, Modal, Form, Input, Space, message } from 'antd';
 
@@ -9,51 +10,48 @@ const { Title, Text, Paragraph } = Typography;
 
 export function AssignmentsPage() {
     const { courseId } = useParams<{ courseId: string }>();
-    const [assignments, setAssignments] = useState<Assignment[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const numericCourseId = Number(courseId);
 
     const user = authStore.getUser();
     const canCreate = user?.role === 'admin' || user?.role === 'teacher';
 
-    const loadAssignments = useCallback(async () => {
-        if (!courseId) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            const data = await assignmentApi.listByCourse(parseInt(courseId));
-            setAssignments(data);
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : 'Failed to load assignments';
-            setError(msg);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [courseId]);
+    const assignmentsQuery = useQuery({
+        queryKey: ['course-assignments', numericCourseId],
+        enabled: Number.isFinite(numericCourseId),
+        queryFn: async () => {
+            const payload = await assignmentApi.listCourseAssignments(numericCourseId);
+            return payload.items;
+        },
+    });
 
-    useEffect(() => {
-        if (!courseId) return;
-        void loadAssignments();
-    }, [courseId, loadAssignments]);
+    const createAssignmentMutation = useMutation({
+        mutationFn: (values: { title: string; description: string }) => {
+            if (!Number.isFinite(numericCourseId)) {
+                throw new Error('courseId is required');
+            }
 
-    const handleCreate = async (values: { title: string; description: string }) => {
-        if (!courseId) return;
-        try {
-            await assignmentApi.create({
-                course_id: parseInt(courseId),
-                ...values,
-            });
+            return assignmentApi.createAssignment(numericCourseId, values);
+        },
+        onSuccess: async () => {
             setShowCreate(false);
             message.success('作业发布成功');
-            loadAssignments();
+            await assignmentsQuery.refetch();
+        },
+    });
+
+    const assignments = useMemo(() => assignmentsQuery.data ?? [], [assignmentsQuery.data]);
+
+    const handleCreate = async (values: { title: string; description: string }) => {
+        try {
+            await createAssignmentMutation.mutateAsync(values);
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : '创建失败';
             message.error(msg);
         }
     };
 
-    if (isLoading) {
+    if (assignmentsQuery.isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[50vh]">
                 <Spin size="large" />
@@ -63,7 +61,6 @@ export function AssignmentsPage() {
 
     return (
         <div className="p-6">
-            {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <Title level={3} style={{ color: '#F8FAFC', margin: 0 }}>作业列表</Title>
@@ -81,12 +78,15 @@ export function AssignmentsPage() {
                 )}
             </div>
 
-            {/* Error */}
-            {error && (
-                <Alert message={error} type="error" showIcon style={{ marginBottom: 24 }} />
+            {assignmentsQuery.isError && (
+                <Alert
+                    message={assignmentsQuery.error instanceof Error ? assignmentsQuery.error.message : 'Failed to load assignments'}
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: 24 }}
+                />
             )}
 
-            {/* Assignment List */}
             <List
                 dataSource={assignments}
                 locale={{
@@ -96,12 +96,12 @@ export function AssignmentsPage() {
                             <Title level={5} style={{ color: '#6B7280' }}>暂无作业</Title>
                             {canCreate && <Text style={{ color: '#6B7280' }}>点击上方按钮发布第一个作业</Text>}
                         </div>
-                    )
+                    ),
                 }}
-                renderItem={(assignment) => (
+                renderItem={(assignment: AssignmentModel) => (
                     <List.Item style={{ padding: 0, borderBottom: 'none', marginBottom: 12 }}>
                         <Link
-                            to={`/courses/${courseId}/assignments/${assignment.ID}`}
+                            to={`/courses/${courseId}/assignments/${assignment.id}`}
                             className="w-full block transition-all group"
                         >
                             <div
@@ -109,7 +109,7 @@ export function AssignmentsPage() {
                                     background: 'rgba(31, 41, 55, 0.5)',
                                     border: '1px solid #374151',
                                     borderRadius: 12,
-                                    padding: 20
+                                    padding: 20,
                                 }}
                                 className="hover:border-blue-500/50 hover:bg-gray-800"
                             >
@@ -131,8 +131,8 @@ export function AssignmentsPage() {
                                                 </span>
                                             </Space>
                                             <Space size="small">
-                                                <User size={14} />
-                                                <span>教师 #{assignment.teacher_id}</span>
+                                                <CheckCircle2 size={14} />
+                                                <span>{assignment.status ? `状态: ${assignment.status}` : `总分 ${assignment.maxScore ?? 100}`}</span>
                                             </Space>
                                         </Space>
                                     </div>
@@ -144,7 +144,6 @@ export function AssignmentsPage() {
                 )}
             />
 
-            {/* Create Modal */}
             <Modal
                 title="发布新作业"
                 open={showCreate}
@@ -165,7 +164,7 @@ export function AssignmentsPage() {
                     <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
                         <Space>
                             <Button onClick={() => setShowCreate(false)}>取消</Button>
-                            <Button type="primary" htmlType="submit" style={{ backgroundColor: '#2563EB' }}>发布</Button>
+                            <Button type="primary" htmlType="submit" loading={createAssignmentMutation.isPending} style={{ backgroundColor: '#2563EB' }}>发布</Button>
                         </Space>
                     </Form.Item>
                 </Form>

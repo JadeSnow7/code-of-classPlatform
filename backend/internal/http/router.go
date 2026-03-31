@@ -38,7 +38,7 @@ func NewRouter(cfg config.Config, deps RouterDeps) *gin.Engine {
 	api := r.Group("/api/v1")
 	routes.RegisterAuthRoutes(api, cfg.JWTSecret, authLimiter, deps.AuthHandlers)
 	routes.RegisterUserRoutes(api, cfg.JWTSecret, deps.UserHandlers)
-	routes.RegisterLearningHubRoutes(api, cfg.JWTSecret, NewLearningHubHandlers())
+	routes.RegisterLearningHubRoutes(api, cfg.JWTSecret, deps.LearningHubHandlers)
 	routes.RegisterAIConfigRoutes(api, cfg.JWTSecret, deps.AIConfigHandlers)
 	routes.RegisterWecomRoutes(api, deps.WecomHandlers)
 	routes.RegisterCourseRoutes(api, cfg.JWTSecret, deps.CourseHandlers)

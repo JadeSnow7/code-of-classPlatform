@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
@@ -22,7 +23,9 @@ var (
 	// ErrAttendanceSessionExpired indicates the session has expired by timeout.
 	ErrAttendanceSessionExpired = errors.New("session has expired")
 	// ErrAttendanceInvalidCode indicates the submitted check-in code is invalid.
-	ErrAttendanceInvalidCode = errors.New("invalid code")
+	ErrAttendanceInvalidCode      = errors.New("invalid code")
+	ErrAttendanceLocationRequired = errors.New("location required")
+	ErrAttendanceOutOfRange       = errors.New("out of attendance range")
 )
 
 type attendanceService struct {
@@ -80,9 +83,15 @@ func (s *attendanceService) GetSummary(ctx context.Context, courseID, userID uin
 			code = ""
 		}
 		summary.ActiveSession = &ActiveSessionInfo{
-			ID:     activeSession.ID,
-			Code:   code,
-			EndsAt: activeSession.EndAt,
+			ID:               activeSession.ID,
+			Code:             code,
+			EndsAt:           activeSession.EndAt,
+			LocationRequired: activeSession.LocationRequired,
+			RadiusMeters:     activeSession.RadiusMeters,
+		}
+		if role != "student" {
+			summary.ActiveSession.CenterLatitude = activeSession.CenterLatitude
+			summary.ActiveSession.CenterLongitude = activeSession.CenterLongitude
 		}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return summary, err
@@ -104,17 +113,21 @@ func (s *attendanceService) ListSessions(ctx context.Context, courseID uint) ([]
 			return nil, countErr
 		}
 		result[i] = AttendanceSessionListItem{
-			ID:            session.ID,
-			StartAt:       session.StartAt,
-			EndAt:         session.EndAt,
-			IsActive:      session.IsActive,
-			AttendeeCount: int(count),
+			ID:               session.ID,
+			StartAt:          session.StartAt,
+			EndAt:            session.EndAt,
+			IsActive:         session.IsActive,
+			AttendeeCount:    int(count),
+			LocationRequired: session.LocationRequired,
+			CenterLatitude:   session.CenterLatitude,
+			CenterLongitude:  session.CenterLongitude,
+			RadiusMeters:     session.RadiusMeters,
 		}
 	}
 	return result, nil
 }
 
-func (s *attendanceService) StartSession(ctx context.Context, courseID, startedByID uint, timeoutMinutes int) (*models.AttendanceSession, error) {
+func (s *attendanceService) StartSession(ctx context.Context, courseID, startedByID uint, input AttendanceStartSessionInput) (*models.AttendanceSession, error) {
 	_, err := s.repo.FindActiveSessionByCourseID(ctx, courseID)
 	if err == nil {
 		return nil, ErrAttendanceActiveSessionExists
@@ -123,18 +136,31 @@ func (s *attendanceService) StartSession(ctx context.Context, courseID, startedB
 		return nil, err
 	}
 
-	if timeoutMinutes <= 0 || timeoutMinutes > 60 {
-		timeoutMinutes = 15
+	if input.TimeoutMinutes <= 0 || input.TimeoutMinutes > 60 {
+		input.TimeoutMinutes = 15
+	}
+	if input.RadiusMeters <= 0 {
+		input.RadiusMeters = 100
+	}
+	if input.RadiusMeters < 30 || input.RadiusMeters > 500 {
+		return nil, ErrAttendanceLocationRequired
+	}
+	if !isValidCoordinate(input.CenterLatitude, input.CenterLongitude) {
+		return nil, ErrAttendanceLocationRequired
 	}
 	now := time.Now()
 	session := &models.AttendanceSession{
-		CourseID:       courseID,
-		StartedByID:    startedByID,
-		StartAt:        now,
-		EndAt:          now.Add(time.Duration(timeoutMinutes) * time.Minute),
-		TimeoutMinutes: timeoutMinutes,
-		Code:           generateAttendanceCode(),
-		IsActive:       true,
+		CourseID:         courseID,
+		StartedByID:      startedByID,
+		StartAt:          now,
+		EndAt:            now.Add(time.Duration(input.TimeoutMinutes) * time.Minute),
+		TimeoutMinutes:   input.TimeoutMinutes,
+		Code:             generateAttendanceCode(),
+		IsActive:         true,
+		LocationRequired: input.LocationRequired,
+		CenterLatitude:   input.CenterLatitude,
+		CenterLongitude:  input.CenterLongitude,
+		RadiusMeters:     input.RadiusMeters,
 	}
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return nil, err
@@ -154,7 +180,7 @@ func (s *attendanceService) EndSession(ctx context.Context, sessionID uint) erro
 	return s.repo.UpdateSession(ctx, session)
 }
 
-func (s *attendanceService) Checkin(ctx context.Context, sessionID, studentID uint, code, location string) (AttendanceCheckinResult, error) {
+func (s *attendanceService) Checkin(ctx context.Context, sessionID, studentID uint, input AttendanceCheckinInput) (AttendanceCheckinResult, error) {
 	result := AttendanceCheckinResult{}
 	session, err := s.repo.FindSessionByID(ctx, sessionID)
 	if err != nil {
@@ -171,15 +197,24 @@ func (s *attendanceService) Checkin(ctx context.Context, sessionID, studentID ui
 		return result, ErrAttendanceSessionExpired
 	}
 
-	if code != session.Code {
+	if input.Code != session.Code {
 		return result, ErrAttendanceInvalidCode
+	}
+	if session.LocationRequired {
+		if !isValidCoordinate(input.Latitude, input.Longitude) {
+			return result, ErrAttendanceLocationRequired
+		}
+		if distanceMeters(session.CenterLatitude, session.CenterLongitude, input.Latitude, input.Longitude) > float64(session.RadiusMeters) {
+			return result, ErrAttendanceOutOfRange
+		}
 	}
 
 	existing, err := s.repo.FindRecordBySessionAndStudent(ctx, sessionID, studentID)
 	if err == nil {
 		return AttendanceCheckinResult{
-			AlreadyCheckedIn: true,
-			CheckedInAt:      existing.CheckedInAt,
+			AlreadyCheckedIn:  true,
+			CheckedInAt:       existing.CheckedInAt,
+			LocationValidated: existing.LocationValidated,
 		}, nil
 	}
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -188,17 +223,21 @@ func (s *attendanceService) Checkin(ctx context.Context, sessionID, studentID ui
 
 	now := time.Now()
 	record := &models.AttendanceRecord{
-		SessionID:   sessionID,
-		StudentID:   studentID,
-		CheckedInAt: now,
-		IPAddress:   location,
+		SessionID:         sessionID,
+		StudentID:         studentID,
+		CheckedInAt:       now,
+		IPAddress:         input.Location,
+		Latitude:          input.Latitude,
+		Longitude:         input.Longitude,
+		LocationValidated: !session.LocationRequired || isWithinRange(session, input.Latitude, input.Longitude),
 	}
 	if err := s.repo.Checkin(ctx, record); err != nil {
 		return result, err
 	}
 	return AttendanceCheckinResult{
-		AlreadyCheckedIn: false,
-		CheckedInAt:      now,
+		AlreadyCheckedIn:  false,
+		CheckedInAt:       now,
+		LocationValidated: record.LocationValidated,
 	}, nil
 }
 
@@ -232,13 +271,41 @@ func (s *attendanceService) GetRecords(ctx context.Context, sessionID uint) ([]A
 	result := make([]AttendanceRecordWithStudent, len(records))
 	for i, record := range records {
 		result[i] = AttendanceRecordWithStudent{
-			StudentID:   record.StudentID,
-			StudentName: userMap[record.StudentID],
-			CheckedInAt: record.CheckedInAt,
-			IPAddress:   record.IPAddress,
+			StudentID:         record.StudentID,
+			StudentName:       userMap[record.StudentID],
+			CheckedInAt:       record.CheckedInAt,
+			IPAddress:         record.IPAddress,
+			Latitude:          record.Latitude,
+			Longitude:         record.Longitude,
+			LocationValidated: record.LocationValidated,
 		}
 	}
 	return result, nil
+}
+
+func isValidCoordinate(latitude, longitude float64) bool {
+	return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+}
+
+func isWithinRange(session *models.AttendanceSession, latitude, longitude float64) bool {
+	return distanceMeters(session.CenterLatitude, session.CenterLongitude, latitude, longitude) <= float64(session.RadiusMeters)
+}
+
+func distanceMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusMeters = 6371000.0
+	toRadians := func(v float64) float64 {
+		return v * math.Pi / 180
+	}
+
+	latDelta := toRadians(lat2 - lat1)
+	lngDelta := toRadians(lng2 - lng1)
+	lat1Rad := toRadians(lat1)
+	lat2Rad := toRadians(lat2)
+
+	a := math.Sin(latDelta/2)*math.Sin(latDelta/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*math.Sin(lngDelta/2)*math.Sin(lngDelta/2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadiusMeters * c
 }
 
 func generateAttendanceCode() string {

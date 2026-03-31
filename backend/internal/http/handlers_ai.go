@@ -1,28 +1,35 @@
 package http
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
+	"gorm.io/gorm"
 )
 
 type aiHandlers struct {
 	ai *clients.AIClient
+	db *gorm.DB
 }
 
-func NewAIHandlers(ai *clients.AIClient) *aiHandlers {
-	return &aiHandlers{ai: ai}
+func NewAIHandlers(ai *clients.AIClient, db *gorm.DB) *aiHandlers {
+	return &aiHandlers{ai: ai, db: db}
 }
 
-func newAIHandlers(ai *clients.AIClient) *aiHandlers {
-	return NewAIHandlers(ai)
+func newAIHandlers(ai *clients.AIClient, db *gorm.DB) *aiHandlers {
+	return NewAIHandlers(ai, db)
 }
 
 type flexibleString string
@@ -438,4 +445,307 @@ func (h *aiHandlers) Derive(c *gin.Context) {
 		return
 	}
 	response.OK(c, resp)
+}
+
+func (h *aiHandlers) CreateSession(c *gin.Context) {
+	if h.db == nil {
+		response.BadRequest(c, "ai sessions are not available")
+		return
+	}
+	user, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "user not found in context")
+		return
+	}
+	var req struct {
+		Mode                   string `json:"mode" binding:"required"`
+		OverriddenSystemPrompt string `json:"overriddenSystemPrompt"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request")
+		return
+	}
+	session := models.AISession{
+		SessionID:              fmt.Sprintf("session_%d", time.Now().UnixNano()),
+		UserID:                 user.ID,
+		Mode:                   req.Mode,
+		OverriddenSystemPrompt: req.OverriddenSystemPrompt,
+	}
+	if err := h.db.WithContext(c.Request.Context()).Create(&session).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, gin.H{
+		"session_id": session.SessionID,
+		"mode":       session.Mode,
+	})
+}
+
+func (h *aiHandlers) ListSessionMessages(c *gin.Context) {
+	if h.db == nil {
+		response.BadRequest(c, "ai sessions are not available")
+		return
+	}
+	user, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "user not found in context")
+		return
+	}
+	sessionID := strings.TrimSpace(c.Param("sessionId"))
+	var session models.AISession
+	if err := h.db.WithContext(c.Request.Context()).Where("session_id = ? AND user_id = ?", sessionID, user.ID).First(&session).Error; err != nil {
+		response.NotFound(c, "ai session")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	var total int64
+	query := h.db.WithContext(c.Request.Context()).Model(&models.AIMessage{}).Where("session_id = ? AND user_id = ?", sessionID, user.ID)
+	if err := query.Count(&total).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	cursor := strings.TrimSpace(c.Query("cursor"))
+	baseQuery := query.Order("created_at ASC").Order("id ASC")
+	var messages []models.AIMessage
+	hasMore := false
+	nextCursor := ""
+
+	if cursor != "" {
+		var anchor models.AIMessage
+		if err := h.db.WithContext(c.Request.Context()).
+			Where("session_id = ? AND user_id = ? AND message_id = ?", sessionID, user.ID, cursor).
+			First(&anchor).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				response.BadRequest(c, "invalid cursor")
+				return
+			}
+			response.Error(c, err)
+			return
+		}
+
+		cursorQuery := baseQuery.Where(
+			"(created_at > ?) OR (created_at = ? AND id > ?)",
+			anchor.CreatedAt,
+			anchor.CreatedAt,
+			anchor.ID,
+		)
+		if err := cursorQuery.Limit(pageSize + 1).Find(&messages).Error; err != nil {
+			response.Error(c, err)
+			return
+		}
+		if len(messages) > pageSize {
+			hasMore = true
+			messages = messages[:pageSize]
+		}
+		page = 1
+	} else {
+		if err := baseQuery.Offset((page - 1) * pageSize).Limit(pageSize + 1).Find(&messages).Error; err != nil {
+			response.Error(c, err)
+			return
+		}
+		if len(messages) > pageSize {
+			hasMore = true
+			messages = messages[:pageSize]
+		}
+		if !hasMore {
+			hasMore = int64(page*pageSize) < total
+		}
+	}
+
+	items := make([]gin.H, 0, len(messages))
+	for _, message := range messages {
+		items = append(items, gin.H{
+			"id":         message.MessageID,
+			"role":       message.Role,
+			"content":    message.Content,
+			"created_at": message.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	if len(messages) > 0 {
+		nextCursor = messages[len(messages)-1].MessageID
+	}
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	response.OK(c, gin.H{
+		"items":       items,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": totalPages,
+		"has_more":    hasMore,
+		"cursor":      cursor,
+		"next_cursor": nextCursor,
+	})
+}
+
+func (h *aiHandlers) RunSession(c *gin.Context) {
+	if h.db == nil {
+		response.BadRequest(c, "ai sessions are not available")
+		return
+	}
+	user, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "user not found in context")
+		return
+	}
+	sessionID := strings.TrimSpace(c.Param("sessionId"))
+	var session models.AISession
+	if err := h.db.WithContext(c.Request.Context()).Where("session_id = ? AND user_id = ?", sessionID, user.ID).First(&session).Error; err != nil {
+		response.NotFound(c, "ai session")
+		return
+	}
+	var req struct {
+		Input []struct {
+			ID      string `json:"id"`
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"input" binding:"required"`
+		Tools  []map[string]interface{} `json:"tools"`
+		Stream bool                     `json:"stream"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "invalid request")
+		return
+	}
+	runID := fmt.Sprintf("run_%d", time.Now().UnixNano())
+	run := models.AIRun{RunID: runID, SessionID: sessionID, UserID: user.ID, Status: "queued"}
+	if err := h.db.WithContext(c.Request.Context()).Create(&run).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	for _, message := range req.Input {
+		msgID := message.ID
+		if strings.TrimSpace(msgID) == "" {
+			msgID = fmt.Sprintf("msg_%d", time.Now().UnixNano())
+		}
+		_ = h.db.WithContext(c.Request.Context()).Create(&models.AIMessage{
+			MessageID: msgID,
+			SessionID: sessionID,
+			UserID:    user.ID,
+			Role:      message.Role,
+			Content:   message.Content,
+		}).Error
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	emitAIEvent(c, "run_status", gin.H{"status": "queued"})
+	emitAIEvent(c, "run_status", gin.H{"status": "running"})
+	_ = h.db.WithContext(c.Request.Context()).Model(&run).Updates(map[string]interface{}{"status": "running"}).Error
+
+	if h.ai == nil {
+		h.finishAIRun(c, &run, sessionID, user.ID, "", "AI_UNAVAILABLE", "ai client is not configured")
+		return
+	}
+
+	messages := make([]clients.ChatMessage, 0, len(req.Input))
+	for _, message := range req.Input {
+		messages = append(messages, clients.ChatMessage{Role: message.Role, Content: message.Content})
+	}
+	body, err := h.ai.StreamChat(clients.WithRequestID(c.Request.Context(), middleware.GetRequestID(c)), clients.ChatRequest{
+		Mode:     session.Mode,
+		Messages: messages,
+		Stream:   true,
+		UserID:   fmt.Sprintf("%d", user.ID),
+		UserRole: user.Role,
+	})
+	if err != nil {
+		h.finishAIRun(c, &run, sessionID, user.ID, "", "UPSTREAM_ERROR", err.Error())
+		return
+	}
+	defer body.Close()
+
+	var assistantText strings.Builder
+	scanner := bufio.NewScanner(body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+			continue
+		}
+		if content := extractAIContent(parsed); content != "" {
+			assistantText.WriteString(content)
+			emitAIEvent(c, "token", gin.H{"text": content})
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		h.finishAIRun(c, &run, sessionID, user.ID, assistantText.String(), "STREAM_ERROR", err.Error())
+		return
+	}
+	h.finishAIRun(c, &run, sessionID, user.ID, assistantText.String(), "", "")
+}
+
+func emitAIEvent(c *gin.Context, event string, data interface{}) {
+	body, _ := json.Marshal(data)
+	_, _ = c.Writer.WriteString("event: " + event + "\n")
+	_, _ = c.Writer.WriteString("data: " + string(body) + "\n\n")
+	c.Writer.Flush()
+}
+
+func extractAIContent(parsed map[string]interface{}) string {
+	if content, ok := parsed["content"].(string); ok && content != "" {
+		return content
+	}
+	choices, ok := parsed["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return ""
+	}
+	first, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	delta, ok := first["delta"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	content, _ := delta["content"].(string)
+	return content
+}
+
+func (h *aiHandlers) finishAIRun(c *gin.Context, run *models.AIRun, sessionID string, userID uint, assistantContent, errorCode, errorMessage string) {
+	status := "completed"
+	if errorCode != "" {
+		status = "failed"
+		emitAIEvent(c, "error", gin.H{"code": errorCode, "message": errorMessage})
+		emitAIEvent(c, "run_status", gin.H{"status": "failed", "code": errorCode, "message": errorMessage})
+	} else {
+		messageID := fmt.Sprintf("msg_%d", time.Now().UnixNano())
+		if strings.TrimSpace(assistantContent) != "" && h.db != nil {
+			_ = h.db.WithContext(c.Request.Context()).Create(&models.AIMessage{
+				MessageID: messageID,
+				SessionID: sessionID,
+				UserID:    userID,
+				Role:      "assistant",
+				Content:   assistantContent,
+			}).Error
+			emitAIEvent(c, "message", gin.H{
+				"message_id": messageID,
+				"role":       "assistant",
+				"content":    assistantContent,
+			})
+		}
+	}
+	if h.db != nil {
+		_ = h.db.WithContext(c.Request.Context()).Model(run).Updates(map[string]interface{}{
+			"status":        status,
+			"error_code":    errorCode,
+			"error_message": errorMessage,
+		}).Error
+	}
+	emitAIEvent(c, "done", gin.H{"run_id": run.RunID})
 }

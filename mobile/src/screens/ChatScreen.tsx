@@ -12,14 +12,16 @@ import {
     View,
 } from 'react-native';
 
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { chat, getCourses } from '../api';
 import { DEFAULT_CHAT_MODE, EDGE_ROUTER_ENGINE, MAX_CONTEXT_MESSAGES } from '../config';
+import type { ChatStackParamList } from '../navigation/AppNavigator';
 import { decideRouteWithRust } from '../rustBridge';
 import type { AuthSession, ChatMessage, Course } from '../types';
 import MessageBubble from '../components/MessageBubble';
 import { appStyles, palette, radius, spacing } from '../theme';
 
-type ChatScreenProps = {
+type ChatScreenProps = NativeStackScreenProps<ChatStackParamList, 'ChatMain'> & {
     session: AuthSession;
     messages: ChatMessage[];
     setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
@@ -40,7 +42,8 @@ function createId() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export default function ChatScreen({ session, messages, setMessages }: ChatScreenProps) {
+export default function ChatScreen({ route, session, messages, setMessages }: ChatScreenProps) {
+    const preselectedCourseId = route.params?.courseId;
     const [input, setInput] = useState('');
     const [mode, setMode] = useState(DEFAULT_CHAT_MODE);
     const [loading, setLoading] = useState(false);
@@ -77,6 +80,10 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
                 const data = await getCourses(session.token, session.tokenType);
                 if (!cancelled) {
                     setCourses(data);
+                    if (preselectedCourseId) {
+                        const match = data.find((c) => (c.ID ?? c.id) === preselectedCourseId);
+                        if (match) setSelectedCourse(match);
+                    }
                 }
             } catch (err) {
                 if (!cancelled) {
@@ -94,7 +101,7 @@ export default function ChatScreen({ session, messages, setMessages }: ChatScree
         return () => {
             cancelled = true;
         };
-    }, [session.token, session.tokenType]);
+    }, [session.token, session.tokenType, preselectedCourseId]);
 
     const canSend = input.trim().length > 0 && !loading && !!selectedCourse;
 

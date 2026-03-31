@@ -1,9 +1,11 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App as AntdApp } from 'antd'
+import { QueryClientProvider } from '@tanstack/react-query'
 import './styles/index.css'
 import { AppRouter } from './app/router'
 import { ThemeProvider } from './ThemeProvider'
+import { queryClient } from './lib/query-client'
 
 interface RootErrorBoundaryProps {
   children: ReactNode
@@ -60,11 +62,13 @@ class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBound
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <RootErrorBoundary>
-      <ThemeProvider>
-        <AntdApp>
-          <AppRouter />
-        </AntdApp>
-      </ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <AntdApp>
+            <AppRouter />
+          </AntdApp>
+        </ThemeProvider>
+      </QueryClientProvider>
     </RootErrorBoundary>
   </StrictMode>,
 )

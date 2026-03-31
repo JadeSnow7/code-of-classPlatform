@@ -32,6 +32,8 @@ var (
 	ErrSubmissionDeadline = errors.New("submission deadline passed")
 	// ErrAnswersTooLarge indicates the answer payload exceeds limits.
 	ErrAnswersTooLarge = errors.New("answers too large")
+	// ErrAttemptConflict indicates optimistic concurrency conflict during autosave.
+	ErrAttemptConflict = errors.New("attempt was modified by another request")
 	// ErrQuizPublished indicates edits are blocked for published quizzes.
 	ErrQuizPublished = errors.New("quiz is published")
 	// ErrQuestionNotFound indicates the question does not exist.
@@ -150,6 +152,25 @@ type SubmitQuizResult struct {
 	Attempt  models.QuizAttempt
 	Score    int
 	MaxScore int
+}
+
+// AttemptAnswer represents a single answer patch entry.
+type AttemptAnswer struct {
+	QuestionID string
+	Answer     interface{}
+}
+
+// AttemptState is the new attempt-centric read model.
+type AttemptState struct {
+	Attempt     models.QuizAttempt
+	Answers     []AttemptAnswer
+	ElapsedTime int
+}
+
+// UpdateAttemptAnswersRequest contains autosave payload.
+type UpdateAttemptAnswersRequest struct {
+	Answers           []AttemptAnswer
+	IfUnmodifiedSince *time.Time
 }
 
 // QuizResult represents quiz attempts and optional answer data.
@@ -621,6 +642,98 @@ func (s *QuizService) SubmitQuiz(ctx context.Context, quizID uint, user UserInfo
 		Score:    score,
 		MaxScore: attempt.MaxScore,
 	}, nil
+}
+
+// GetAttemptState returns a single attempt with normalized answers.
+func (s *QuizService) GetAttemptState(ctx context.Context, attemptID uint, user UserInfo) (*AttemptState, error) {
+	attempt, err := s.repo.FindAttemptByID(ctx, attemptID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNoActiveAttempt
+		}
+		return nil, err
+	}
+	if !user.IsTeacher() && attempt.StudentID != user.ID {
+		return nil, ErrNoActiveAttempt
+	}
+	answerMap := map[string]interface{}{}
+	if strings.TrimSpace(attempt.Answers) != "" {
+		_ = json.Unmarshal([]byte(attempt.Answers), &answerMap)
+	}
+	answers := make([]AttemptAnswer, 0, len(answerMap))
+	for questionID, answer := range answerMap {
+		answers = append(answers, AttemptAnswer{QuestionID: questionID, Answer: answer})
+	}
+	sort.Slice(answers, func(i, j int) bool {
+		return answers[i].QuestionID < answers[j].QuestionID
+	})
+	elapsed := int(time.Since(attempt.StartedAt).Seconds())
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	return &AttemptState{
+		Attempt:     *attempt,
+		Answers:     answers,
+		ElapsedTime: elapsed,
+	}, nil
+}
+
+// UpdateAttemptAnswers merges partial answers into the persisted attempt payload.
+func (s *QuizService) UpdateAttemptAnswers(ctx context.Context, attemptID uint, user UserInfo, req UpdateAttemptAnswersRequest) (*models.QuizAttempt, error) {
+	attempt, err := s.repo.FindAttemptByID(ctx, attemptID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNoActiveAttempt
+		}
+		return nil, err
+	}
+	if attempt.StudentID != user.ID {
+		return nil, ErrNoActiveAttempt
+	}
+	if attempt.SubmittedAt != nil {
+		return nil, ErrSubmissionDeadline
+	}
+	if req.IfUnmodifiedSince != nil && !attempt.UpdatedAt.Equal(req.IfUnmodifiedSince.UTC()) {
+		return nil, ErrAttemptConflict
+	}
+	merged := map[string]interface{}{}
+	if strings.TrimSpace(attempt.Answers) != "" {
+		_ = json.Unmarshal([]byte(attempt.Answers), &merged)
+	}
+	for _, item := range req.Answers {
+		if strings.TrimSpace(item.QuestionID) == "" {
+			continue
+		}
+		merged[item.QuestionID] = item.Answer
+	}
+	answersJSON, _ := json.Marshal(merged)
+	if len(answersJSON) > 100*1024 {
+		return nil, ErrAnswersTooLarge
+	}
+	attempt.Answers = string(answersJSON)
+	if err := s.repo.SaveAttempt(ctx, attempt); err != nil {
+		return nil, err
+	}
+	return attempt, nil
+}
+
+// SubmitAttempt submits answers through the attempt resource model.
+func (s *QuizService) SubmitAttempt(ctx context.Context, attemptID uint, user UserInfo) (*SubmitQuizResult, error) {
+	attempt, err := s.repo.FindAttemptByID(ctx, attemptID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNoActiveAttempt
+		}
+		return nil, err
+	}
+	if attempt.StudentID != user.ID {
+		return nil, ErrNoActiveAttempt
+	}
+	answers := map[string]interface{}{}
+	if strings.TrimSpace(attempt.Answers) != "" {
+		_ = json.Unmarshal([]byte(attempt.Answers), &answers)
+	}
+	return s.SubmitQuiz(ctx, attempt.QuizID, user, SubmitQuizRequest{Answers: answers})
 }
 
 // GetQuizResult returns attempts and optional answers based on role and timing.

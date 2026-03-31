@@ -8,10 +8,9 @@ import { api } from './api-client';
 import type {
     StudentGlobalProfile,
     LearningEvent,
-    WritingSubmission,
     WritingType,
-    WritingFeedback,
 } from '@classplatform/shared';
+import type { WritingSubmission, WritingFeedback } from '@/api/writing';
 
 export type { StudentGlobalProfile, LearningEvent, WritingSubmission, WritingType, WritingFeedback };
 
@@ -100,6 +99,59 @@ export async function recordLearningEvent(event: {
 
 // ============ Writing Submission API ============
 
+function mapWritingFeedback(raw: any): WritingFeedback | null {
+    if (!raw) return null;
+    return {
+        overallScore: raw.overall_score ?? raw.overallScore ?? 0,
+        summary: raw.summary ?? '',
+        dimensions: (raw.dimensions || []).map((d: any) => ({
+            key: d.key ?? d.name ?? '',
+            label: d.label ?? d.name ?? '',
+            score: d.score ?? 0,
+            comment: d.comment ?? '',
+            suggestions: d.suggestions ?? [],
+        })),
+        inlineSuggestions: raw.inlineSuggestions ?? raw.inline_suggestions ?? [],
+    };
+}
+
+function parseLegacyFeedback(submission: any): WritingFeedback | null {
+    if (!submission.feedback_json) return null;
+    try {
+        const parsed = JSON.parse(submission.feedback_json);
+        // Map old feedback structure to new structure if needed
+        return {
+            overallScore: parsed.overall_score ?? 0,
+            summary: parsed.summary ?? '',
+            dimensions: (parsed.dimensions || []).map((d: any) => ({
+                key: d.name ?? '', // Old API used `name`
+                label: d.name ?? '',
+                score: d.score ?? 0,
+                comment: d.comment ?? '',
+                suggestions: d.suggestions ?? [],
+            })),
+            inlineSuggestions: parsed.inline_suggestions ?? [],
+        };
+    } catch {
+        return null;
+    }
+}
+
+function mapWritingSubmission(raw: any): WritingSubmission {
+    return {
+        id: String(raw.id ?? raw.ID ?? 0),
+        title: raw.title ?? '',
+        writingType: raw.writing_type ?? raw.writingType,
+        content: raw.content,
+        wordCount: raw.word_count ?? raw.wordCount,
+        status: raw.status,
+        updatedAt: raw.updated_at ?? raw.updatedAt,
+        createdAt: raw.created_at ?? raw.createdAt,
+        studentId: raw.student_id ?? raw.studentId,
+        feedback: typeof raw.feedback_json === 'string' ? parseLegacyFeedback(raw) : mapWritingFeedback(raw.feedback),
+    };
+}
+
 /**
  * Submit a writing sample for analysis.
  *
@@ -116,7 +168,8 @@ export async function submitWriting(
         assignment_id?: number;
     }
 ): Promise<WritingSubmission> {
-    return api.student.submitWriting(courseId, data);
+    const raw = await api.student.submitWriting(courseId, data);
+    return mapWritingSubmission(raw);
 }
 
 /**
@@ -130,7 +183,8 @@ export async function getWritingSubmissions(
     courseId: number,
     writingType?: WritingType
 ): Promise<WritingSubmission[]> {
-    return api.student.getWritingSubmissions(courseId, writingType);
+    const raw = await api.student.getWritingSubmissions(courseId, writingType);
+    return raw.map(mapWritingSubmission);
 }
 
 /**
@@ -140,7 +194,8 @@ export async function getWritingSubmissions(
  * @returns The submission with feedback.
  */
 export async function getWritingSubmission(id: number): Promise<WritingSubmission> {
-    return api.student.getWritingSubmission(id);
+    const raw = await api.student.getWritingSubmission(id);
+    return mapWritingSubmission(raw);
 }
 
 /**
@@ -158,17 +213,11 @@ export async function getWritingStats(courseId: number): Promise<{
 
 /**
  * Parse feedback JSON from a writing submission.
- *
- * @param submission Submission containing feedback JSON.
- * @returns Parsed feedback or null when absent/invalid.
+ * @deprecated Legacy compat helper, use submission.feedback directly.
  */
-export function parseFeedback(submission: WritingSubmission): WritingFeedback | null {
-    if (!submission.feedback_json) return null;
-    try {
-        return JSON.parse(submission.feedback_json);
-    } catch {
-        return null;
-    }
+export function parseFeedback(submission: any): WritingFeedback | null {
+    if (submission.feedback) return submission.feedback;
+    return mapWritingSubmission(submission).feedback ?? null;
 }
 
 // ============ Writing Type Utilities ============

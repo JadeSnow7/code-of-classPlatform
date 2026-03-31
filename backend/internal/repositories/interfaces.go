@@ -99,6 +99,7 @@ type QuizRepository interface {
 	CountAttempts(ctx context.Context, quizID uint) (int64, error)
 	CountAttemptsByQuizAndStudent(ctx context.Context, quizID uint, studentID uint) (int64, error)
 	FindInProgressAttempt(ctx context.Context, quizID uint, studentID uint) (*models.QuizAttempt, error)
+	FindAttemptByID(ctx context.Context, attemptID uint) (*models.QuizAttempt, error)
 	CreateAttempt(ctx context.Context, attempt *models.QuizAttempt) error
 	SaveAttempt(ctx context.Context, attempt *models.QuizAttempt) error
 	SumQuestionPoints(ctx context.Context, quizID uint) (int, error)
@@ -170,7 +171,10 @@ type WritingRepository interface {
 	FindByCourseID(ctx context.Context, courseID uint, studentID *uint) ([]*models.WritingSubmission, error)
 	FindByID(ctx context.Context, id uint) (*models.WritingSubmission, error)
 	Create(ctx context.Context, submission *models.WritingSubmission) error
+	UpdateSubmission(ctx context.Context, submission *models.WritingSubmission, updates map[string]interface{}) error
 	UpdateFeedback(ctx context.Context, id uint, feedbackJSON, dimensionJSON string) error
+	CreateRevision(ctx context.Context, revision *models.WritingRevision) error
+	ListRevisions(ctx context.Context, submissionID uint, page, pageSize int) ([]models.WritingRevision, int64, error)
 	GetStats(ctx context.Context, courseID uint) (map[string]interface{}, error)
 	CreateLearningEvent(ctx context.Context, event *models.LearningEvent) error
 	FindLearningProfilesByCourseID(ctx context.Context, courseID uint) ([]models.StudentLearningProfile, error)

@@ -21,6 +21,7 @@ type StudentLearningProfile struct {
 // StudentGlobalProfile aggregates learning data across all courses for a student
 type StudentGlobalProfile struct {
 	StudentID          uint       `gorm:"primaryKey" json:"student_id"`
+	OnboardingProfile  string     `gorm:"type:text" json:"onboarding_profile"`  // JSON: cold-start onboarding questionnaire
 	GlobalCompetencies string     `gorm:"type:text" json:"global_competencies"` // JSON: {"academic_writing": 0.7, "citation": 0.5}
 	TotalStudyHours    int        `gorm:"default:0" json:"total_study_hours"`
 	LearningStyle      string     `gorm:"type:text" json:"learning_style"` // JSON: {"preferred_time": "evening", "pace": "moderate"}

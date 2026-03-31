@@ -61,3 +61,20 @@ export type ChatMessage = SharedChatMessage & {
     createdAt: number;
     conversationId?: string;
 };
+
+export type LearningProfile = {
+    id: number;
+    student_id: number;
+    course_id: number;
+    /** JSON-encoded Record<string, number> e.g. '{"学术语气": 3}' */
+    weak_points: string;
+    /** JSON-encoded string[] */
+    completed_topics: string;
+    total_sessions: number;
+    total_study_minutes: number;
+    last_session_at?: string;
+    /** JSON-encoded string[] */
+    recommended_topics?: string;
+    created_at: string;
+    updated_at: string;
+};

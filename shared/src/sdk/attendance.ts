@@ -1,5 +1,13 @@
 import type { ApiClient } from './http';
-import type { ActiveSession, AttendanceSummary, SessionListItem, AttendanceRecord, CheckinResponse } from '../types';
+import type {
+  ActiveSession,
+  AttendanceSummary,
+  SessionListItem,
+  AttendanceRecord,
+  CheckinResponse,
+  StartAttendanceSessionRequest,
+  AttendanceCheckinRequest,
+} from '../types';
 
 export function createAttendanceApi(client: ApiClient) {
   return {
@@ -7,11 +15,11 @@ export function createAttendanceApi(client: ApiClient) {
       client.get<AttendanceSummary>(`/courses/${courseId}/attendance/summary`),
     listSessions: (courseId: number) =>
       client.get<SessionListItem[]>(`/courses/${courseId}/attendance/sessions`),
-    startSession: (courseId: number, timeoutMinutes = 15) =>
-      client.post<ActiveSession>(`/courses/${courseId}/attendance/start`, { timeout_minutes: timeoutMinutes }),
+    startSession: (courseId: number, payload: StartAttendanceSessionRequest) =>
+      client.post<ActiveSession>(`/courses/${courseId}/attendance/start`, payload),
     endSession: (sessionId: number) => client.post<void>(`/attendance/${sessionId}/end`, {}),
-    checkin: (sessionId: number, code: string) =>
-      client.post<CheckinResponse>(`/attendance/${sessionId}/checkin`, { code }),
+    checkin: (sessionId: number, payload: AttendanceCheckinRequest) =>
+      client.post<CheckinResponse>(`/attendance/${sessionId}/checkin`, payload),
     getRecords: (sessionId: number) => client.get<AttendanceRecord[]>(`/attendance/${sessionId}/records`),
   };
 }

@@ -2,15 +2,42 @@ package http
 
 import (
 	"errors"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
 )
+
+type quizAttemptAnswerDTO struct {
+	QuestionID string      `json:"questionId"`
+	Answer     interface{} `json:"answer"`
+}
+
+type quizAttemptDTO struct {
+	ID            uint                   `json:"id"`
+	QuizID        uint                   `json:"quizId,omitempty"`
+	StudentID     uint                   `json:"studentId,omitempty"`
+	AttemptNumber int                    `json:"attemptNumber,omitempty"`
+	StartedAt     time.Time              `json:"startedAt"`
+	Deadline      time.Time              `json:"deadline"`
+	SubmittedAt   *time.Time             `json:"submittedAt,omitempty"`
+	Answers       []quizAttemptAnswerDTO `json:"answers,omitempty"`
+	Score         *int                   `json:"score,omitempty"`
+	MaxScore      int                    `json:"maxScore"`
+	UpdatedAt     time.Time              `json:"updatedAt"`
+}
+
+type quizAttemptStateDTO struct {
+	Attempt     quizAttemptDTO         `json:"attempt"`
+	Answers     []quizAttemptAnswerDTO `json:"answers"`
+	ElapsedTime int                    `json:"elapsedTime"`
+}
 
 type quizHandlers struct {
 	service *services.QuizService
@@ -46,7 +73,56 @@ func (h *quizHandlers) ListQuizzes(c *gin.Context) {
 		response.BadRequest(c, "Failed to load quizzes")
 		return
 	}
-	response.OK(c, data)
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	if pageSize == 0 {
+		pageSize, _ = strconv.Atoi(c.Query("pageSize"))
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	switch items := data.(type) {
+	case []models.Quiz:
+		response.OK(c, paginateQuizList(items, page, pageSize))
+	case []services.QuizWithAttempt:
+		response.OK(c, paginateQuizList(items, page, pageSize))
+	default:
+		response.OK(c, data)
+	}
+}
+
+func paginateQuizList[T any](items []T, page, pageSize int) gin.H {
+	total := len(items)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	totalPages := 0
+	if pageSize > 0 {
+		totalPages = int(math.Ceil(float64(total) / float64(pageSize)))
+	}
+
+	return gin.H{
+		"items":       items[start:end],
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": totalPages,
+		"has_more":    end < total,
+	}
 }
 
 // CreateQuiz creates a new quiz
@@ -481,4 +557,185 @@ func (h *quizHandlers) GetQuizResult(c *gin.Context) {
 		"quiz":     result.Quiz,
 		"attempts": result.Attempts,
 	})
+}
+
+// CreateAttempt creates or resumes an attempt via the attempt resource model.
+func (h *quizHandlers) CreateAttempt(c *gin.Context) {
+	quizID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid quiz id")
+		return
+	}
+
+	user, _ := middleware.GetUser(c)
+	result, err := h.service.StartQuiz(c.Request.Context(), uint(quizID), services.UserInfo{
+		ID:   user.ID,
+		Role: user.Role,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrQuizNotFound):
+			response.NotFound(c, "quiz not found")
+		case errors.Is(err, services.ErrQuizNotAvailable):
+			response.Forbidden(c, "quiz not available")
+		case errors.Is(err, services.ErrQuizNotStarted):
+			response.Forbidden(c, "quiz has not started yet")
+		case errors.Is(err, services.ErrQuizEnded):
+			response.Forbidden(c, "quiz has ended")
+		case errors.Is(err, services.ErrMaxAttemptsReached):
+			response.Forbidden(c, "maximum attempts reached")
+		default:
+			response.BadRequest(c, "failed to create attempt")
+		}
+		return
+	}
+
+	response.OK(c, toQuizAttemptDTO(result.Attempt, nil))
+}
+
+// GetAttempt returns a single attempt state.
+func (h *quizHandlers) GetAttempt(c *gin.Context) {
+	attemptID, err := strconv.ParseUint(c.Param("attemptId"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid attempt id")
+		return
+	}
+	user, _ := middleware.GetUser(c)
+	state, err := h.service.GetAttemptState(c.Request.Context(), uint(attemptID), services.UserInfo{
+		ID:   user.ID,
+		Role: user.Role,
+	})
+	if err != nil {
+		if errors.Is(err, services.ErrNoActiveAttempt) {
+			response.NotFound(c, "quiz attempt")
+			return
+		}
+		response.BadRequest(c, "failed to load attempt")
+		return
+	}
+	response.OK(c, quizAttemptStateDTO{
+		Attempt:     toQuizAttemptDTO(state.Attempt, state.Answers),
+		Answers:     toQuizAttemptAnswersDTO(state.Answers),
+		ElapsedTime: state.ElapsedTime,
+	})
+}
+
+// UpdateAttemptAnswers autosaves part of an attempt.
+func (h *quizHandlers) UpdateAttemptAnswers(c *gin.Context) {
+	attemptID, err := strconv.ParseUint(c.Param("attemptId"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid attempt id")
+		return
+	}
+	var req struct {
+		Answers []struct {
+			QuestionID      string      `json:"questionId"`
+			QuestionIDSnake string      `json:"question_id"`
+			Answer          interface{} `json:"answer"`
+		} `json:"answers" binding:"required"`
+		UpdatedAt         *time.Time `json:"updatedAt"`
+		IfUnmodifiedSince *time.Time `json:"ifUnmodifiedSince"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	answers := make([]services.AttemptAnswer, 0, len(req.Answers))
+	for _, item := range req.Answers {
+		questionID := item.QuestionID
+		if questionID == "" {
+			questionID = item.QuestionIDSnake
+		}
+		answers = append(answers, services.AttemptAnswer{
+			QuestionID: questionID,
+			Answer:     item.Answer,
+		})
+	}
+	expected := req.IfUnmodifiedSince
+	if expected == nil {
+		expected = req.UpdatedAt
+	}
+	user, _ := middleware.GetUser(c)
+	_, err = h.service.UpdateAttemptAnswers(c.Request.Context(), uint(attemptID), services.UserInfo{
+		ID:   user.ID,
+		Role: user.Role,
+	}, services.UpdateAttemptAnswersRequest{
+		Answers:           answers,
+		IfUnmodifiedSince: expected,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrNoActiveAttempt):
+			response.NotFound(c, "quiz attempt")
+		case errors.Is(err, services.ErrAttemptConflict):
+			c.JSON(409, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "CONFLICT",
+					"message": "attempt was modified by another request",
+				},
+			})
+		default:
+			response.BadRequest(c, "failed to save attempt answers")
+		}
+		return
+	}
+	response.OK(c, nil)
+}
+
+// SubmitAttempt submits a single attempt resource.
+func (h *quizHandlers) SubmitAttempt(c *gin.Context) {
+	attemptID, err := strconv.ParseUint(c.Param("attemptId"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid attempt id")
+		return
+	}
+	user, _ := middleware.GetUser(c)
+	result, err := h.service.SubmitAttempt(c.Request.Context(), uint(attemptID), services.UserInfo{
+		ID:   user.ID,
+		Role: user.Role,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrNoActiveAttempt):
+			response.NotFound(c, "quiz attempt")
+		case errors.Is(err, services.ErrSubmissionDeadline):
+			response.Forbidden(c, "submission deadline passed")
+		default:
+			response.BadRequest(c, "failed to submit attempt")
+		}
+		return
+	}
+	response.OK(c, gin.H{
+		"score":    result.Score,
+		"maxScore": result.MaxScore,
+		"attempt":  toQuizAttemptDTO(result.Attempt, nil),
+	})
+}
+
+func toQuizAttemptAnswersDTO(answers []services.AttemptAnswer) []quizAttemptAnswerDTO {
+	out := make([]quizAttemptAnswerDTO, 0, len(answers))
+	for _, answer := range answers {
+		out = append(out, quizAttemptAnswerDTO{
+			QuestionID: answer.QuestionID,
+			Answer:     answer.Answer,
+		})
+	}
+	return out
+}
+
+func toQuizAttemptDTO(attempt models.QuizAttempt, answers []services.AttemptAnswer) quizAttemptDTO {
+	return quizAttemptDTO{
+		ID:            attempt.ID,
+		QuizID:        attempt.QuizID,
+		StudentID:     attempt.StudentID,
+		AttemptNumber: attempt.AttemptNumber,
+		StartedAt:     attempt.StartedAt,
+		Deadline:      attempt.Deadline,
+		SubmittedAt:   attempt.SubmittedAt,
+		Answers:       toQuizAttemptAnswersDTO(answers),
+		Score:         attempt.Score,
+		MaxScore:      attempt.MaxScore,
+		UpdatedAt:     attempt.UpdatedAt,
+	}
 }

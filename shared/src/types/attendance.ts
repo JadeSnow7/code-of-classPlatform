@@ -2,6 +2,11 @@ export type ActiveSession = {
   id: number;
   code: string;
   ends_at: string;
+  location_required: boolean;
+  center_latitude?: number;
+  center_longitude?: number;
+  radius_meters?: number;
+  qr_url?: string;
 };
 
 export type AttendanceSummary = {
@@ -17,6 +22,10 @@ export type SessionListItem = {
   end_at: string;
   is_active: boolean;
   attendee_count: number;
+  location_required: boolean;
+  center_latitude?: number;
+  center_longitude?: number;
+  radius_meters?: number;
 };
 
 export type AttendanceRecord = {
@@ -24,10 +33,28 @@ export type AttendanceRecord = {
   student_name: string;
   checked_in_at: string;
   ip_address: string;
+  latitude: number;
+  longitude: number;
+  location_validated: boolean;
 };
 
 export type CheckinResponse = {
   success: boolean;
   already_checked_in?: boolean;
   checked_in_at: string;
+  location_validated: boolean;
+};
+
+export type StartAttendanceSessionRequest = {
+  timeout_minutes: number;
+  location_required: boolean;
+  center_latitude: number;
+  center_longitude: number;
+  radius_meters: number;
+};
+
+export type AttendanceCheckinRequest = {
+  code: string;
+  latitude: number;
+  longitude: number;
 };

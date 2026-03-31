@@ -20,29 +20,23 @@
     "electron:pack": "cross-env VITE_DESKTOP_BUILD=true npm run build && npm run electron:compile && electron-builder --dir"
   },
   "dependencies": {
-<<<<<<< HEAD:frontend/package.json
     "@ant-design/icons": "^5.5.0",
-=======
-    "@ant-design/icons": "^6.1.0",
->>>>>>> origin/main:frontend-react/package.json
     "@classplatform/shared": "0.1.0",
     "@jadesnow7/edge-ai-sdk": "file:../../eduedge-ai-sdk/packages/eduedge-js",
     "@monaco-editor/react": "^4.7.0",
-<<<<<<< HEAD:frontend/package.json
     "antd": "^5.22.0",
-=======
-    "antd": "^6.3.1",
->>>>>>> origin/main:frontend-react/package.json
     "clsx": "^2.1.1",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.562.0",
+    "motion": "^12.38.0",
     "node-llama-cpp": "^3.15.1",
     "react": "19.1.0",
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "19.1.0",
     "react-router-dom": "^7.11.0",
-    "tailwind-merge": "^3.4.0",
+    "recharts": "^3.8.0",
+    "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.9"
   },
   "devDependencies": {
@@ -57,13 +51,8 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.1",
     "@types/node": "^24.10.1",
-<<<<<<< HEAD:frontend/package.json
     "@types/react": "~19.1.17",
     "@types/react-dom": "~19.1.11",
-=======
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.3.7",
->>>>>>> origin/main:frontend-react/package.json
     "@vitejs/plugin-react-swc": "^4.2.2",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",

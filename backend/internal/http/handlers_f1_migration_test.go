@@ -34,7 +34,7 @@ type fakeAttendanceHandlerService struct {
 	checkinErr error
 }
 
-func (f *fakeAttendanceHandlerService) Checkin(context.Context, uint, uint, string, string) (services.AttendanceCheckinResult, error) {
+func (f *fakeAttendanceHandlerService) Checkin(context.Context, uint, uint, services.AttendanceCheckinInput) (services.AttendanceCheckinResult, error) {
 	return services.AttendanceCheckinResult{}, f.checkinErr
 }
 
@@ -93,7 +93,7 @@ func TestAttendanceHandlers_Checkin_InvalidCode(t *testing.T) {
 	})
 	r.POST("/attendance/:session_id/checkin", h.Checkin)
 
-	req := httptest.NewRequest(http.MethodPost, "/attendance/1/checkin", bytes.NewBufferString(`{"code":"bad"}`))
+	req := httptest.NewRequest(http.MethodPost, "/attendance/1/checkin", bytes.NewBufferString(`{"code":"bad","latitude":30.5,"longitude":114.3}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

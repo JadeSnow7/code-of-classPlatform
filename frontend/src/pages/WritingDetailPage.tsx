@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getWritingSubmission, type WritingSubmission, getWritingTypeName, parseFeedback } from '@/lib/student-api';
+import { getWritingSubmission, type WritingSubmission, getWritingTypeName } from '@/lib/student-api';
 import { logger } from '@/lib/logger';
 import './WritingPage.css'; // Reuse existing styles
 
@@ -32,7 +32,7 @@ export default function WritingDetailPage() {
     if (loading) return <div className="loading">加载中...</div>;
     if (error || !submission) return <div className="alert alert-error">{error || '未找到提交记录'}</div>;
 
-    const feedback = parseFeedback(submission);
+    const feedback = submission.feedback;
 
     return (
         <div className="writing-page detail-view">
@@ -40,9 +40,9 @@ export default function WritingDetailPage() {
                 <button onClick={() => navigate(-1)} className="back-btn">← 返回</button>
                 <h1>{submission.title}</h1>
                 <div className="meta-info">
-                    <span className="type-badge">{getWritingTypeName(submission.writing_type)}</span>
-                    • {new Date(submission.created_at).toLocaleString('zh-CN')}
-                    • {submission.word_count} 词
+                    <span className="type-badge">{getWritingTypeName(submission.writingType)}</span>
+                    • {submission.createdAt ? new Date(submission.createdAt).toLocaleString('zh-CN') : ''}
+                    • {submission.wordCount} 词
                 </div>
             </div>
 
@@ -61,14 +61,14 @@ export default function WritingDetailPage() {
                     {feedback ? (
                         <div className="feedback-content">
                             <div className="overall-score" style={{ fontSize: '2rem', fontWeight: 'bold', color: '#4f46e5', marginBottom: '16px' }}>
-                                {feedback.overall_score} <span style={{ fontSize: '1rem', color: '#666' }}>/ 10</span>
+                                {feedback.overallScore} <span style={{ fontSize: '1rem', color: '#666' }}>/ 10</span>
                             </div>
 
                             <div className="dimensions-list">
                                 {feedback.dimensions?.map((dim) => (
-                                    <div key={dim.name} className="dim-item" style={{ marginBottom: '12px' }}>
+                                    <div key={dim.key || dim.label} className="dim-item" style={{ marginBottom: '12px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                            <span>{dim.name}</span>
+                                            <span>{dim.label}</span>
                                             <span style={{ color: '#818cf8' }}>{dim.score}</span>
                                         </div>
                                         <div style={{ fontSize: '0.85rem', color: '#888' }}>{dim.comment}</div>
@@ -77,16 +77,9 @@ export default function WritingDetailPage() {
                             </div>
 
                             <div className="feedback-section" style={{ marginTop: '20px' }}>
-                                <h4 style={{ color: '#4ade80' }}>✨ 优点</h4>
-                                <ul style={{ paddingLeft: '20px' }}>
-                                    {feedback.strengths?.map((s, i) => <li key={i}>{s}</li>)}
-                                </ul>
-                            </div>
-
-                            <div className="feedback-section" style={{ marginTop: '20px' }}>
                                 <h4 style={{ color: '#f87171' }}>🔧 改进建议</h4>
                                 <ul style={{ paddingLeft: '20px' }}>
-                                    {feedback.improvements?.map((s, i) => <li key={i}>{s}</li>)}
+                                    {feedback.dimensions?.flatMap(d => d.suggestions ?? []).map((s, i) => <li key={i}>{s}</li>)}
                                 </ul>
                             </div>
 

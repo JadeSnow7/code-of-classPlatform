@@ -96,7 +96,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	assignmentHandlers := httpapi.NewAssignmentHandlers(db, aiClient)
 	quizHandlers := httpapi.NewQuizHandlers(db)
 	chapterHandlers := httpapi.NewChapterHandlers(db)
-	aiHandlers := httpapi.NewAIHandlers(aiClient)
+	aiHandlers := httpapi.NewAIHandlers(aiClient, db)
 
 	// Optional WeCom client
 	wecomClient := clients.NewWecomClient(clients.WecomConfig{
@@ -106,8 +106,9 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 	})
 
 	routerDeps := httpapi.RouterDeps{
-		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret),
+		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret, app.GlobalProfileService),
 		UserHandlers:            httpapi.NewUserHandlers(app.UserService),
+		LearningHubHandlers:     httpapi.NewLearningHubHandlers(db, app.MinIOClient),
 		AIConfigHandlers:        httpapi.NewAIConfigHandlers(app.AIConfigService),
 		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, app.AuthService),
 		CourseHandlers:          courseHandlers,

@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,7 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/auth"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/http/routes"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
 	"github.com/stretchr/testify/assert"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func makeLearningHubToken(t *testing.T, userID uint, role string) string {
@@ -20,16 +24,23 @@ func makeLearningHubToken(t *testing.T, userID uint, role string) string {
 	return token
 }
 
-func setupLearningHubRouter() *gin.Engine {
+func setupLearningHubRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
+	dsn := fmt.Sprintf("file:%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	assert.NoError(t, err)
+	sqlDB, err := db.DB()
+	assert.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	assert.NoError(t, db.AutoMigrate(&models.KnowledgeBase{}, &models.KnowledgeBaseFile{}, &models.LearningEvent{}, &models.Assignment{}, &models.WritingSubmission{}))
 	r := gin.New()
 	api := r.Group("/api/v1")
-	routes.RegisterLearningHubRoutes(api, "test-secret", NewLearningHubHandlers())
+	routes.RegisterLearningHubRoutes(api, "test-secret", NewLearningHubHandlers(db, nil))
 	return r
 }
 
 func TestLearningHubHandlers_GetDashboard(t *testing.T) {
-	r := setupLearningHubRouter()
+	r := setupLearningHubRouter(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/dashboard", nil)
 	req.Header.Set("Authorization", "Bearer "+makeLearningHubToken(t, 1, "student"))
 	w := httptest.NewRecorder()
@@ -47,7 +58,7 @@ func TestLearningHubHandlers_GetDashboard(t *testing.T) {
 }
 
 func TestLearningHubHandlers_ListKnowledgeBases(t *testing.T) {
-	r := setupLearningHubRouter()
+	r := setupLearningHubRouter(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/knowledge-bases", nil)
 	req.Header.Set("Authorization", "Bearer "+makeLearningHubToken(t, 1, "student"))
 	w := httptest.NewRecorder()
@@ -62,7 +73,7 @@ func TestLearningHubHandlers_ListKnowledgeBases(t *testing.T) {
 }
 
 func TestLearningHubHandlers_RequiresAuth(t *testing.T) {
-	r := setupLearningHubRouter()
+	r := setupLearningHubRouter(t)
 
 	for _, path := range []string{
 		"/api/v1/users/me/dashboard",

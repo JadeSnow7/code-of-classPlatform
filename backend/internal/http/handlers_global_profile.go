@@ -48,6 +48,7 @@ func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 			// Return empty profile if not found
 			response.OK(c, models.StudentGlobalProfile{
 				StudentID:          uint(studentID),
+				OnboardingProfile:  "{}",
 				GlobalCompetencies: "{}",
 				TotalStudyHours:    0,
 				LearningStyle:      "{}",
@@ -64,6 +65,7 @@ func (h *globalProfileHandlers) GetGlobalProfile(c *gin.Context) {
 // SaveGlobalProfile creates or updates a student's global profile
 // POST /api/v1/students/:studentId/global-profile
 type saveGlobalProfileRequest struct {
+	OnboardingProfile  string `json:"onboarding_profile"`
 	GlobalCompetencies string `json:"global_competencies"`
 	TotalStudyHours    int    `json:"total_study_hours"`
 	LearningStyle      string `json:"learning_style"`
@@ -85,6 +87,7 @@ func (h *globalProfileHandlers) SaveGlobalProfile(c *gin.Context) {
 	now := time.Now()
 	profile := &models.StudentGlobalProfile{
 		StudentID:          uint(studentID),
+		OnboardingProfile:  req.OnboardingProfile,
 		GlobalCompetencies: req.GlobalCompetencies,
 		TotalStudyHours:    req.TotalStudyHours,
 		LearningStyle:      req.LearningStyle,

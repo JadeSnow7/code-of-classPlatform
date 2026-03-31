@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   Course,
   CourseOverviewStats,
+  LearningProfile,
   Question,
   QuestionWithAnswer,
   Quiz,
@@ -274,7 +275,13 @@ export async function startAttendanceSession(
   courseId: number,
   timeoutMinutes: number
 ): Promise<void> {
-  await authedApi(token, tokenType).attendance.startSession(courseId, timeoutMinutes);
+  await authedApi(token, tokenType).attendance.startSession(courseId, {
+    timeout_minutes: timeoutMinutes,
+    location_required: true,
+    center_latitude: 0,
+    center_longitude: 0,
+    radius_meters: 100,
+  });
 }
 
 export async function endAttendanceSession(
@@ -291,7 +298,11 @@ export async function checkinAttendance(
   sessionId: number,
   code: string
 ): Promise<void> {
-  await authedApi(token, tokenType).attendance.checkin(sessionId, code);
+  await authedApi(token, tokenType).attendance.checkin(sessionId, {
+    code,
+    latitude: 0,
+    longitude: 0,
+  });
 }
 
 export async function getAttendanceRecords(
@@ -475,4 +486,16 @@ export const WRITING_TYPE_LABELS: Record<WritingType, string> = {
 
 export async function getUserStats(token: string, tokenType: string): Promise<UserStats> {
   return authedApi(token, tokenType).user.getMyLearningStats();
+}
+
+// ============ Learning Profile API ============
+
+export async function getLearningProfile(
+  token: string,
+  tokenType: string,
+  courseId: number,
+  studentId: number,
+): Promise<LearningProfile> {
+  const api = authedApi(token, tokenType);
+  return api.client.get<LearningProfile>(`/learning-profiles/${courseId}/${studentId}`);
 }

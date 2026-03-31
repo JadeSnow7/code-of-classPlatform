@@ -4,7 +4,7 @@ import { Avatar, Spin, Tag, Typography } from 'antd';
 import { TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { BookOpen } from 'lucide-react';
 import { useMobile } from '@/hooks/useMobile';
-import { courseApi, type Course } from '@/api/course';
+import { courseApi, type CourseModel } from '@/api/course';
 
 const { Title, Text } = Typography;
 
@@ -19,50 +19,22 @@ type CourseCardModel = {
     id: number;
     name: string;
     teacherName: string;
-    teacherId: number;
+    teacherId?: number;
     code?: string;
     semester?: string;
     studentCount?: number;
 };
 
-function normalizeCourseList(payload: unknown): Course[] {
-    if (Array.isArray(payload)) {
-        return payload as Course[];
-    }
-
-    if (payload && typeof payload === 'object') {
-        const record = payload as Record<string, unknown>;
-        const directCandidates = [record.data, record.items, record.courses];
-        for (const candidate of directCandidates) {
-            if (Array.isArray(candidate)) {
-                return candidate as Course[];
-            }
-        }
-
-        if (record.data && typeof record.data === 'object') {
-            const nested = record.data as Record<string, unknown>;
-            const nestedCandidates = [nested.items, nested.courses];
-            for (const candidate of nestedCandidates) {
-                if (Array.isArray(candidate)) {
-                    return candidate as Course[];
-                }
-            }
-        }
-    }
-
-    return [];
-}
-
-function toCourseModel(course: Course, index: number): CourseCardModel {
-    const courseId = course.ID ?? course.id ?? index + 1;
+function toCourseModel(course: CourseModel, index: number): CourseCardModel {
+    const courseId = course.id ?? index + 1;
     return {
         id: courseId,
         name: course.name,
-        teacherName: course.teacher_name ?? '--',
-        teacherId: course.teacher_id,
+        teacherName: course.teacherName ?? '--',
+        teacherId: course.teacherId,
         code: course.code,
         semester: course.semester,
-        studentCount: course.student_count,
+        studentCount: course.enrolledCount,
     };
 }
 
@@ -85,14 +57,14 @@ function EmptyCoursesState() {
 }
 
 export function CoursesHubPage() {
-    const [courses, setCourses] = useState<Course[]>([]);
+    const [courses, setCourses] = useState<CourseModel[]>([]);
     const [loading, setLoading] = useState(true);
     const navigate = useNavigate();
     const isMobile = useMobile();
 
     useEffect(() => {
-        (courseApi.list() as Promise<unknown>)
-            .then((payload) => setCourses(normalizeCourseList(payload)))
+        courseApi.listMy()
+            .then((payload) => setCourses(payload.items))
             .catch(() => setCourses([]))
             .finally(() => setLoading(false));
     }, []);
