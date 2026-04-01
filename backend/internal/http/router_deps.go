@@ -28,6 +28,7 @@ type RouterDeps struct {
 	LearningProfileHandlers routes.LearningProfileHandlers
 	GlobalProfileHandlers   routes.GlobalProfileHandlers
 	AdminHandlers           routes.AdminHandlers
+	EventHandlers           routes.EventHandlers
 
 	AuthLimiter          *middleware.RateLimiter
 	AiLimiter            *middleware.RateLimiter

@@ -55,6 +55,9 @@ func NewRouter(cfg config.Config, deps RouterDeps) *gin.Engine {
 	routes.RegisterLearningProfileRoutes(api, cfg.JWTSecret, deps.LearningProfileHandlers)
 	routes.RegisterGlobalProfileRoutes(api, cfg.JWTSecret, deps.GlobalProfileHandlers)
 	routes.RegisterAdminRoutes(api, cfg.JWTSecret, deps.AdminHandlers)
+	if deps.EventHandlers != nil {
+		routes.RegisterEventRoutes(api, cfg.JWTSecret, deps.EventHandlers)
+	}
 
 	internal := r.Group("/internal")
 	routes.RegisterKnowledgeExportRoutes(internal, cfg.AIGatewaySharedToken, deps.KnowledgeExportHandlers)

@@ -5,6 +5,7 @@ import (
 	"github.com/huaodong/llm-teaching-platform/backend/internal/clients"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/config"
 	httpapi "github.com/huaodong/llm-teaching-platform/backend/internal/http"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/notification"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/repositories"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"gorm.io/gorm"
@@ -105,6 +106,8 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		Secret:  cfg.WecomSecret,
 	})
 
+	notifHub := notification.New()
+
 	routerDeps := httpapi.RouterDeps{
 		AuthHandlers:            httpapi.NewAuthHandlers(app.AuthService, cfg.JWTSecret, app.GlobalProfileService),
 		UserHandlers:            httpapi.NewUserHandlers(app.UserService),
@@ -119,7 +122,8 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		UploadHandlers:          httpapi.NewUploadHandlers(app.UploadService),
 		AIHandlers:              aiHandlers,
 		KnowledgeExportHandlers: httpapi.NewKnowledgeExportHandlers(app.KnowledgeExportService),
-		AnnouncementHandlers:    httpapi.NewAnnouncementHandlers(app.AnnouncementService),
+		AnnouncementHandlers:    httpapi.NewAnnouncementHandlersWithHub(app.AnnouncementService, notifHub, db),
+		EventHandlers:           httpapi.NewEventHandlers(notifHub),
 		AttendanceHandlers:      httpapi.NewAttendanceHandlers(app.AttendanceService),
 		WritingHandlers:         httpapi.NewWritingHandlers(app.WritingService),
 		WorkspaceHandlers:       httpapi.NewWorkspaceHandlers(),
