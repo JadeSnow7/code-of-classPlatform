@@ -14,6 +14,7 @@ import { useTheme } from '@/ThemeProvider';
 import { useAiConfigStore } from '@/domains/ai/useAiConfigStore';
 import { useCloudAiHealth } from '@/hooks/useCloudAiHealth';
 import { useMobile } from '@/hooks/useMobile';
+import { useEventStream } from '@/hooks/useEventStream';
 
 const { Text } = Typography;
 
@@ -27,7 +28,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
     { key: '/learning', label: '学习', icon: <BookOutlined /> },
-    { key: '/courses', label: '课程', icon: <RocketOutlined />, badge: 2 },
+    { key: '/courses', label: '课程', icon: <RocketOutlined /> },
     { key: '/local-ai', label: 'Local AI', icon: <Brain size={16} strokeWidth={2.1} />, isLocalAi: true },
     { key: '/workspace', label: '工作台', icon: <ExperimentOutlined /> },
 ];
@@ -75,6 +76,8 @@ export function AppShell() {
     const { resolvedTheme } = useTheme();
     const localModelStatus = useAiConfigStore((state) => state.localModelStatus);
     const cloudHealth = useCloudAiHealth();
+    const { unreadAnnouncements } = useEventStream();
+    const notifCount = unreadAnnouncements > 0 ? unreadAnnouncements : undefined;
 
     const currentKey = useMemo(
         () =>
@@ -118,7 +121,7 @@ export function AppShell() {
                         </div>
 
                         <div className="ml-auto flex items-center gap-1">
-                            <Badge count={3} size="small">
+                            <Badge count={notifCount} size="small">
                                 <ShellIconButton>
                                     <BellOutlined style={{ fontSize: 18 }} />
                                 </ShellIconButton>

@@ -13,6 +13,10 @@ vi.mock('@/hooks/useCloudAiHealth', () => ({
     }),
 }));
 
+vi.mock('@/hooks/useEventStream', () => ({
+    useEventStream: () => ({ unreadAnnouncements: 0, lastEvent: null, connected: false }),
+}));
+
 function renderShell(initialEntry: string) {
     return render(
         <ThemeProvider>

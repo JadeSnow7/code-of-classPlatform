@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/middleware"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/models"
+	"github.com/huaodong/llm-teaching-platform/backend/internal/notification"
 	"github.com/huaodong/llm-teaching-platform/backend/internal/services"
 	"github.com/huaodong/llm-teaching-platform/backend/pkg/response"
 	"gorm.io/gorm"
@@ -14,10 +15,16 @@ import (
 
 type announcementHandlers struct {
 	service services.AnnouncementService
+	hub     *notification.Hub
+	db      *gorm.DB
 }
 
 func NewAnnouncementHandlers(service services.AnnouncementService) *announcementHandlers {
 	return &announcementHandlers{service: service}
+}
+
+func NewAnnouncementHandlersWithHub(service services.AnnouncementService, hub *notification.Hub, db *gorm.DB) *announcementHandlers {
+	return &announcementHandlers{service: service, hub: hub, db: db}
 }
 
 func newAnnouncementHandlers(service services.AnnouncementService) *announcementHandlers {
@@ -134,6 +141,27 @@ func (h *announcementHandlers) Create(c *gin.Context) {
 	if err := h.service.Create(c.Request.Context(), &announcement); err != nil {
 		response.Error(c, err)
 		return
+	}
+
+	// Push real-time notification to enrolled students.
+	if h.hub != nil && h.db != nil {
+		go func() {
+			var enrollments []models.CourseEnrollment
+			if err := h.db.Where("course_id = ?", announcement.CourseID).Find(&enrollments).Error; err == nil {
+				userIDs := make([]uint, 0, len(enrollments))
+				for _, e := range enrollments {
+					userIDs = append(userIDs, e.UserID)
+				}
+				h.hub.PublishMany(userIDs, notification.Event{
+					Type: "announcement.new",
+					Payload: map[string]interface{}{
+						"id":        announcement.ID,
+						"title":     announcement.Title,
+						"course_id": announcement.CourseID,
+					},
+				})
+			}
+		}()
 	}
 
 	response.Created(c, announcement)

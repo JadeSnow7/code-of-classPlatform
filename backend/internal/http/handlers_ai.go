@@ -690,6 +690,66 @@ func (h *aiHandlers) RunSession(c *gin.Context) {
 	h.finishAIRun(c, &run, sessionID, user.ID, assistantText.String(), "", "")
 }
 
+func (h *aiHandlers) ListSessions(c *gin.Context) {
+	if h.db == nil {
+		response.BadRequest(c, "ai sessions are not available")
+		return
+	}
+	user, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "user not found in context")
+		return
+	}
+	var sessions []models.AISession
+	if err := h.db.WithContext(c.Request.Context()).
+		Where("user_id = ?", user.ID).
+		Order("created_at DESC").
+		Find(&sessions).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(sessions))
+	for _, s := range sessions {
+		items = append(items, gin.H{
+			"session_id": s.SessionID,
+			"mode":       s.Mode,
+			"created_at": s.CreatedAt,
+		})
+	}
+	response.OK(c, gin.H{"items": items, "total": len(items)})
+}
+
+func (h *aiHandlers) DeleteSession(c *gin.Context) {
+	if h.db == nil {
+		response.BadRequest(c, "ai sessions are not available")
+		return
+	}
+	user, ok := middleware.GetUser(c)
+	if !ok {
+		response.Unauthorized(c, "user not found in context")
+		return
+	}
+	sessionID := strings.TrimSpace(c.Param("sessionId"))
+	var session models.AISession
+	if err := h.db.WithContext(c.Request.Context()).
+		Where("session_id = ? AND user_id = ?", sessionID, user.ID).
+		First(&session).Error; err != nil {
+		response.NotFound(c, "ai session")
+		return
+	}
+	if err := h.db.WithContext(c.Request.Context()).
+		Where("session_id = ? AND user_id = ?", sessionID, user.ID).
+		Delete(&models.AIMessage{}).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	if err := h.db.WithContext(c.Request.Context()).Delete(&session).Error; err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"deleted": true})
+}
+
 func emitAIEvent(c *gin.Context, event string, data interface{}) {
 	body, _ := json.Marshal(data)
 	_, _ = c.Writer.WriteString("event: " + event + "\n")

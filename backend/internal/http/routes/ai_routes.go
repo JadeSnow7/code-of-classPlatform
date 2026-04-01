@@ -16,6 +16,8 @@ type AIHandlers interface {
 	ChatGuided(c *gin.Context)
 	Derive(c *gin.Context)
 	CreateSession(c *gin.Context)
+	ListSessions(c *gin.Context)
+	DeleteSession(c *gin.Context)
 	ListSessionMessages(c *gin.Context)
 	RunSession(c *gin.Context)
 }
@@ -30,6 +32,8 @@ func RegisterAIRoutes(api *gin.RouterGroup, jwtSecret string, aiLimiter *middlew
 	api.POST("/ai/chat/guided", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ChatGuided)
 	api.POST("/ai/derive", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.Derive)
 	api.POST("/ai/sessions", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.CreateSession)
+	api.GET("/ai/sessions", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ListSessions)
+	api.DELETE("/ai/sessions/:sessionId", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.DeleteSession)
 	api.GET("/ai/sessions/:sessionId/messages", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.ListSessionMessages)
 	api.POST("/ai/sessions/:sessionId/runs", middleware.AuthRequired(jwtSecret), middleware.RequirePermission(authz.PermAIUse), middleware.RateLimitByUserOrIP(aiLimiter), h.RunSession)
 }
