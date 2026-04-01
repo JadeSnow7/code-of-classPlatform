@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { aiStreamClient } from '@/lib/ai-stream';
+import { aiApi } from '@/api/ai';
 import type { ChatMessage } from '@/api/ai';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11,6 +12,7 @@ type ChatStatus = 'idle' | 'streaming' | 'error';
 
 interface Conversation {
     id: string;
+    sessionId?: string; // server-side session ID for persistence
     title: string;
     messages: ChatMessage[];
     createdAt: number;
@@ -36,7 +38,7 @@ interface ChatStoreState {
 
     // Conversation management
     newConversation: () => string;
-    selectConversation: (id: string) => void;
+    selectConversation: (id: string) => Promise<void>;
     deleteConversation: (id: string) => void;
     clearHistory: () => void;
 
@@ -110,15 +112,38 @@ export const useChatStore = create<ChatStoreState>()(
                 return id;
             },
 
-            // Select existing conversation
-            selectConversation: (id: string) => {
-                // Abort any ongoing stream when switching
+            // Select existing conversation and sync messages from server if available
+            selectConversation: async (id: string) => {
                 abortController?.abort();
                 set({ currentConversationId: id, status: 'idle', error: null });
+
+                const conv = get().conversations.find(c => c.id === id);
+                if (conv?.sessionId) {
+                    try {
+                        const result = await aiApi.listSessionMessages(conv.sessionId);
+                        const messages: ChatMessage[] = result.items.map(m => ({
+                            role: m.role as ChatMessage['role'],
+                            content: m.content,
+                        }));
+                        if (messages.length > 0) {
+                            set(state => ({
+                                conversations: state.conversations.map(c =>
+                                    c.id === id ? { ...c, messages } : c
+                                ),
+                            }));
+                        }
+                    } catch {
+                        // keep local messages on failure
+                    }
+                }
             },
 
-            // Delete conversation
+            // Delete conversation (and server session if exists)
             deleteConversation: (id: string) => {
+                const conv = get().conversations.find(c => c.id === id);
+                if (conv?.sessionId) {
+                    aiApi.deleteSession(conv.sessionId).catch(() => {/* best-effort */});
+                }
                 set(state => {
                     const filtered = state.conversations.filter(c => c.id !== id);
                     const newCurrentId = state.currentConversationId === id
@@ -191,15 +216,51 @@ export const useChatStore = create<ChatStoreState>()(
                 // Filter empty messages for API call
                 const filteredMessages = updatedMessages.filter(m => m.content.trim() !== '');
 
+                // Lazily create a server-side session on first message
+                let sessionId = conv.sessionId;
+                if (!sessionId) {
+                    try {
+                        const created = await aiApi.createAiSession({ mode: effectiveMode });
+                        sessionId = created.sessionId;
+                        set(state => ({
+                            conversations: state.conversations.map(c =>
+                                c.id === currentConversationId ? { ...c, sessionId } : c
+                            ),
+                        }));
+                    } catch {
+                        // session creation failed; fall back to stateless chat
+                    }
+                }
+
                 try {
-                    await aiStreamClient.streamChat(filteredMessages, {
-                        mode: effectiveMode,
-                        courseId,
-                        signal: abortController.signal,
-                        onMessage: (token: string) => get().appendToken(token),
-                        onFinish: () => get().finishStreaming(),
-                        onError: (error: Error) => get().setError(error.message),
-                    });
+                    if (sessionId) {
+                        const inputMessages = filteredMessages.map(m => ({
+                            id: '',
+                            role: m.role,
+                            content: m.content,
+                        }));
+                        await aiApi.streamRun(sessionId, { input: inputMessages, stream: true }, {
+                            signal: abortController.signal,
+                            onEvent: (event) => {
+                                if (event.event === 'token') {
+                                    get().appendToken(event.data.text);
+                                } else if (event.event === 'done') {
+                                    get().finishStreaming();
+                                } else if (event.event === 'error') {
+                                    get().setError(event.data.message);
+                                }
+                            },
+                        });
+                    } else {
+                        await aiStreamClient.streamChat(filteredMessages, {
+                            mode: effectiveMode,
+                            courseId,
+                            signal: abortController.signal,
+                            onMessage: (token: string) => get().appendToken(token),
+                            onFinish: () => get().finishStreaming(),
+                            onError: (error: Error) => get().setError(error.message),
+                        });
+                    }
                 } catch (err: unknown) {
                     const error = err instanceof Error ? err : new Error('Stream failed');
                     if (error.name !== 'AbortError') {

@@ -129,15 +129,37 @@ export default function WritingDetailScreen({ route, session }: Props) {
                         </View>
 
                         <View style={styles.blockColumn}>
-                            {feedback.dimensions?.map((dimension) => (
-                                <View key={dimension.name} style={styles.dimensionItem}>
-                                    <View style={styles.dimensionHeader}>
-                                        <Text style={styles.dimensionName}>{dimension.name}</Text>
-                                        <Text style={styles.dimensionScore}>{dimension.score}</Text>
+                            {feedback.dimensions?.map((dimension) => {
+                                const pct = Math.min(100, Math.max(0, (dimension.score / 10) * 100));
+                                const barColor =
+                                    pct >= 80
+                                        ? palette.success
+                                        : pct >= 60
+                                          ? palette.primary
+                                          : pct >= 40
+                                            ? palette.warning
+                                            : palette.danger;
+                                return (
+                                    <View key={dimension.name} style={styles.dimensionItem}>
+                                        <View style={styles.dimensionHeader}>
+                                            <Text style={styles.dimensionName}>{dimension.name}</Text>
+                                            <Text style={[styles.dimensionScore, { color: barColor }]}>
+                                                {dimension.score}
+                                                <Text style={styles.dimensionScoreSuffix}>/10</Text>
+                                            </Text>
+                                        </View>
+                                        <View style={styles.progressTrack}>
+                                            <View
+                                                style={[
+                                                    styles.progressFill,
+                                                    { width: `${pct}%` as `${number}%`, backgroundColor: barColor },
+                                                ]}
+                                            />
+                                        </View>
+                                        <Text style={styles.dimensionComment}>{dimension.comment}</Text>
                                     </View>
-                                    <Text style={styles.dimensionComment}>{dimension.comment}</Text>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </View>
 
                         <View style={styles.feedbackBlock}>
@@ -293,9 +315,23 @@ const styles = StyleSheet.create({
         fontWeight: '700',
     },
     dimensionScore: {
-        color: palette.accentViolet,
         fontSize: 14,
         fontWeight: '700',
+    },
+    dimensionScoreSuffix: {
+        fontSize: 11,
+        fontWeight: '400',
+        color: palette.textMuted,
+    },
+    progressTrack: {
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: palette.border,
+        overflow: 'hidden',
+    },
+    progressFill: {
+        height: 4,
+        borderRadius: 2,
     },
     dimensionComment: {
         color: palette.textSecondary,

@@ -32,6 +32,7 @@ export type AiStreamEvent =
 export interface AiSession {
     sessionId: string;
     mode?: string;
+    createdAt?: string;
 }
 
 export interface AiMessage {
@@ -65,6 +66,14 @@ export const aiApi = {
             signal: options.signal,
             onEvent: options.onEvent,
         });
+    },
+
+    async listSessions() {
+        return apiClient.get<{ items: AiSession[]; total: number }>('/ai/sessions');
+    },
+
+    async deleteSession(sessionId: string) {
+        return apiClient.delete<{ deleted: boolean }>(`/ai/sessions/${sessionId}`);
     },
 
     streamChat: api.ai.streamChat,
