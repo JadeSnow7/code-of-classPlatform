@@ -13,6 +13,7 @@ type RouterDeps struct {
 	LearningHubHandlers     routes.LearningHubHandlers
 	AIConfigHandlers        routes.AIConfigHandlers
 	WecomHandlers           routes.WecomHandlers
+	FeishuHandlers          routes.FeishuHandlers
 	CourseHandlers          routes.CourseHandlers
 	ChapterHandlers         routes.ChapterHandlers
 	AssignmentHandlers      routes.AssignmentHandlers

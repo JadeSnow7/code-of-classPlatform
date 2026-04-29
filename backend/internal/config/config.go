@@ -33,6 +33,11 @@ type Config struct {
 	WecomAgentID string
 	WecomSecret  string
 
+	// Feishu configuration
+	FeishuAppID      string
+	FeishuAppSecret  string
+	FeishuBotWebhook string
+
 	// MinIO configuration
 	MinioEndpoint        string
 	MinioAccessKey       string
@@ -77,6 +82,11 @@ func Load() Config {
 	wecomAgentID := getenv("WECOM_AGENTID", "")
 	wecomSecret := getenv("WECOM_SECRET", "")
 
+	// Feishu config (optional)
+	feishuAppID := getenv("FEISHU_APP_ID", "")
+	feishuAppSecret := getenv("FEISHU_APP_SECRET", "")
+	feishuBotWebhook := getenv("FEISHU_BOT_WEBHOOK", "")
+
 	// MinIO config
 	minioUseSSL := getenv("MINIO_USE_SSL", "false") == "true"
 	allowDemoSeed := strings.EqualFold(strings.TrimSpace(getenv("ALLOW_DEMO_SEED", "false")), "true")
@@ -101,6 +111,9 @@ func Load() Config {
 		WecomCorpID:           wecomCorpID,
 		WecomAgentID:          wecomAgentID,
 		WecomSecret:           wecomSecret,
+		FeishuAppID:           feishuAppID,
+		FeishuAppSecret:       feishuAppSecret,
+		FeishuBotWebhook:      feishuBotWebhook,
 		MinioEndpoint:         getenv("MINIO_ENDPOINT", "localhost:9000"),
 		MinioAccessKey:        getenv("MINIO_ACCESS_KEY", "minioadmin"),
 		MinioSecretKey:        getenv("MINIO_SECRET_KEY", "minioadmin123"),

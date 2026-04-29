@@ -16,6 +16,7 @@ type User struct {
 	Status       string     `gorm:"size:32;not null;default:'active';index" json:"status"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 	WecomUserID  string     `gorm:"size:64;index" json:"wecom_user_id,omitempty"`
+	FeishuOpenID string     `gorm:"size:64;index" json:"feishu_open_id,omitempty"`
 }
 
 // CourseEnrollment represents a student's enrollment in a course

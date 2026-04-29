@@ -286,7 +286,7 @@ func (s *authService) LogoutAll(ctx context.Context, userID uint) error {
 
 func normalizeClientType(clientType string) string {
 	switch clientType {
-	case "mobile", "web", "wecom":
+	case "mobile", "web", "wecom", "feishu":
 		return clientType
 	default:
 		return "web"

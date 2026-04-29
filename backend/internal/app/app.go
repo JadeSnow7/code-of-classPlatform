@@ -105,6 +105,11 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		AgentID: cfg.WecomAgentID,
 		Secret:  cfg.WecomSecret,
 	})
+	feishuClient := clients.NewFeishuClient(clients.FeishuConfig{
+		AppID:      cfg.FeishuAppID,
+		AppSecret:  cfg.FeishuAppSecret,
+		BotWebhook: cfg.FeishuBotWebhook,
+	})
 
 	notifHub := notification.New()
 
@@ -114,6 +119,7 @@ func New(cfg config.Config, db *gorm.DB, aiClient *clients.AIClient, minioClient
 		LearningHubHandlers:     httpapi.NewLearningHubHandlers(db, app.MinIOClient),
 		AIConfigHandlers:        httpapi.NewAIConfigHandlers(app.AIConfigService),
 		WecomHandlers:           httpapi.NewWecomHandlers(wecomClient, db, app.AuthService),
+		FeishuHandlers:          httpapi.NewFeishuHandlers(feishuClient, db, app.AuthService),
 		CourseHandlers:          courseHandlers,
 		ChapterHandlers:         chapterHandlers,
 		AssignmentHandlers:      assignmentHandlers,

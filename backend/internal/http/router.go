@@ -41,6 +41,7 @@ func NewRouter(cfg config.Config, deps RouterDeps) *gin.Engine {
 	routes.RegisterLearningHubRoutes(api, cfg.JWTSecret, deps.LearningHubHandlers)
 	routes.RegisterAIConfigRoutes(api, cfg.JWTSecret, deps.AIConfigHandlers)
 	routes.RegisterWecomRoutes(api, deps.WecomHandlers)
+	routes.RegisterFeishuRoutes(api, cfg.JWTSecret, deps.FeishuHandlers)
 	routes.RegisterCourseRoutes(api, cfg.JWTSecret, deps.CourseHandlers)
 	routes.RegisterChapterRoutes(api, cfg.JWTSecret, deps.ChapterHandlers)
 	routes.RegisterAssignmentRoutes(api, cfg.JWTSecret, deps.AssignmentHandlers)
